@@ -180,7 +180,8 @@ adapter），確認只需實作 adapter 介面即可接入系統，
 - **FR-005**: 系統 MUST 實作路由分派器（dispatcher），路由鍵
   採複合格式 `(platform, conversation_id)`，依序以
   conversation_id 精確比對 → 關鍵字比對 → per-route fallback agent 進行路由；
-  fallback agent 為每條路由規則的可選設定（預設為空），
+  當 conversation_id 精確比對未命中時，嘗試 `(platform, None)` 規則作為
+  私聊 fallback；fallback agent 為每條路由規則的可選設定（預設為空），
   未設定 fallback 時靜默忽略未命中訊息
 - **FR-005a**: 路由表 MUST 支援熱重載（hot reload）——修改設定檔後
   自動生效，不需重啟服務；原因：bot 加入新群組時 conversation_id
@@ -199,19 +200,25 @@ adapter），確認只需實作 adapter 介面即可接入系統，
 - **FR-010**: 系統 MUST 對未匹配路由的訊息靜默忽略（不回應、
   不消耗 AI token）
 - **FR-011**: 系統 MUST 在 agent 或外部服務錯誤時，回傳
-  使用者友善的錯誤訊息至來源頻道
-- **FR-014**: 系統 MUST 將完整 request/response 記錄至 stdout，
-  包含：webhook 收到的完整訊息內容、路由決策結果（命中規則 /
-  fallback / 忽略）、agent 回應內容、錯誤 stack trace；
-  每筆 log 附 `conversation_id` 與 timestamp。
-  本服務為本地自架，訊息無隱私疑慮
+  使用者友善的錯誤訊息至來源頻道。標準錯誤模板：
+  Agent/SDK 錯誤：「抱歉，處理時發生錯誤，請稍後再試。」；
+  外部服務不可用：「抱歉，目前無法連線至服務，請稍後再試。」；
+  未預期錯誤：「系統發生異常，請稍後再試。」。
+  錯誤訊息不得洩漏內部實作細節（如 stack trace、API endpoint）
 - **FR-012**: 系統 MUST 於 agent 開始處理時啟動逾時計時器
   （預設 20 秒，可透過設定調整）；計時器觸發時 MUST 立即
   以當前 reply token 回覆「處理中」通知，並將 agent 結果
   暫存至 Pending Message Queue；下一則來自同群組或使用者的
   訊息到來時，MUST 優先補送暫存結果再處理新訊息
 - **FR-013**: 系統 MUST 提供 Push API 模式作為可設定的切換
-  選項（預設關閉），供未來按需啟用，不影響預設 Reply 流程
+  選項（環境變數 `PUSH_API_ENABLED`，預設 `false`），供未來
+  按需啟用，不影響預設 Reply 流程。MVP 階段此選項為 no-op，
+  僅需存在設定項
+- **FR-014**: 系統 MUST 將完整 request/response 記錄至 stdout，
+  包含：webhook 收到的完整訊息內容、路由決策結果（命中規則 /
+  fallback / 忽略）、agent 回應內容、錯誤 stack trace；
+  每筆 log 附 `conversation_id` 與 timestamp。
+  本服務為本地自架，訊息無隱私疑慮
 
 ### Key Entities
 

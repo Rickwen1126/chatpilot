@@ -122,8 +122,8 @@ through shared code or tight coupling.
   `Response` types MUST be reviewed for backward compatibility
   across all three layers before merge.
 - **Adapter isolation** — Channel adapter PRs MUST NOT touch
-  files outside `src/channels/`. Agent PRs MUST NOT touch
-  files outside `src/agents/` and `src/services/`.
+  files outside `src/chatpilot/channels/`. Agent PRs MUST NOT touch
+  files outside `src/chatpilot/agents/` and `src/chatpilot/services/`.
 - **Route map changes** — Adding or removing dispatcher routes
   MUST be documented in the PR description with rationale.
 - **Testing** — Each layer MUST be testable in isolation:
