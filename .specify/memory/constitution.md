@@ -1,20 +1,15 @@
 <!--
 Sync Impact Report
 ===================
-- Version change: 1.0.0 → 1.1.0 (MINOR — new principle added)
-- Modified principles: none
-- Added principles:
-  - VI. Documentation Language (繁體中文)
-- Added sections: none
-- Removed sections: none
+- Version change: 1.1.0 → 1.2.0 (MINOR — section materially changed)
+- Modified sections:
+  - Technology Constraints: removed hardcoded Python/FastAPI stack;
+    now language-agnostic with only architectural constraints retained.
+    Language/framework decisions deferred to plan.md per-feature.
 - Templates requiring updates:
   - .specify/templates/plan-template.md — ✅ no update needed
-    (Constitution Check section already references constitution file;
-     language rule enforced at authoring time, not in template)
   - .specify/templates/spec-template.md — ✅ no update needed
-    (template is structural; language rule enforced at authoring time)
   - .specify/templates/tasks-template.md — ✅ no update needed
-    (template is structural; language rule enforced at authoring time)
   - .specify/templates/checklist-template.md — ✅ no update needed
 - Follow-up TODOs: none
 -->
@@ -107,17 +102,19 @@ through shared code or tight coupling.
 
 | Constraint | Value |
 |---|---|
-| Runtime | Python 3.12+ |
-| Agent SDK | GitHub Copilot SDK (`github-copilot-sdk`) |
+| Agent SDK | GitHub Copilot SDK (supports Python, Go, TypeScript, .NET) |
 | Model | GPT-4.1 via GitHub Copilot free tier |
-| Web framework | FastAPI (webhook endpoints) |
 | Deployment | Self-hosted with cloudflared tunnel |
-| Config | `.env` for secrets; Python modules for route maps |
+| Config | `.env` for secrets; config files for route maps |
 
+- Language, runtime, and web framework are **plan-time decisions**,
+  chosen per-feature in `plan.md`. The constitution does not
+  mandate a specific programming language.
 - All new dependencies MUST be justified against the existing
   stack. Prefer stdlib + existing deps over new packages.
-- Async-first: FastAPI endpoints and HTTP clients MUST use
-  `async`/`await`. Blocking I/O in the event loop is forbidden.
+- Webhook endpoints MUST handle concurrent requests without
+  blocking. The concurrency model (async/await, goroutines,
+  event loop, etc.) follows the chosen language's idiom.
 
 ## Development Workflow
 
@@ -161,4 +158,4 @@ amended first.
 in this constitution. The plan template's "Constitution Check"
 gate references this document.
 
-**Version**: 1.1.0 | **Ratified**: 2026-02-22 | **Last Amended**: 2026-02-22
+**Version**: 1.2.0 | **Ratified**: 2026-02-22 | **Last Amended**: 2026-03-03
