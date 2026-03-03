@@ -27,6 +27,7 @@ def mock_app():
     adapter_registry: AdapterRegistry = {"mock": mock_adapter}
     app.state.adapter_registry = adapter_registry
     app.state.reply_timeout_ms = 20000
+    app.state.routes_path = ""
 
     # Minimal route map for mock platform
     app.state.route_map = RouteMap(
@@ -46,7 +47,7 @@ def mock_app():
         def name(self) -> str:
             return "test-agent"
 
-        async def handle(self, message: Message, session_id: str) -> Response:
+        async def handle(self, message: Message, session_id: str, model: str | None = None) -> Response:
             return Response(text=f"echo: {message.text}")
 
     # Clear and register

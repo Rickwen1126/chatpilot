@@ -13,10 +13,14 @@ class SessionManager:
 
     Provides session_id generation and wraps the event-based SDK
     into a simpler send_and_wait interface.
+
+    Uses create_session for first contact and resume_session for
+    returning conversations (preserves history, allows model change).
     """
 
     def __init__(self) -> None:
         self._client = None
+        self._known_sessions: set[str] = set()
 
     @staticmethod
     def get_session_id(platform: str, conversation_id: str | None, user_id: str) -> str:
@@ -41,16 +45,40 @@ class SessionManager:
             except Exception:
                 pass
             self._client = None
+            self._known_sessions.clear()
             logger.info("Copilot SDK client stopped")
 
-    async def resume_session(self, session_id: str):
+    async def get_or_create_session(self, session_id: str, model: str | None = None):
+        """Get existing session or create a new one.
+
+        First call for a session_id → create_session.
+        Subsequent calls → resume_session (preserves history, allows model change).
+        """
         if self._client is None:
             raise RuntimeError("SessionManager not started. Call start() first.")
-        return await self._client.create_session(
-            {
+        from copilot import PermissionHandler
+
+        if session_id in self._known_sessions:
+            config = {
                 "session_id": session_id,
+                "on_permission_request": PermissionHandler.approve_all,
             }
-        )
+            if model:
+                config["model"] = model
+            session = await self._client.resume_session(session_id, config)
+            logger.debug("Resumed session %s (model=%s)", session_id, model)
+            return session
+
+        config = {
+            "session_id": session_id,
+            "on_permission_request": PermissionHandler.approve_all,
+        }
+        if model:
+            config["model"] = model
+        session = await self._client.create_session(config)
+        self._known_sessions.add(session_id)
+        logger.debug("Created session %s (model=%s)", session_id, model)
+        return session
 
     async def send_and_wait(self, session, prompt: str, timeout: float = 60.0) -> str:
         done = asyncio.Event()

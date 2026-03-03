@@ -12,7 +12,9 @@ class WarehouseAgent:
     def name(self) -> str:
         return "warehouse-agent"
 
-    async def handle(self, message: Message, session_id: str) -> Response:
+    async def handle(
+        self, message: Message, session_id: str, model: str | None = None
+    ) -> Response:
         return Response(text=f"[warehouse-agent] 收到: {message.text}")
 
 

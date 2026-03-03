@@ -12,7 +12,9 @@ class BaseAgent(Protocol):
     @property
     def name(self) -> str: ...
 
-    async def handle(self, message: Message, session_id: str) -> Response: ...
+    async def handle(
+        self, message: Message, session_id: str, model: str | None = None
+    ) -> Response: ...
 
 
 AgentRegistry = dict[str, BaseAgent]

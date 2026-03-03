@@ -26,6 +26,16 @@ def load_routes(path: str) -> RouteMap:
     return RouteMap.model_validate(data)
 
 
+def save_routes(path: str, route_map: RouteMap) -> None:
+    """Write route map back to a YAML file."""
+    data = route_map.model_dump(by_alias=True, exclude_none=True)
+    output = yaml.dump(
+        data, default_flow_style=False, allow_unicode=True, sort_keys=False
+    )
+    Path(path).write_text(output, encoding="utf-8")
+    logger.info("Routes saved to %s", path)
+
+
 class RouteWatcher:
     """Watches routes.yaml for changes and reloads on modification."""
 

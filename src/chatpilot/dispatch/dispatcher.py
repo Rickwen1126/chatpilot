@@ -36,13 +36,19 @@ def dispatch(
         if kw.keyword in message.text:
             agent = agents.get(kw.agent_name)
             if agent is not None:
-                return KeywordMatch(agent_name=kw.agent_name, keyword=kw.keyword), agent
+                return KeywordMatch(
+                    agent_name=kw.agent_name,
+                    keyword=kw.keyword,
+                    model=rule.model,
+                ), agent
 
     # Fallback agent
     if rule.fallback_agent:
         agent = agents.get(rule.fallback_agent)
         if agent is not None:
-            return FallbackMatch(agent_name=rule.fallback_agent), agent
+            return FallbackMatch(
+                agent_name=rule.fallback_agent, model=rule.model
+            ), agent
 
     return Ignored(reason="no_fallback"), None
 

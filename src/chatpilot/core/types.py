@@ -72,6 +72,7 @@ class RouteRule(BaseModel):
     conversation_id: str | None = Field(default=None, alias="conversationId")
     keywords: list[KeywordMapping] = Field(default_factory=list)
     fallback_agent: str | None = Field(default=None, alias="fallbackAgent")
+    model: str | None = None
 
     model_config = {"populate_by_name": True}
 
@@ -91,11 +92,13 @@ class KeywordMatch(BaseModel):
     kind: Literal["keyword"] = "keyword"
     agent_name: str
     keyword: str
+    model: str | None = None
 
 
 class FallbackMatch(BaseModel):
     kind: Literal["fallback"] = "fallback"
     agent_name: str
+    model: str | None = None
 
 
 class Ignored(BaseModel):

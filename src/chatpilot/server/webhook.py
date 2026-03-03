@@ -11,6 +11,7 @@ from fastapi import APIRouter, Request, Response
 
 from chatpilot.agents import agent_registry
 from chatpilot.channels.adapter import AdapterRegistry
+from chatpilot.commands.model_command import handle_model_command
 from chatpilot.core.errors import AgentError
 from chatpilot.core.types import (
     FallbackMatch,
@@ -19,7 +20,7 @@ from chatpilot.core.types import (
     Message,
     RouteMap,
 )
-from chatpilot.dispatch.dispatcher import dispatch
+from chatpilot.dispatch.dispatcher import _find_rule, dispatch
 from chatpilot.queue.pending_queue import pending_queue
 from chatpilot.sdk.session_manager import SessionManager
 
@@ -42,6 +43,7 @@ async def webhook_handler(platform: str, request: Request) -> Response:
     adapter_registry: AdapterRegistry = app.state.adapter_registry
     route_map: RouteMap = app.state.route_map
     reply_timeout_ms: int = app.state.reply_timeout_ms
+    routes_path: str = getattr(app.state, "routes_path", "")
 
     # 1. Look up adapter
     adapter = adapter_registry.get(platform)
@@ -64,7 +66,7 @@ async def webhook_handler(platform: str, request: Request) -> Response:
 
     # 5. Process each message
     for msg in messages:
-        await _process_message(msg, adapter, route_map, reply_timeout_ms)
+        await _process_message(msg, adapter, route_map, reply_timeout_ms, routes_path)
 
     return Response(status_code=200, content="OK")
 
@@ -74,6 +76,7 @@ async def _process_message(
     adapter,
     route_map: RouteMap,
     reply_timeout_ms: int,
+    routes_path: str = "",
 ) -> None:
     """Process a single message: dequeue pending, dispatch, handle, respond."""
     session_id = SessionManager.get_session_id(
@@ -81,6 +84,16 @@ async def _process_message(
     )
 
     _log(msg.conversation_id, "RECV", f'platform={msg.platform} text="{msg.text}"')
+
+    # Intercept /model command
+    if msg.text.strip().lower().startswith("/model"):
+        route_rule = _find_rule(msg, route_map)
+        reply_text = handle_model_command(msg.text, route_rule, route_map, routes_path)
+        from chatpilot.core.types import Response as Resp
+
+        _log(msg.conversation_id, "CMD", f'/model → "{reply_text[:80]}"')
+        await adapter.send_response(msg, Resp(text=reply_text))
+        return
 
     # Dequeue and send any pending messages first
     pending = pending_queue.dequeue(session_id)
@@ -116,17 +129,20 @@ async def _process_message(
     if agent is None:
         return
 
+    # Extract model from dispatch result
+    model = result.model if isinstance(result, (KeywordMatch, FallbackMatch)) else None
+
     # Handle with timeout
     timeout_s = reply_timeout_ms / 1000.0
     try:
         response = await asyncio.wait_for(
-            agent.handle(msg, session_id),
+            agent.handle(msg, session_id, model=model),
             timeout=timeout_s,
         )
         _log(
             msg.conversation_id,
             "AGENT",
-            f'agent={agent.name} text="{response.text[:100]}"',
+            f'agent={agent.name} model={model} text="{response.text[:100]}"',
         )
         await adapter.send_response(msg, response)
     except asyncio.TimeoutError:
@@ -137,7 +153,7 @@ async def _process_message(
         )
         await adapter.send_processing_ack(msg)
         # Continue agent processing in background and enqueue result
-        asyncio.create_task(_background_handle(msg, agent, session_id))
+        asyncio.create_task(_background_handle(msg, agent, session_id, model=model))
     except AgentError as e:
         _log(msg.conversation_id, "ERROR", f"agent={agent.name} error={e}")
         from chatpilot.core.types import Response as Resp
@@ -153,10 +169,12 @@ async def _process_message(
         await adapter.send_response(msg, Resp(text="系統發生異常，請稍後再試。"))
 
 
-async def _background_handle(msg: Message, agent, session_id: str) -> None:
+async def _background_handle(
+    msg: Message, agent, session_id: str, model: str | None = None
+) -> None:
     """Handle agent response in background after timeout, enqueue result."""
     try:
-        response = await agent.handle(msg, session_id)
+        response = await agent.handle(msg, session_id, model=model)
         pending_queue.enqueue(session_id, response.text)
         _log(
             msg.conversation_id,

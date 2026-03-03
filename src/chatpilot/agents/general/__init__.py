@@ -18,9 +18,13 @@ class GeneralAgent:
     def name(self) -> str:
         return "general-agent"
 
-    async def handle(self, message: Message, session_id: str) -> Response:
+    async def handle(
+        self, message: Message, session_id: str, model: str | None = None
+    ) -> Response:
         try:
-            session = await session_manager.resume_session(session_id)
+            session = await session_manager.get_or_create_session(
+                session_id, model=model
+            )
             result = await session_manager.send_and_wait(session, message.text)
             return Response(text=result)
         except Exception as e:

@@ -77,6 +77,9 @@ async def lifespan(app: FastAPI):
         )
         app.state.route_map = RouteMap(routes=[])
 
+    # Store routes_path for /model command write-back
+    app.state.routes_path = routes_path
+
     # Timeout config
     app.state.reply_timeout_ms = int(os.environ.get("REPLY_TIMEOUT_MS", "20000"))
 
