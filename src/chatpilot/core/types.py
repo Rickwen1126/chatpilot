@@ -107,3 +107,34 @@ class Ignored(BaseModel):
 
 
 DispatchResult = KeywordMatch | FallbackMatch | Ignored
+
+
+# ── New conversation-centric routing types (Task 1) ─────────────────
+
+
+class ConversationRoute(BaseModel):
+    """Per-conversation routing config."""
+
+    agent: str
+    model: str | None = None
+    workdir: str | None = None
+
+
+class PlatformConfig(BaseModel):
+    """Per-platform config with default agent and conversation routes."""
+
+    default_agent: str = Field(alias="defaultAgent")
+    conversation_routes: dict[str, ConversationRoute] = Field(
+        default_factory=dict, alias="conversationRoutes"
+    )
+
+    model_config = {"populate_by_name": True}
+
+
+class RouteConfig(BaseModel):
+    """Top-level route configuration."""
+
+    agent_list: list[str] = Field(alias="agentList")
+    platforms: dict[str, PlatformConfig]
+
+    model_config = {"populate_by_name": True}
