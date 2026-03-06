@@ -83,18 +83,30 @@ class SessionManager:
     async def send_and_wait(self, session, prompt: str, timeout: float = 60.0) -> str:
         done = asyncio.Event()
         result_text = ""
+        sid = getattr(session, "session_id", "?")
 
         def on_event(event):
             nonlocal result_text
             if hasattr(event, "type") and hasattr(event.type, "value"):
-                if event.type.value == "assistant.message":
+                etype = event.type.value
+                logger.info("[SDK] %s event=%s", sid, etype)
+                if etype == "assistant.message":
                     result_text = event.data.content
-                elif event.type.value == "session.idle":
+                    logger.info(
+                        "[SDK] %s assistant msg %d chars: %r",
+                        sid,
+                        len(result_text),
+                        result_text[:80],
+                    )
+                elif etype == "session.idle":
                     done.set()
 
         session.on(on_event)
+        logger.info("[SDK] %s sending prompt (%d chars)", sid, len(prompt))
         await session.send({"prompt": prompt})
+        logger.info("[SDK] %s waiting for idle (timeout=%ss)", sid, timeout)
         await asyncio.wait_for(done.wait(), timeout=timeout)
+        logger.info("[SDK] %s done, result=%d chars", sid, len(result_text))
         return result_text
 
 
