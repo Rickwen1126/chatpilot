@@ -1,62 +1,71 @@
-"""Unit tests for route loader — YAML parse and hot-reload."""
+"""Unit tests for route loader — new RouteConfig schema."""
 
 import os
 import tempfile
 
-from chatpilot.dispatch.route_loader import load_routes
+from chatpilot.dispatch.route_loader import load_route_config, save_route_config
 
 
-def test_load_routes_valid_yaml():
-    """Valid YAML should parse into RouteMap."""
+def test_load_route_config_valid():
     yaml_content = """
-routes:
-  - platform: line
-    conversationId: "C123"
-    keywords:
-      - keyword: "test"
-        agentName: general-agent
-    fallbackAgent: general-agent
+agentList:
+  - general-agent
+  - warehouse-agent
+platforms:
+  line:
+    defaultAgent: general-agent
+    conversationRoutes:
+      "null":
+        agent: general-agent
+        model: claude-haiku-4.5
+        workdir: ~/code/chatpilot/
 """
     with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
         f.write(yaml_content)
         f.flush()
-        route_map = load_routes(f.name)
+        config = load_route_config(f.name)
     os.unlink(f.name)
 
-    assert len(route_map.routes) == 1
-    assert route_map.routes[0].platform == "line"
-    assert route_map.routes[0].conversation_id == "C123"
-    assert route_map.routes[0].fallback_agent == "general-agent"
-    assert len(route_map.routes[0].keywords) == 1
-    assert route_map.routes[0].keywords[0].keyword == "test"
-    assert route_map.routes[0].keywords[0].agent_name == "general-agent"
+    assert config.agent_list == ["general-agent", "warehouse-agent"]
+    assert config.platforms["line"].default_agent == "general-agent"
+    null_route = config.platforms["line"].conversation_routes["null"]
+    assert null_route.agent == "general-agent"
+    assert null_route.model == "claude-haiku-4.5"
 
 
-def test_load_routes_empty_yaml():
-    """Empty YAML should return empty RouteMap."""
+def test_load_route_config_empty():
     with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
         f.write("")
         f.flush()
-        route_map = load_routes(f.name)
+        config = load_route_config(f.name)
     os.unlink(f.name)
 
-    assert len(route_map.routes) == 0
+    assert config.agent_list == []
+    assert config.platforms == {}
 
 
-def test_load_routes_null_conversation_id():
-    """Null conversationId should parse as None (private chat rule)."""
+def test_save_and_reload():
     yaml_content = """
-routes:
-  - platform: line
-    conversationId: null
-    keywords: []
-    fallbackAgent: general-agent
+agentList:
+  - general-agent
+platforms:
+  mock:
+    defaultAgent: general-agent
+    conversationRoutes:
+      "null":
+        agent: general-agent
+        model: gpt-4.1
 """
     with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
         f.write(yaml_content)
         f.flush()
-        route_map = load_routes(f.name)
-    os.unlink(f.name)
+        path = f.name
 
-    assert route_map.routes[0].conversation_id is None
-    assert route_map.routes[0].fallback_agent == "general-agent"
+    config = load_route_config(path)
+    config.platforms["mock"].conversation_routes["null"].model = "claude-haiku-4.5"
+    save_route_config(path, config)
+
+    reloaded = load_route_config(path)
+    assert reloaded.platforms["mock"].conversation_routes["null"].model == "claude-haiku-4.5"
+
+    os.unlink(path)

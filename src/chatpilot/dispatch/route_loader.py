@@ -12,7 +12,7 @@ import yaml
 from watchdog.events import FileModifiedEvent, FileSystemEventHandler
 from watchdog.observers import Observer
 
-from chatpilot.core.types import RouteMap
+from chatpilot.core.types import RouteConfig, RouteMap
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +34,25 @@ def save_routes(path: str, route_map: RouteMap) -> None:
     )
     Path(path).write_text(output, encoding="utf-8")
     logger.info("Routes saved to %s", path)
+
+
+def load_route_config(path: str) -> RouteConfig:
+    """Load and validate routes from YAML using new RouteConfig schema."""
+    raw = Path(path).read_text(encoding="utf-8")
+    data = yaml.safe_load(raw)
+    if data is None:
+        return RouteConfig(agent_list=[], platforms={})
+    return RouteConfig.model_validate(data)
+
+
+def save_route_config(path: str, config: RouteConfig) -> None:
+    """Write RouteConfig back to YAML file."""
+    data = config.model_dump(by_alias=True, exclude_none=True)
+    output = yaml.dump(
+        data, default_flow_style=False, allow_unicode=True, sort_keys=False
+    )
+    Path(path).write_text(output, encoding="utf-8")
+    logger.info("RouteConfig saved to %s", path)
 
 
 class RouteWatcher:
