@@ -16,19 +16,16 @@ from chatpilot.channels.adapter import AdapterRegistry
 from chatpilot.channels.line import line_adapter
 from chatpilot.channels.mock import mock_adapter
 from chatpilot.core.errors import RouteError
-from chatpilot.dispatch.route_loader import RouteWatcher, load_routes
+from chatpilot.dispatch.route_loader import load_route_config
 from chatpilot.sdk.session_manager import session_manager
 from chatpilot.server.webhook import router
 
 logger = logging.getLogger(__name__)
 
-_route_watcher: RouteWatcher | None = None
-
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup and shutdown lifecycle."""
-    global _route_watcher
 
     # Load .env
     load_dotenv()
@@ -56,59 +53,46 @@ async def lifespan(app: FastAPI):
     # Load routes
     routes_path = os.environ.get("ROUTES_PATH", "config/routes.yaml")
     try:
-        route_map = load_routes(routes_path)
-        app.state.route_map = route_map
+        route_config = load_route_config(routes_path)
+        app.state.route_config = route_config
         logger.info(
-            "Route map loaded: %d route(s) from %s", len(route_map.routes), routes_path
+            "Route config loaded: %d platform(s) from %s",
+            len(route_config.platforms),
+            routes_path,
         )
 
-        # Validate agent names in routes
-        for rule in route_map.routes:
-            for kw in rule.keywords:
-                if kw.agent_name not in agent_registry:
-                    raise RouteError(f"unknown agent in routes: {kw.agent_name}")
-            if rule.fallback_agent and rule.fallback_agent not in agent_registry:
-                raise RouteError(f"unknown agent in routes: {rule.fallback_agent}")
+        # Validate agent names in agentList
+        for name in route_config.agent_list:
+            if name not in agent_registry:
+                raise RouteError(f"unknown agent in agentList: {name}")
     except FileNotFoundError:
-        from chatpilot.core.types import RouteMap
+        from chatpilot.core.types import RouteConfig
 
         logger.warning(
-            "Routes file not found: %s — starting with empty routes", routes_path
+            "Routes file not found: %s — starting with empty config", routes_path
         )
-        app.state.route_map = RouteMap(routes=[])
-
-    # Store routes_path for /model command write-back
-    app.state.routes_path = routes_path
+        route_config = RouteConfig(agent_list=[], platforms={})
+        app.state.route_config = route_config
 
     # Timeout config
-    app.state.reply_timeout_ms = int(os.environ.get("REPLY_TIMEOUT_MS", "20000"))
+    timeout_s = int(os.environ.get("REPLY_TIMEOUT_MS", "20000")) / 1000.0
 
-    # Push API flag (no-op for MVP)
-    app.state.push_api_enabled = (
-        os.environ.get("PUSH_API_ENABLED", "false").lower() == "true"
+    # Create and store the processor (lazy import to avoid circular dependency)
+    from chatpilot.processing.processor import MessageProcessor
+
+    processor = MessageProcessor(route_config, routes_path, agent_registry, timeout_s)
+    app.state.processor = processor
+
+    # RouteWatcher disabled until Task 7 migrates it to new schema
+    logger.info(
+        "RouteWatcher disabled (pending migration to RouteConfig schema)"
     )
-
-    # Start route watcher
-    def on_route_change(new_map):
-        app.state.route_map = new_map
-
-    try:
-        _route_watcher = RouteWatcher(
-            routes_path,
-            on_change=on_route_change,
-            agent_registry=agent_registry,
-        )
-        _route_watcher.start()
-    except Exception as e:
-        logger.warning("Could not start RouteWatcher: %s", e)
 
     logger.info("Server started. Webhook endpoint: POST /webhook/{platform}")
 
     yield
 
     # Shutdown
-    if _route_watcher is not None:
-        _route_watcher.stop()
     await session_manager.stop()
     logger.info("[SHUTDOWN] server stopped")
 

@@ -1,33 +1,37 @@
-# Route Map Configuration
-# Each route maps a (platform, conversationId) pair to keyword-based agent routing.
+# Route Configuration
+# Defines which agent handles each platform + conversation pair.
 #
-# Fields:
-#   platform       - Platform identifier (e.g., "line")
-#   conversationId - Group/room ID; null for private chat rules
-#   keywords       - List of {keyword, agentName} for substring matching (checked in order)
-#   fallbackAgent  - Agent to use when no keyword matches; null = silently ignore
+# Top-level fields:
+#   agentList          - All known agent names (validated at startup)
+#   platforms          - Per-platform routing config
+#
+# Per-platform:
+#   defaultAgent       - Agent used when no conversation route matches
+#   conversationRoutes - Map of conversationId -> {agent, model, workdir}
+#                        Use "null" for private chat / default route
 #
 # Hot reload: Changes to this file are automatically picked up without server restart.
 
-routes:
-  # Group A: keyword routing + fallback
-  - platform: line
-    conversationId: "C1234567890abcdef"
-    keywords:
-      - keyword: "庫存"
-        agentName: warehouse-agent
-      - keyword: "報表"
-        agentName: report-agent
-    fallbackAgent: general-agent
+agentList:
+  - general-agent
+  - warehouse-agent
 
-  # Group B: fallback only (all messages go to general-agent)
-  - platform: line
-    conversationId: "C0987654321fedcba"
-    keywords: []
-    fallbackAgent: general-agent
-
-  # Private chat rule: any 1:1 message goes to general-agent
-  - platform: line
-    conversationId: null
-    keywords: []
-    fallbackAgent: general-agent
+platforms:
+  line:
+    defaultAgent: general-agent
+    conversationRoutes:
+      "null":
+        agent: general-agent
+        model: claude-haiku-4.5
+        workdir: ~/code/chatpilot/
+      "C1234567890abcdef":
+        agent: warehouse-agent
+        model: claude-haiku-4.5
+        workdir: ~/code/chatpilot/
+  mock:
+    defaultAgent: general-agent
+    conversationRoutes:
+      "null":
+        agent: general-agent
+        model: gpt-4.1
+        workdir: ~/code/chatpilot/
