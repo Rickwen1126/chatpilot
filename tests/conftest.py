@@ -86,7 +86,7 @@ def mock_agent_registry():
         def name(self) -> str:
             return self._name
 
-        async def handle(self, message, session_id: str, model: str | None = None):
+        async def handle(self, message, session_id: str, model: str | None = None, workdir: str | None = None):
             return Response(text=f"[{self._name}] reply")
 
     return {

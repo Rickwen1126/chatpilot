@@ -39,10 +39,13 @@ class WarehouseAgent:
         return "warehouse-agent"
 
     async def handle(
-        self, message: Message, session_id: str, model: str | None = None
+        self, message: Message, session_id: str,
+        model: str | None = None, workdir: str | None = None,
     ) -> Response:
         user_query = message.text.strip()
-        logger.info("[WH] handle start query=%r session=%s", user_query[:50], session_id)
+        logger.info(
+            "[WH] handle start query=%r session=%s", user_query[:50], session_id
+        )
 
         try:
             inventory = load_full_inventory()

@@ -19,7 +19,8 @@ class GeneralAgent:
         return "general-agent"
 
     async def handle(
-        self, message: Message, session_id: str, model: str | None = None
+        self, message: Message, session_id: str,
+        model: str | None = None, workdir: str | None = None,
     ) -> Response:
         try:
             session = await session_manager.get_or_create_session(

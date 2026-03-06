@@ -13,7 +13,8 @@ class BaseAgent(Protocol):
     def name(self) -> str: ...
 
     async def handle(
-        self, message: Message, session_id: str, model: str | None = None
+        self, message: Message, session_id: str,
+        model: str | None = None, workdir: str | None = None,
     ) -> Response: ...
 
 
