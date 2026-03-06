@@ -12,32 +12,13 @@ import yaml
 from watchdog.events import FileModifiedEvent, FileSystemEventHandler
 from watchdog.observers import Observer
 
-from chatpilot.core.types import RouteConfig, RouteMap
+from chatpilot.core.types import RouteConfig
 
 logger = logging.getLogger(__name__)
 
 
-def load_routes(path: str) -> RouteMap:
-    """Load and validate routes from a YAML file."""
-    raw = Path(path).read_text(encoding="utf-8")
-    data = yaml.safe_load(raw)
-    if data is None:
-        return RouteMap(routes=[])
-    return RouteMap.model_validate(data)
-
-
-def save_routes(path: str, route_map: RouteMap) -> None:
-    """Write route map back to a YAML file."""
-    data = route_map.model_dump(by_alias=True, exclude_none=True)
-    output = yaml.dump(
-        data, default_flow_style=False, allow_unicode=True, sort_keys=False
-    )
-    Path(path).write_text(output, encoding="utf-8")
-    logger.info("Routes saved to %s", path)
-
-
 def load_route_config(path: str) -> RouteConfig:
-    """Load and validate routes from YAML using new RouteConfig schema."""
+    """Load and validate routes from YAML using RouteConfig schema."""
     raw = Path(path).read_text(encoding="utf-8")
     data = yaml.safe_load(raw)
     if data is None:
@@ -61,12 +42,10 @@ class RouteWatcher:
     def __init__(
         self,
         path: str,
-        on_change: Callable[[RouteMap], None],
-        agent_registry: dict | None = None,
+        on_change: Callable[[RouteConfig], None],
     ) -> None:
         self._path = path
         self._on_change = on_change
-        self._agent_registry = agent_registry
         self._observer: Observer | None = None
         self._debounce_timer: threading.Timer | None = None
 
@@ -89,13 +68,11 @@ class RouteWatcher:
 
     def _reload(self) -> None:
         try:
-            new_map = load_routes(self._path)
-            if self._agent_registry is not None:
-                _validate_agents(new_map, self._agent_registry)
-            self._on_change(new_map)
+            new_config = load_route_config(self._path)
+            self._on_change(new_config)
             logger.info(
-                "Route map reloaded: %d route(s) from %s",
-                len(new_map.routes),
+                "RouteConfig reloaded: %d platform(s) from %s",
+                len(new_config.platforms),
                 self._path,
             )
         except Exception as e:
@@ -124,13 +101,3 @@ class _RouteFileHandler(FileSystemEventHandler):
                 self._debounce_timer.cancel()
             self._debounce_timer = threading.Timer(0.2, self._reload_fn)
             self._debounce_timer.start()
-
-
-def _validate_agents(route_map: RouteMap, agent_registry: dict) -> None:
-    """Validate all agent names in the route map exist in the registry."""
-    for rule in route_map.routes:
-        for kw in rule.keywords:
-            if kw.agent_name not in agent_registry:
-                raise ValueError(f"unknown agent: {kw.agent_name}")
-        if rule.fallback_agent and rule.fallback_agent not in agent_registry:
-            raise ValueError(f"unknown agent: {rule.fallback_agent}")

@@ -1,71 +1,77 @@
 """Integration tests for webhook endpoint using mock adapter."""
 
 import json
-from unittest.mock import AsyncMock, patch
 
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from chatpilot.channels.mock import MockAdapter
-from chatpilot.core.types import Message, Response, RouteMap, RouteRule
+from chatpilot.core.types import (
+    ConversationRoute,
+    Message,
+    PlatformConfig,
+    Response,
+    RouteConfig,
+)
 
 
 @pytest.fixture
 def mock_app():
-    """Create a minimal FastAPI app for testing without Copilot SDK."""
     from fastapi import FastAPI
 
     from chatpilot.agents import agent_registry, register_agent
     from chatpilot.channels.adapter import AdapterRegistry
     from chatpilot.channels.mock import mock_adapter
+    from chatpilot.processing.processor import MessageProcessor
     from chatpilot.server.webhook import router
 
     app = FastAPI()
     app.include_router(router)
 
-    # Set up state
     adapter_registry: AdapterRegistry = {"mock": mock_adapter}
     app.state.adapter_registry = adapter_registry
-    app.state.reply_timeout_ms = 20000
-    app.state.routes_path = ""
 
-    # Minimal route map for mock platform
-    app.state.route_map = RouteMap(
-        routes=[
-            RouteRule(
-                platform="mock",
-                conversation_id="c1",
-                keywords=[],
-                fallback_agent="test-agent",
-            )
-        ]
+    route_config = RouteConfig(
+        agent_list=["test-agent"],
+        platforms={
+            "mock": PlatformConfig(
+                default_agent="test-agent",
+                conversation_routes={
+                    "c1": ConversationRoute(agent="test-agent", model="gpt-4.1"),
+                },
+            ),
+        },
     )
 
-    # Register a test agent
     class TestAgent:
         @property
         def name(self) -> str:
             return "test-agent"
 
-        async def handle(self, message: Message, session_id: str, model: str | None = None) -> Response:
+        async def handle(
+            self, message: Message, session_id: str,
+            model: str | None = None, workdir: str | None = None,
+        ) -> Response:
             return Response(text=f"echo: {message.text}")
 
-    # Clear and register
     agent_registry.clear()
     register_agent(TestAgent())
+
+    processor = MessageProcessor(route_config, "", agent_registry, timeout_s=20.0)
+    app.state.processor = processor
 
     return app
 
 
 @pytest.mark.asyncio
 async def test_webhook_mock_valid(mock_app):
-    """POST /webhook/mock with valid body should return 200."""
     async with AsyncClient(
         transport=ASGITransport(app=mock_app), base_url="http://test"
     ) as client:
         resp = await client.post(
             "/webhook/mock",
-            content=json.dumps({"text": "hello", "userId": "u1", "conversationId": "c1"}),
+            content=json.dumps(
+                {"text": "hello", "userId": "u1", "conversationId": "c1"}
+            ),
             headers={"content-type": "application/json"},
         )
     assert resp.status_code == 200
@@ -73,7 +79,6 @@ async def test_webhook_mock_valid(mock_app):
 
 @pytest.mark.asyncio
 async def test_webhook_unknown_platform(mock_app):
-    """POST /webhook/unknown should return 400."""
     async with AsyncClient(
         transport=ASGITransport(app=mock_app), base_url="http://test"
     ) as client:
@@ -85,14 +90,16 @@ async def test_webhook_unknown_platform(mock_app):
 
 
 @pytest.mark.asyncio
-async def test_webhook_mock_ignored_route(mock_app):
-    """Message from unrouted conversation should be silently ignored."""
+async def test_webhook_command_handled(mock_app):
+    """Slash command should be handled without reaching the agent."""
     async with AsyncClient(
         transport=ASGITransport(app=mock_app), base_url="http://test"
     ) as client:
         resp = await client.post(
             "/webhook/mock",
-            content=json.dumps({"text": "hello", "userId": "u1", "conversationId": "unknown-group"}),
+            content=json.dumps(
+                {"text": "/agent", "userId": "u1", "conversationId": "c1"}
+            ),
             headers={"content-type": "application/json"},
         )
     assert resp.status_code == 200

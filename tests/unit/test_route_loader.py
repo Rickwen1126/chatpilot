@@ -66,6 +66,7 @@ platforms:
     save_route_config(path, config)
 
     reloaded = load_route_config(path)
-    assert reloaded.platforms["mock"].conversation_routes["null"].model == "claude-haiku-4.5"
+    null_route = reloaded.platforms["mock"].conversation_routes["null"]
+    assert null_route.model == "claude-haiku-4.5"
 
     os.unlink(path)

@@ -60,27 +60,6 @@ class Response(BaseModel):
         return v
 
 
-class KeywordMapping(BaseModel):
-    keyword: str
-    agent_name: str = Field(alias="agentName", default="")
-
-    model_config = {"populate_by_name": True}
-
-
-class RouteRule(BaseModel):
-    platform: Platform
-    conversation_id: str | None = Field(default=None, alias="conversationId")
-    keywords: list[KeywordMapping] = Field(default_factory=list)
-    fallback_agent: str | None = Field(default=None, alias="fallbackAgent")
-    model: str | None = None
-
-    model_config = {"populate_by_name": True}
-
-
-class RouteMap(BaseModel):
-    routes: list[RouteRule] = Field(default_factory=list)
-
-
 class PendingMessage(BaseModel):
     session_id: str
     content: str
@@ -88,28 +67,7 @@ class PendingMessage(BaseModel):
     ttl_ms: int = 1_800_000
 
 
-class KeywordMatch(BaseModel):
-    kind: Literal["keyword"] = "keyword"
-    agent_name: str
-    keyword: str
-    model: str | None = None
-
-
-class FallbackMatch(BaseModel):
-    kind: Literal["fallback"] = "fallback"
-    agent_name: str
-    model: str | None = None
-
-
-class Ignored(BaseModel):
-    kind: Literal["ignored"] = "ignored"
-    reason: str = "no_route"
-
-
-DispatchResult = KeywordMatch | FallbackMatch | Ignored
-
-
-# ── New conversation-centric routing types (Task 1) ─────────────────
+# ── Conversation-centric routing types ───────────────────────────────
 
 
 class ConversationRoute(BaseModel):

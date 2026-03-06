@@ -3,15 +3,12 @@
 import pytest
 
 from chatpilot.core.types import (
-    FallbackMatch,
-    Ignored,
-    KeywordMapping,
-    KeywordMatch,
+    ConversationRoute,
     LinePlatformContext,
     Message,
+    PlatformConfig,
     Response,
-    RouteMap,
-    RouteRule,
+    RouteConfig,
 )
 
 
@@ -46,38 +43,29 @@ def mock_response():
 
 
 @pytest.fixture
-def mock_route_map():
-    return RouteMap(
-        routes=[
-            RouteRule(
-                platform="line",
-                conversation_id="C456",
-                keywords=[
-                    KeywordMapping(keyword="庫存", agent_name="warehouse-agent"),
-                    KeywordMapping(keyword="報表", agent_name="report-agent"),
-                ],
-                fallback_agent="general-agent",
+def mock_route_config():
+    return RouteConfig(
+        agent_list=["general-agent", "warehouse-agent"],
+        platforms={
+            "line": PlatformConfig(
+                default_agent="general-agent",
+                conversation_routes={
+                    "null": ConversationRoute(
+                        agent="general-agent",
+                        model="claude-haiku-4.5",
+                    ),
+                    "C456": ConversationRoute(
+                        agent="general-agent",
+                        model="claude-haiku-4.5",
+                    ),
+                },
             ),
-            RouteRule(
-                platform="line",
-                conversation_id="C789",
-                keywords=[],
-                fallback_agent=None,
-            ),
-            RouteRule(
-                platform="line",
-                conversation_id=None,
-                keywords=[],
-                fallback_agent="general-agent",
-            ),
-        ]
+        },
     )
 
 
 @pytest.fixture
 def mock_agent_registry():
-    """Minimal agent registry for testing dispatch logic."""
-
     class StubAgent:
         def __init__(self, name: str):
             self._name = name
@@ -86,11 +74,13 @@ def mock_agent_registry():
         def name(self) -> str:
             return self._name
 
-        async def handle(self, message, session_id: str, model: str | None = None, workdir: str | None = None):
+        async def handle(
+            self, message, session_id: str,
+            model: str | None = None, workdir: str | None = None,
+        ):
             return Response(text=f"[{self._name}] reply")
 
     return {
         "general-agent": StubAgent("general-agent"),
         "warehouse-agent": StubAgent("warehouse-agent"),
-        "report-agent": StubAgent("report-agent"),
     }
