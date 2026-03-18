@@ -1,161 +1,99 @@
 <!--
 Sync Impact Report
 ===================
-- Version change: 1.1.0 → 1.2.0 (MINOR — section materially changed)
-- Modified sections:
-  - Technology Constraints: removed hardcoded Python/FastAPI stack;
-    now language-agnostic with only architectural constraints retained.
-    Language/framework decisions deferred to plan.md per-feature.
+- Version change: 2.1.0 → 2.2.0 (MINOR — further simplified,
+  all design details in specs/PRDV2.md, constitution is pure principles)
 - Templates requiring updates:
-  - .specify/templates/plan-template.md — ✅ no update needed
-  - .specify/templates/spec-template.md — ✅ no update needed
-  - .specify/templates/tasks-template.md — ✅ no update needed
-  - .specify/templates/checklist-template.md — ✅ no update needed
-- Follow-up TODOs: none
+  - .specify/templates/plan-template.md — ⚠ pending (Constitution Check)
+  - Others — ✅ no update needed
 -->
 
 # Chatpilot Constitution
 
 ## Core Principles
 
-### I. Three-Layer Architecture
+### I. Inbound–Process–Outbound 資料流
 
-Every feature MUST respect the three-layer boundary:
+所有功能 MUST 遵守三段資料流邊界：
 
-1. **Chat Channel** — Platform adapters (LINE, Telegram, Web, etc.)
-   that translate platform-specific protocols into the unified
-   `Message`/`Response` format. No business logic lives here.
-2. **Copilot SDK** — Agent core powered by GitHub Copilot SDK.
-   Dispatcher routes messages; agents plan, call tools, and
-   produce responses. This layer owns all AI/business logic.
-3. **Copilot CLI** — Local command-line interface that invokes
-   the same Copilot SDK agents without a chat channel, enabling
-   development, testing, and scripting without deploying webhooks.
+1. **Inbound** — 接收、驗證、轉為統一格式。不含業務邏輯。
+2. **Process** — 路由、執行 agent、產出結果。
+   所有 AI / 業務邏輯在此完成。
+3. **Outbound** — 結果轉為平台格式，送回來源。
 
-Cross-layer imports MUST flow inward only:
-`Channel → SDK ← CLI`. The SDK layer MUST NOT import from
-Channel or CLI. Violations indicate an architectural breach.
+依賴方向 MUST 單向流入核心。Inbound/Outbound 層
+MUST NOT 包含業務邏輯，Process 層 MUST NOT 依賴
+任何特定平台實作。
 
-### II. Channel-Agnostic Core
+### II. 平台無關核心
 
-Agents MUST NOT access platform-specific data. All channel
-adapters MUST translate inbound webhooks into the unified
-`Message` type and outbound `Response` back into platform
-calls. Adding a new channel MUST NOT require changes to any
-agent or dispatcher code.
+Agent 與路由邏輯 MUST NOT 存取平台專屬資料。
+新增平台 MUST NOT 需要修改 agent、路由或 pipeline 程式碼。
+平台差異由 adapter 層吸收，核心只認統一的
+`Message` / `Response` 契約。
 
-### III. Fast-Path Dispatch
+### III. Config-Driven Routing
 
-Message routing MUST follow a three-tier cost hierarchy:
+訊息路由 MUST 由設定檔驅動，不可 hardcode。
+路由匹配 MUST 以特異性分數決定優先級，不以順序。
+分數規則 MUST 可擴展新維度而不需改 code。
 
-1. **Group ID lookup** — O(1) dict match (zero token cost)
-2. **Keyword match** — string scan (zero token cost)
-3. **AI dispatch** — LLM classification (last resort only)
+### IV. Agent 單一職責
 
-Unmatched messages MUST be silently ignored (no AI fallback
-unless explicitly configured). Minimizing token cost is a
-first-class design constraint.
+每個 agent session MUST 只做一件事，快速完成。
+大任務 MUST 透過多 agent 組合完成，不由單一 agent 包辦。
 
-### IV. Ports & Adapters (Hexagonal)
+### V. SDK 透明整合
 
-Core logic MUST have zero direct dependencies on external
-platforms or downstream services. Channels and services are
-pluggable adapters behind abstract interfaces:
+Agent MUST 直接使用 SDK 能力，不得包裝成黑盒抽象。
+Agent 擁有自己的 session config，gateway 不替 agent 決定。
+SDK 功能 MUST 透明暴露，不被中間層截斷。
 
-- `ChannelAdapter` for inbound/outbound chat platforms
-- `BaseAgent` for agent implementations
-- Service connectors (HTTP clients) for downstream APIs
+### VI. 模組邊界
 
-All adapters MUST be independently replaceable without
-modifying core dispatcher or agent code.
+核心邏輯 MUST 對外部平台與下游服務零直接依賴：
 
-### V. Independent Lifecycle
+- **Adapter 層**（Inbound/Outbound）：平台專屬協議轉換，
+  可獨立替換而不影響核心
+- **Gateway 層**（Process）：路由、pipeline 執行、config 管理，
+  不知道也不關心平台細節
+- **Agent 層**（Process 內部）：業務邏輯與 SDK session，
+  不知道也不關心自己被誰呼叫
 
-Each layer and each downstream service MUST deploy
-independently. Specifically:
+各層 MUST 可獨立測試、獨立部署。層間契約透過統一型別
+強制執行，不透過共享程式碼或緊耦合。
 
-- Warehouse API changes MUST NOT break Chatpilot.
-- Chatpilot changes MUST NOT require downstream redeployment.
-- Channel adapters MUST be addable/removable without touching
-  the agent core.
+### VII. 繁體中文設計文件
 
-Version contracts between layers are enforced through the
-unified `Message`/`Response` types and tool interfaces, not
-through shared code or tight coupling.
-
-### VI. Documentation Language
-
-所有由 speckit 產出的設計文件 MUST 以**繁體中文**撰寫，
-包含但不限於：
-
-- `spec.md`（功能規格）
-- `plan.md`（實作計畫）
-- `tasks.md`（任務清單）
-
-技術專有名詞（類別名、函式名、套件名、CLI 指令等）維持
-英文原文，不需翻譯。程式碼區塊與檔案路徑維持英文。
-
-此規則確保非工程背景的利害關係人能直接閱讀設計文件，
-降低溝通成本。
+所有 speckit 產出的設計文件 MUST 以繁體中文撰寫。
+技術專有名詞維持英文，程式碼區塊與檔案路徑維持英文。
 
 ## Technology Constraints
 
 | Constraint | Value |
 |---|---|
-| Agent SDK | GitHub Copilot SDK (supports Python, Go, TypeScript, .NET) |
-| Model | GPT-4.1 via GitHub Copilot free tier |
+| Agent SDK | GitHub Copilot SDK |
+| Models | GPT-4.1 (free tier, default)；可依 config 指定 |
 | Deployment | Self-hosted with cloudflared tunnel |
-| Config | `.env` for secrets; config files for route maps |
+| Config | YAML；`.env` for secrets（MUST NOT commit） |
 
-- Language, runtime, and web framework are **plan-time decisions**,
-  chosen per-feature in `plan.md`. The constitution does not
-  mandate a specific programming language.
-- All new dependencies MUST be justified against the existing
-  stack. Prefer stdlib + existing deps over new packages.
-- Webhook endpoints MUST handle concurrent requests without
-  blocking. The concurrency model (async/await, goroutines,
-  event loop, etc.) follows the chosen language's idiom.
+- 語言、runtime、web framework 為 plan-time 決定
+- 新依賴 MUST 有正當理由
+- Webhook MUST 非阻塞處理並行請求
 
 ## Development Workflow
 
-- **Unified Message contract** — Any change to `Message` or
-  `Response` types MUST be reviewed for backward compatibility
-  across all three layers before merge.
-- **Adapter isolation** — Channel adapter PRs MUST NOT touch
-  files outside `src/chatpilot/channels/`. Agent PRs MUST NOT touch
-  files outside `src/chatpilot/agents/` and `src/chatpilot/services/`.
-- **Route map changes** — Adding or removing dispatcher routes
-  MUST be documented in the PR description with rationale.
-- **Testing** — Each layer MUST be testable in isolation:
-  - Channels: mock the dispatcher
-  - Agents: mock service connectors
-  - CLI: invoke agents directly without HTTP
-- **Secrets** — `.env` files MUST NOT be committed. Use
-  `.env.example` as the canonical reference for required
-  environment variables.
+- `Message` / `Response` 變更 MUST 審查向下相容
+- Adapter 與 agent 程式碼 MUST 互不觸及
+- 各層 MUST 可獨立測試
+- `.env` MUST NOT commit
 
 ## Governance
 
-This constitution is the highest-authority document for
-Chatpilot development decisions. When a PR or design conflicts
-with a principle above, the constitution wins unless formally
-amended first.
+本憲法為 Chatpilot 開發決策的最高權威文件。
+衝突時憲法優先，除非先行正式修訂。
 
-**Amendment procedure**:
-1. Propose the change with rationale in a PR modifying this file.
-2. Document the migration impact on existing code.
-3. Update the version following semver rules below.
+**修訂**：PR 提案 → 影響評估 → 版本更新。
+**版本**：MAJOR = 原則重定義；MINOR = 新增/擴展；PATCH = 措辭。
 
-**Versioning policy** (semantic versioning):
-- **MAJOR**: Principle removed, redefined, or made incompatible
-  with prior interpretation.
-- **MINOR**: New principle or section added, or existing
-  guidance materially expanded.
-- **PATCH**: Clarifications, wording fixes, non-semantic
-  refinements.
-
-**Compliance**: All PRs MUST be checked against the principles
-in this constitution. The plan template's "Constitution Check"
-gate references this document.
-
-**Version**: 1.2.0 | **Ratified**: 2026-02-22 | **Last Amended**: 2026-03-03
+**Version**: 2.2.0 | **Ratified**: 2026-02-22 | **Last Amended**: 2026-03-17

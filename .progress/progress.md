@@ -1,3 +1,41 @@
+## 2026-03-06 11:29 — Architecture Refactor Complete (8/8 tasks)
+
+**Goal**: Refactor from hardcoded `/倉管` + keyword routing into clean pipeline with `/agent` command, conversation-centric routes.yaml, and separated MessageProcessor.
+
+**Done**:
+- Brainstormed 8-point proposal → design doc at `docs/plans/2026-03-04-architecture-refactor-design.md`
+- Implementation plan at `docs/plans/2026-03-04-architecture-refactor-plan.md`
+- Committed pre-refactor work (session gate, warehouse agent, design docs): `7925ae5`, `83ffef4`, `4c3daaa`
+- **8 tasks via subagent-driven dev, all complete** (`e64e5b3` → `c5df0ba`):
+  1. New route types: `RouteConfig`, `PlatformConfig`, `ConversationRoute`
+  2. `load_route_config`/`save_route_config` in route_loader
+  3. `CommandHandler` with `/agent` and `/model` (unified command layer)
+  4. `workdir` param added to `BaseAgent.handle()` Protocol
+  5. `MessageProcessor` — clean pipeline: command → gate → route → agent → respond
+  6. Wired new architecture, thinned `webhook.py` (~290 → ~35 lines)
+  7. Deleted old dispatcher, keyword types, model_command (-314 lines)
+  8. Final verification: 31 tests pass, ruff clean, server boots + commands work
+
+**Decisions**:
+- Keywords removed entirely — `/agent [name]` is the only way to switch agents
+- routes.yaml: `agentList` (global) + `platforms.{name}.conversationRoutes` (per-conversation)
+- `"null"` key in conversationRoutes = private chats; `defaultAgent` at platform level for unrouted conversations
+- `/agent` switches immediately even if current agent is busy (in-flight task finishes in background)
+- No transport abstraction (YAGNI) — just extracted `MessageProcessor`
+- Agent backend left as-is (BaseAgent Protocol already flexible enough)
+- `workdir` passed through to agent but not used yet
+- RouteWatcher disabled (pending migration to new RouteConfig schema)
+
+**State**: Branch `001-agent-gateway-mvp`, 12 commits ahead of origin. 31 tests, ruff clean. Server verified with mock adapter (`/agent`, `/model` commands work).
+
+**Next**:
+- [ ] Re-enable RouteWatcher hot-reload for new RouteConfig schema
+- [ ] E2E test via LINE (server + cloudflare tunnel)
+- [ ] Warehouse agent context accumulation issue (10K inventory × N turns → LLM timeout)
+- [ ] Decide: merge to main or open PR
+
+---
+
 ## 2026-03-04 03:34 — Session Gate + pending reply token fix
 
 **Goal**: Block concurrent messages per session (session gate) + fix LINE reply token consumed by pending dequeue

@@ -1,0 +1,5 @@
+{
+  "A_main_agent": true,
+  "B_subagent_explicit": false,
+  "C_subagent_inherit": false
+}
