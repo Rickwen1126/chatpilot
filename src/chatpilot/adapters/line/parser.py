@@ -4,7 +4,12 @@ from __future__ import annotations
 
 import logging
 
-from linebot.v3.webhooks import MessageEvent, TextMessageContent, UserMentionee
+from linebot.v3.webhooks import (
+    ImageMessageContent,
+    MessageEvent,
+    TextMessageContent,
+    UserMentionee,
+)
 
 from chatpilot.core.types import Message
 
@@ -14,13 +19,12 @@ logger = logging.getLogger(__name__)
 def parse_line_events(events: list) -> list[Message]:
     """Parse LINE webhook events into unified Message list.
 
-    Extracts is_mention and user_name from LINE-specific fields.
+    Handles text messages and image messages.
+    Images are represented as text with ref: [圖片 ref:line:{message_id}]
     """
     messages: list[Message] = []
     for event in events:
         if not isinstance(event, MessageEvent):
-            continue
-        if not isinstance(event.message, TextMessageContent):
             continue
 
         source = event.source
@@ -33,27 +37,45 @@ def parse_line_events(events: list) -> list[Message]:
         user_id = source.user_id if hasattr(source, "user_id") else ""
         conversation_id = group_id or user_id
 
-        # Detect @bot mention
+        # Detect @bot mention (only on text messages)
         is_mention = False
-        mention = getattr(event.message, "mention", None)
-        if mention and hasattr(mention, "mentionees"):
-            for m in mention.mentionees:
-                if isinstance(m, UserMentionee) and getattr(m, "isSelf", False):
-                    is_mention = True
-                    break
+        if isinstance(event.message, TextMessageContent):
+            mention = getattr(event.message, "mention", None)
+            if mention and hasattr(mention, "mentionees"):
+                for m in mention.mentionees:
+                    if isinstance(m, UserMentionee) and getattr(m, "isSelf", False):
+                        is_mention = True
+                        break
 
-        msg = Message(
-            text=event.message.text,
-            user_id=user_id,
-            user_name="",  # LINE needs profile API for name; leave empty for MVP
-            platform="line",
-            group_id=group_id,
-            conversation_id=conversation_id,
-            is_mention=is_mention,
-            platform_context={
-                "reply_token": event.reply_token,
-                "message_id": event.message.id,
-            },
-        )
-        messages.append(msg)
+            msg = Message(
+                text=event.message.text,
+                user_id=user_id,
+                user_name="",
+                platform="line",
+                group_id=group_id,
+                conversation_id=conversation_id,
+                is_mention=is_mention,
+                platform_context={
+                    "reply_token": event.reply_token,
+                    "message_id": event.message.id,
+                },
+            )
+            messages.append(msg)
+
+        elif isinstance(event.message, ImageMessageContent):
+            msg = Message(
+                text=f"[圖片 ref:line:{event.message.id}]",
+                user_id=user_id,
+                user_name="",
+                platform="line",
+                group_id=group_id,
+                conversation_id=conversation_id,
+                is_mention=False,  # image alone is never a mention
+                platform_context={
+                    "reply_token": event.reply_token,
+                    "message_id": event.message.id,
+                },
+            )
+            messages.append(msg)
+
     return messages

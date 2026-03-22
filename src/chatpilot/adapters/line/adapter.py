@@ -15,6 +15,7 @@ from linebot.v3.messaging import (
     ApiClient,
     Configuration,
     MessagingApi,
+    MessagingApiBlob,
     PushMessageRequest,
     ReplyMessageRequest,
     TextMessage,
@@ -53,8 +54,10 @@ class LineAdapter:
             config = Configuration(access_token=token)
             api_client = ApiClient(config)
             self._api = MessagingApi(api_client)
+            self._blob_api = MessagingApiBlob(api_client)
         else:
             self._api = None
+            self._blob_api = None
 
     @property
     def platform(self) -> str:
@@ -150,3 +153,13 @@ class LineAdapter:
                 )
             except Exception as e:
                 raise AdapterError("LINE push failed", cause=e) from e
+
+    async def download_media(self, media_id: str) -> bytes | None:
+        """Download media from LINE by message ID."""
+        if self._blob_api is None:
+            return None
+        try:
+            return self._blob_api.get_message_content(media_id)
+        except Exception as e:
+            logger.warning("LINE media download failed for %s: %s", media_id, e)
+            return None

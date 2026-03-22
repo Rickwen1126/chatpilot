@@ -27,6 +27,7 @@ from chatpilot.scheduler.store import SqliteTaskStore
 from chatpilot.sdk.session import SdkClient
 from chatpilot.server.webhook import router
 from chatpilot.tools.builtin.browse_task import create_browse_task_tool
+from chatpilot.tools.builtin.download_media import create_download_media_tool
 from chatpilot.tools.builtin.submit_task import create_submit_task_tool
 from chatpilot.tools.builtin.task_history import create_task_history_tool
 from chatpilot.tools.builtin.web_search import create_web_search_tool
@@ -177,6 +178,9 @@ async def lifespan(app: FastAPI):
 
     browse_tool = create_browse_task_tool(scheduler)
     tool_factory.register(browse_tool)
+
+    media_tool = create_download_media_tool(adapters)
+    tool_factory.register(media_tool)
 
     app.state.scheduler = scheduler
 

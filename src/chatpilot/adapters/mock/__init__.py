@@ -44,3 +44,6 @@ class MockAdapter:
 
     async def push_message(self, route_id: str, response: Response) -> None:
         self.pushes.append((route_id, response.text))
+
+    async def download_media(self, media_id: str) -> bytes | None:
+        return None

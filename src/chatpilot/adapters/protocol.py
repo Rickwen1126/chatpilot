@@ -47,3 +47,11 @@ class ChannelAdapter(Protocol):
         Return None if the platform supports Markdown.
         """
         ...
+
+    async def download_media(self, media_id: str) -> bytes | None:
+        """Download media content by platform-specific ID.
+
+        Returns raw bytes, or None if not supported / not found.
+        Used by download_media tool when LLM decides to view an image.
+        """
+        ...

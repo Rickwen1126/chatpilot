@@ -38,3 +38,6 @@ class CliAdapter:
 
     async def push_message(self, route_id: str, response: Response) -> None:
         print(f"[PUSH] {response.text}")
+
+    async def download_media(self, media_id: str) -> bytes | None:
+        return None
