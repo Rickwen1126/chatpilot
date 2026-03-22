@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from typing import Any, Callable, Coroutine, Literal
 
 from chatpilot.adapters.protocol import ChannelAdapter
@@ -56,10 +57,12 @@ class InMemoryMessageHub:
         mentioned = is_mention(message)
 
         # Check prefix commands (group requires mention, private chat always)
-        if message.text.startswith("/") and mentioned:
-            parts = message.text.split(maxsplit=1)
-            command = parts[0][1:]  # strip leading /
-            args = parts[1] if len(parts) > 1 else ""
+        # Strip leading @mention if present: "@Bot /chatbot list" → "/chatbot list"
+        text = re.sub(r"^@\S+\s+", "", message.text.strip()) if mentioned else message.text.strip()
+        if text.startswith("/") and mentioned:
+            cmd_parts = text.split(maxsplit=1)
+            command = cmd_parts[0][1:]
+            args = cmd_parts[1] if len(cmd_parts) > 1 else ""
             if self._on_command:
                 await self._on_command(command, args, message, adapter)
             return

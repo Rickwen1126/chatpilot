@@ -46,6 +46,17 @@ Python 3.11+: Pydantic v2 models, Protocol for interfaces, async/await, ruff for
 - `format_hint` 會自動注入 chatbot 的 prompt，讓 LLM 遵守平台格式限制
 - 長文回覆必須處理平台字數上限（如 LINE 5000 chars/msg，分段 push）
 - Reply 機制有時效限制時（如 LINE reply token 30s），需實作 fallback 到 push
+- 必須實作 `download_media(media_id) -> bytes | None`，讓 `download_media` tool 可跨平台下載媒體
+
+## 平台已知問題與解法
+
+### LINE
+- **Markdown 不支援**：`format_hint` 注入「不使用 Markdown」指令，LLM 自動遵守
+- **Reply token 30s 過期**：`send_reply` 檢查 elapsed > 25s 自動 fallback 到 `push_message`
+- **@Bot mention 偵測**：linebot SDK v3 用 `UserMentionee.is_self`（snake_case），不是 `isSelf`（camelCase）
+- **群組 @Bot /command**：LINE 把 `@Bot` 放在 text 前面，Hub 用 `re.sub(r"^@\S+\s+", "")` strip 後檢查 `/` 前綴
+- **圖片處理**：parser 產出 `[圖片 ref:line:{message_id}]` 作為 text 存入 context buffer，LLM 需要時呼叫 `download_media` tool 下載。圖片不預先展開，ref 只是文字，LLM 自主決定是否下載
+- **長文分段**：5000 chars/msg 上限，自動切 chunk，reply 最多 5 則，超過用 push 分批送
 
 ## Tool 開發流程
 

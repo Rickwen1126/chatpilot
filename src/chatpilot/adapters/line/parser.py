@@ -41,9 +41,15 @@ def parse_line_events(events: list) -> list[Message]:
         is_mention = False
         if isinstance(event.message, TextMessageContent):
             mention = getattr(event.message, "mention", None)
+            logger.info(
+                "LINE msg from %s group=%s mention=%s text=%r",
+                user_id[:8], group_id, mention, event.message.text[:50],
+            )
             if mention and hasattr(mention, "mentionees"):
                 for m in mention.mentionees:
-                    if isinstance(m, UserMentionee) and getattr(m, "isSelf", False):
+                    is_self = getattr(m, "is_self", False) or getattr(m, "isSelf", False)
+                    logger.info("  mentionee: type=%s is_self=%s", type(m).__name__, is_self)
+                    if isinstance(m, UserMentionee) and is_self:
                         is_mention = True
                         break
 
