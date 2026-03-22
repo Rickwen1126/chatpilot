@@ -39,6 +39,14 @@ Python 3.11+: Pydantic v2 models, Protocol for interfaces, async/await, ruff for
 - `system_message` 必須用 `mode: "replace"`，不可用 `append`（append 會保留 CLI agent 的 built-in tools）
 - `list_models()` 不一定列出所有可用 model，可直接用 model ID 字串嘗試
 
+## Adapter 開發規範
+
+- 新增 adapter 必須實作 `ChannelAdapter` Protocol 的所有方法
+- 必須定義 `format_hint` property：平台有格式限制時回傳提示字串（如 LINE 不支援 Markdown），無限制回傳 None
+- `format_hint` 會自動注入 chatbot 的 prompt，讓 LLM 遵守平台格式限制
+- 長文回覆必須處理平台字數上限（如 LINE 5000 chars/msg，分段 push）
+- Reply 機制有時效限制時（如 LINE reply token 30s），需實作 fallback 到 push
+
 ## Tool 開發流程
 
 1. 在 `src/chatpilot/tools/builtin/` 建立模組

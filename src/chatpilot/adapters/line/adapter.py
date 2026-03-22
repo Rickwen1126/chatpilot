@@ -60,6 +60,14 @@ class LineAdapter:
     def platform(self) -> str:
         return "line"
 
+    @property
+    def format_hint(self) -> str:
+        return (
+            "[格式限制] 此平台不支援 Markdown。"
+            "不要使用 **粗體**、`程式碼`、## 標題、[連結](url)。"
+            "用純文字、換行、和符號（→、•、★、─）來排版。"
+        )
+
     async def verify_request(self, request: Request) -> bool:
         signature = request.headers.get("X-Line-Signature", "")
         body = await request.body()

@@ -14,6 +14,10 @@ class CliAdapter:
     def platform(self) -> str:
         return "cli"
 
+    @property
+    def format_hint(self) -> str | None:
+        return None  # CLI supports Markdown
+
     async def verify_request(self, request: Request) -> bool:
         return True
 

@@ -36,3 +36,14 @@ class ChannelAdapter(Protocol):
     async def push_message(self, route_id: str, response: Response) -> None:
         """Push a message to a conversation (for async task results)."""
         ...
+
+    @property
+    def format_hint(self) -> str | None:
+        """Platform-specific formatting instructions for the LLM.
+
+        Returned string is injected into the prompt so the chatbot
+        respects the platform's display limitations.
+        New adapters MUST define this if the platform has formatting constraints.
+        Return None if the platform supports Markdown.
+        """
+        ...

@@ -98,6 +98,11 @@ async def lifespan(app: FastAPI):
         if route is None:
             logger.warning("No binding matched for %s", message.conversation_id)
             return
+        # Inject platform format hint if adapter defines one
+        hint = getattr(adapter, "format_hint", None)
+        if hint:
+            context_prefix = f"{context_prefix}\n{hint}" if context_prefix else hint
+
         session = await chatbot_manager.get_or_create_session(
             route.route_id, route.chatbot_name
         )

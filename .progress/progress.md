@@ -13,7 +13,13 @@
 - Tour 過程中發現 + 修復 critical issues（tool handler 斷路、busy mention buffer、AccessLevel 合併）
 - LINE adapter fix：`MentionTarget` → `UserMentionee`（linebot SDK v3 API 差異）
 - LINE E2E 通過：私聊「測試 123」→ bot 回覆（gpt-5-mini, 7 秒）
-- Commits: `d13a6c5`, `9c283f2`, `539eba2`, `904b3a1`, `9699ad0`
+- 3 chatbot personas：gossip-king (gpt-4.1)、scholar (gpt-5-mini)、senior-scholar (gpt-5.4-mini)
+- web_search tool：DuckDuckGo HTML 搜尋（取代 API 版，中文 + 即時新聞可用）
+- browse_task tool + BrowserPipeline：Playwright headless 異步搜尋（AGENT_TEAM_TRIGGER）
+- LINE 長文分段 push（5000 chars/chunk，5 msgs/call）
+- `/chatbot list` 子指令 + 群組 slash command 需 @bot
+- LINE reply token 過期 fallback push（25s buffer）
+- Commits: `d13a6c5` ~ `6403c3c`
 
 **Decisions**:
 - Hub busy/idle race：`set_busy` 移到 `create_task` 之前
@@ -31,13 +37,12 @@
 - system_message 必須用 `mode: "replace"`（不是 append）。append 會保留 Copilot CLI 的 agent system prompt + built-in tools，導致 Claude 模型跑 agent loop 掃檔案
 - session ID 冒號問題：route_id 的 `:` 改成 `-`（SDK 不接受冒號）
 
-**State**: Branch `002-new-mvp`, commit `9699ad0`. 23 tests, ruff clean. Mock + LINE E2E 均通過。
+**State**: Branch `002-new-mvp`, commit `6403c3c`. 23 tests, ruff clean. LINE E2E 驗證通過（八卦王 + web search + reply fallback push）。
 
 **Next**:
-- [ ] Cleanup（task #7）：移除 v1 遺留（agents/base.py, general/, warehouse/, session_manager.py）+ `ContextMessageType.mention_busy`
 - [ ] 群組 @bot mention 測試（驗證 mention filter + context buffer）
 - [ ] 連發兩則測 busy gate
-- [ ] `/model` 切換測試
+- [ ] `/model`、`/chatbot` 切換 LINE 實測
 - [ ] CLI adapter 補做（US3：目前 cli/main.py 繞過 server）
 - [ ] `lifespan()` 160+ 行，可拆分但不急
 - [ ] per-route model override 持久化（plan.md Open Questions）
@@ -49,6 +54,10 @@
 - 要補做原生 CLI tool（spec US3 的 adapter，目前 cli/main.py 繞過 server 直接呼叫 ChatbotManager）
 - LINE E2E 通過，v2 MVP 完整驗證完成
 - tunnel 設定在 `~/.cloudflared/config.yaml`：`bot.webric.dev` → `localhost:2999`
+- 3 chatbot + web search + browser pipeline + LINE 分段 + slash command gate 完成
+- SDK `list_models()` 不列出所有 model，但直接用 model ID 字串可以跑（gpt-5.4, gpt-5.4-mini 都可用）
+- DuckDuckGo HTML 版比 API 版好很多，中文即時新聞都搜得到
+- LINE 回覆 2964 chars 走 push（reply token 54s 過期），分段邏輯就位但實際很少觸發（<5000 chars）
 
 ---
 

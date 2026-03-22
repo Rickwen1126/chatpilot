@@ -18,6 +18,10 @@ class MockAdapter:
     def platform(self) -> str:
         return "mock"
 
+    @property
+    def format_hint(self) -> str | None:
+        return None  # Mock supports any format
+
     async def verify_request(self, request: Request) -> bool:
         return True
 
