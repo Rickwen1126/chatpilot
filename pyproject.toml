@@ -13,6 +13,7 @@ dependencies = [
     "pyyaml",
     "python-dotenv",
     "aiosqlite",
+    "playwright",
 ]
 
 [project.scripts]

@@ -36,6 +36,28 @@ Python 3.11+: Pydantic v2 models, Protocol for interfaces, async/await, ruff for
 - 參數從 `invocation["arguments"]` 取，不可自訂 handler signature
 - Session config 的 `tools` 欄位接受 `list[Tool]`，可搭配 `copilot.define_tool()` 建立
 - SDK 型別參考：`copilot.types` 的 Tool, ToolInvocation, ToolResult, SessionConfig
+- `system_message` 必須用 `mode: "replace"`，不可用 `append`（append 會保留 CLI agent 的 built-in tools）
+- `list_models()` 不一定列出所有可用 model，可直接用 model ID 字串嘗試
+
+## Tool 開發流程
+
+1. 在 `src/chatpilot/tools/builtin/` 建立模組
+2. 定義 Pydantic model 做 params schema（用 `.model_json_schema()` 產 JSON Schema）
+3. Handler 遵守 SDK signature：`async handler(invocation: ToolInvocation) -> ToolResult`
+4. 用 `ToolDefinition` 包裝，設定 `AccessLevel`：
+   - `GLOBAL`：chatbot + pipeline 都能用（如 web_search）
+   - `CHATBOT_ONLY`：僅 chatbot（如 task_history）
+   - `AGENT_TEAM_TRIGGER`：chatbot 可呼叫但 pipeline 禁用（如 submit_task、browse_task）
+5. 在 `server/__init__.py` 的 lifespan 中 `tool_factory.register()`
+6. 在 chatbot config 的 `tools` 列表加入 tool name
+
+## Agent Team Pipeline 開發流程
+
+1. 在 `src/chatpilot/pipeline/samples/` 建立 pipeline 模組
+2. 實作 `PipelineNode` Protocol（`name` property + `async execute(input) -> NodeOutput`）
+3. 繼承 `PipelineDefinition`，設定 `name` 和 `nodes` 列表
+4. 在 `server/__init__.py` 的 lifespan 中 `pipeline_executor.register()`
+5. 建立對應的 `AGENT_TEAM_TRIGGER` tool 讓 chatbot 可觸發
 
 <!-- MANUAL ADDITIONS START -->
 <!-- MANUAL ADDITIONS END -->

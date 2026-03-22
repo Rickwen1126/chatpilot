@@ -18,6 +18,7 @@ from chatpilot.core.types import Message, Response
 from chatpilot.hub.context_buffer import ContextBuffer
 from chatpilot.hub.hub import InMemoryMessageHub
 from chatpilot.pipeline.executor import PipelineExecutor
+from chatpilot.pipeline.samples.browser import BrowserPipeline
 from chatpilot.pipeline.samples.echo import EchoPipeline
 from chatpilot.routing.router import BindingRouter
 from chatpilot.scheduler.runner import RunnerPool
@@ -25,6 +26,7 @@ from chatpilot.scheduler.scheduler import InMemoryTaskScheduler
 from chatpilot.scheduler.store import SqliteTaskStore
 from chatpilot.sdk.session import SdkClient
 from chatpilot.server.webhook import router
+from chatpilot.tools.builtin.browse_task import create_browse_task_tool
 from chatpilot.tools.builtin.submit_task import create_submit_task_tool
 from chatpilot.tools.builtin.task_history import create_task_history_tool
 from chatpilot.tools.builtin.web_search import create_web_search_tool
@@ -142,6 +144,7 @@ async def lifespan(app: FastAPI):
 
     pipeline_executor = PipelineExecutor()
     pipeline_executor.register(EchoPipeline())
+    pipeline_executor.register(BrowserPipeline())
 
     runner_pool = RunnerPool(
         max_workers=config.scheduler.concurrent_runners,
@@ -161,6 +164,9 @@ async def lifespan(app: FastAPI):
 
     web_search_tool = create_web_search_tool()
     tool_factory.register(web_search_tool)
+
+    browse_tool = create_browse_task_tool(scheduler)
+    tool_factory.register(browse_tool)
 
     app.state.scheduler = scheduler
 
