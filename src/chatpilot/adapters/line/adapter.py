@@ -27,14 +27,19 @@ from chatpilot.core.types import Message, Response
 logger = logging.getLogger(__name__)
 
 LINE_MAX_TEXT_LENGTH = 5000
-TRUNCATION_SUFFIX = "…（訊息過長，已截斷）"
+LINE_MAX_MESSAGES_PER_CALL = 5  # LINE allows up to 5 messages per API call
 REPLY_TOKEN_TTL_SECONDS = 25  # LINE reply token expires ~30s, leave 5s buffer
 
 
-def _truncate(text: str) -> str:
+def _split_text(text: str) -> list[str]:
+    """Split text into chunks of LINE_MAX_TEXT_LENGTH."""
     if len(text) <= LINE_MAX_TEXT_LENGTH:
-        return text
-    return text[: LINE_MAX_TEXT_LENGTH - len(TRUNCATION_SUFFIX)] + TRUNCATION_SUFFIX
+        return [text]
+    chunks: list[str] = []
+    while text:
+        chunks.append(text[:LINE_MAX_TEXT_LENGTH])
+        text = text[LINE_MAX_TEXT_LENGTH:]
+    return chunks
 
 
 class LineAdapter:
@@ -89,49 +94,51 @@ class LineAdapter:
             return []
 
     async def send_reply(self, message: Message, response: Response) -> None:
-        """Reply to a message. Falls back to push if reply token expired."""
+        """Reply to a message. Falls back to push if reply token expired or text is long."""
         if self._api is None:
             raise AdapterError("LINE API not initialized")
 
+        chunks = _split_text(response.text)
+        route_id = f"line:{message.conversation_id}"
+
+        # If expired or too many chunks, use push for everything
         elapsed = (datetime.now(timezone.utc) - message.timestamp).total_seconds()
-        if elapsed > REPLY_TOKEN_TTL_SECONDS:
-            logger.info(
-                "Reply token expired (%.0fs), falling back to push for %s",
-                elapsed, message.conversation_id,
-            )
-            route_id = f"line:{message.conversation_id}"
+        if elapsed > REPLY_TOKEN_TTL_SECONDS or len(chunks) > LINE_MAX_MESSAGES_PER_CALL:
+            if elapsed > REPLY_TOKEN_TTL_SECONDS:
+                logger.info("Reply token expired (%.0fs), using push", elapsed)
             await self.push_message(route_id, response)
             return
 
         reply_token = message.platform_context.get("reply_token")
         if not reply_token:
             raise AdapterError("Missing reply_token in platform_context")
-        text = _truncate(response.text)
         try:
             self._api.reply_message(
                 ReplyMessageRequest(
                     reply_token=reply_token,
-                    messages=[TextMessage(text=text)],
+                    messages=[TextMessage(text=c) for c in chunks],
                 )
             )
         except Exception as e:
-            # Reply failed (token might have just expired), try push
             logger.warning("Reply failed, falling back to push: %s", e)
-            route_id = f"line:{message.conversation_id}"
             await self.push_message(route_id, response)
 
     async def push_message(self, route_id: str, response: Response) -> None:
-        """Push message to a conversation. route_id format: line:{conversation_id}."""
+        """Push message to a conversation, splitting long text into chunks."""
         if self._api is None:
             raise AdapterError("LINE API not initialized")
         _, conversation_id = route_id.split(":", 1)
-        text = _truncate(response.text)
-        try:
-            self._api.push_message(
-                PushMessageRequest(
-                    to=conversation_id,
-                    messages=[TextMessage(text=text)],
+        chunks = _split_text(response.text)
+
+        # Send in batches of LINE_MAX_MESSAGES_PER_CALL
+        for i in range(0, len(chunks), LINE_MAX_MESSAGES_PER_CALL):
+            batch = chunks[i : i + LINE_MAX_MESSAGES_PER_CALL]
+            try:
+                self._api.push_message(
+                    PushMessageRequest(
+                        to=conversation_id,
+                        messages=[TextMessage(text=c) for c in batch],
+                    )
                 )
-            )
-        except Exception as e:
-            raise AdapterError("LINE push failed", cause=e) from e
+            except Exception as e:
+                raise AdapterError("LINE push failed", cause=e) from e

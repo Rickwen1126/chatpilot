@@ -53,16 +53,16 @@ class InMemoryMessageHub:
         """Process inbound message through mention filter + busy/idle gate."""
         route_id = f"{message.platform}:{message.conversation_id}"
 
-        # Check prefix commands
-        if message.text.startswith("/"):
+        mentioned = is_mention(message)
+
+        # Check prefix commands (group requires mention, private chat always)
+        if message.text.startswith("/") and mentioned:
             parts = message.text.split(maxsplit=1)
             command = parts[0][1:]  # strip leading /
             args = parts[1] if len(parts) > 1 else ""
             if self._on_command:
                 await self._on_command(command, args, message, adapter)
             return
-
-        mentioned = is_mention(message)
 
         if not mentioned:
             # Group non-mention: store in context buffer silently

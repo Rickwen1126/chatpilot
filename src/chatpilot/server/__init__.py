@@ -114,18 +114,23 @@ async def lifespan(app: FastAPI):
             await adapter.send_reply(
                 message, Response(text=f"已切換模型為 {args.strip()}")
             )
-        elif command == "chatbot" and args.strip():
-            new_chatbot = args.strip()
-            if not chatbot_manager.has_chatbot(new_chatbot):
+        elif command == "chatbot":
+            arg = args.strip()
+            if not arg or arg == "list":
+                names = list(chatbot_manager._configs.keys())
                 await adapter.send_reply(
-                    message, Response(text=f"未知的 chatbot: {new_chatbot}")
+                    message, Response(text=f"可用 chatbot：\n{chr(10).join(names)}")
                 )
-                return
-            await chatbot_manager.destroy_session(route_id)
-            await chatbot_manager.get_or_create_session(route_id, new_chatbot)
-            await adapter.send_reply(
-                message, Response(text=f"已切換 chatbot 為 {new_chatbot}")
-            )
+            elif not chatbot_manager.has_chatbot(arg):
+                await adapter.send_reply(
+                    message, Response(text=f"未知的 chatbot: {arg}")
+                )
+            else:
+                await chatbot_manager.destroy_session(route_id)
+                await chatbot_manager.get_or_create_session(route_id, arg)
+                await adapter.send_reply(
+                    message, Response(text=f"已切換 chatbot 為 {arg}")
+                )
         else:
             logger.debug("Unknown command: /%s", command)
 
