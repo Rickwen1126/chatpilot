@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 
-from linebot.v3.webhooks import MentionTarget, MessageEvent, TextMessageContent
+from linebot.v3.webhooks import MessageEvent, TextMessageContent, UserMentionee
 
 from chatpilot.core.types import Message
 
@@ -38,7 +38,7 @@ def parse_line_events(events: list) -> list[Message]:
         mention = getattr(event.message, "mention", None)
         if mention and hasattr(mention, "mentionees"):
             for m in mention.mentionees:
-                if isinstance(m, MentionTarget) and getattr(m, "is_self", False):
+                if isinstance(m, UserMentionee) and getattr(m, "isSelf", False):
                     is_mention = True
                     break
 
