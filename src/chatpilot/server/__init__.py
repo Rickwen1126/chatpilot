@@ -27,6 +27,7 @@ from chatpilot.sdk.session import SdkClient
 from chatpilot.server.webhook import router
 from chatpilot.tools.builtin.submit_task import create_submit_task_tool
 from chatpilot.tools.builtin.task_history import create_task_history_tool
+from chatpilot.tools.builtin.web_search import create_web_search_tool
 from chatpilot.tools.factory import ToolFactory
 
 logger = logging.getLogger(__name__)
@@ -157,6 +158,9 @@ async def lifespan(app: FastAPI):
 
     history_tool = create_task_history_tool(scheduler)
     tool_factory.register(history_tool)
+
+    web_search_tool = create_web_search_tool()
+    tool_factory.register(web_search_tool)
 
     app.state.scheduler = scheduler
 
