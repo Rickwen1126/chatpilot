@@ -17,6 +17,18 @@
 | `tags` | `list[str]` | N | 標籤（預設空） |
 | `created_at` | `datetime` | Y | 建立時間（UTC） |
 
+### Custom Prompt（使用者偏好）
+
+| 欄位 | 型別 | 必填 | 說明 |
+|------|------|------|------|
+| `id` | `str` | Y | UUID |
+| `route_id` | `str` | Y | 對話路由 ID |
+| `text` | `str` | Y | 偏好描述 |
+| `category` | `str` | N | 分類（tone/format/method/general，預設 general） |
+| `created_at` | `datetime` | Y | 建立時間（UTC） |
+
+**注入方式**：session 建立時，從 Memory Store 讀取該 route 所有 custom_prompt，合併到 system_message 尾端。
+
 ### Reminder（一次性提醒）
 
 | 欄位 | 型別 | 必填 | 說明 |
@@ -86,6 +98,16 @@ CREATE TABLE memory_memos (
 );
 
 CREATE INDEX idx_memos_route ON memory_memos(route_id);
+
+CREATE TABLE memory_custom_prompts (
+    id          TEXT PRIMARY KEY,
+    route_id    TEXT NOT NULL,
+    text        TEXT NOT NULL,
+    category    TEXT DEFAULT 'general',
+    created_at  TEXT NOT NULL
+);
+
+CREATE INDEX idx_custom_prompts_route ON memory_custom_prompts(route_id);
 
 CREATE TABLE memory_reminders (
     id          TEXT PRIMARY KEY,

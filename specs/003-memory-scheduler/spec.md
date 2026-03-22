@@ -31,6 +31,21 @@
 - 私聊：個人備忘
 - 群組：群組共用備忘（綁定 route_id）
 
+### US1b：使用習慣偏好（Custom Prompt）
+
+使用者在對話中表達偏好或使用習慣，bot 偵測到後詢問是否記錄，記錄後影響 bot 的行為風格。
+
+> User: 以後回答我都用繁體中文，簡潔一點
+> Bot: 好的，要幫你記下這個偏好嗎？
+> User: 好
+> Bot: 已記錄。之後我會用繁體中文簡潔回答。
+
+**場景**：
+- 語氣偏好：「正式一點」「輕鬆一點」
+- 格式偏好：「用列表回答」「不要太長」
+- 方法論偏好：「搜尋時優先找官方文件」
+- 習慣更新後，下一則訊息起生效（session 自動重建）
+
 ### US2：設定提醒（Reminder）
 
 使用者叫 bot 在指定時間提醒某件事，bot 到期主動 push 通知。
@@ -76,7 +91,7 @@
 
 - **FR-001**：提供泛用 CRUD 介面（save / get / list / delete），以 route_id + type + id 為唯一鍵
 - **FR-002**：type 由開發者定義，每個 type 有對應的 Pydantic schema 做資料驗證
-- **FR-003**：MVP 支援三個 type：memo、reminder、schedule
+- **FR-003**：MVP 支援四個 type：memo、custom_prompt、reminder、schedule
 - **FR-004**：提供 `query(type, **filters)` 方法供跨 route 查詢（不綁 route_id），給 Cron Scheduler 使用
 - **FR-005**：特殊查詢需求以具名 method 約束（如 `query_due_before(datetime)`），不開放任意 SQL / filter
 - **FR-006**：底層實作使用 SQLite，介面使用 Protocol 保持可替換性
@@ -86,6 +101,14 @@
 
 - **FR-008**：memo 欄位：id, route_id, text, tags（可選）, created_at
 - **FR-009**：支援 list（by route_id）、save、delete
+
+### Custom Prompt Type Schema
+
+- **FR-008a**：custom_prompt 欄位：id, route_id, text, category（可選：tone / format / method / general）, created_at
+- **FR-008b**：per-route 可有多條 custom_prompt，session 建立時全部合併注入 system_message
+- **FR-008c**：custom_prompt 更新後，標記當前 session 為 `needs_rebuild`，下一則訊息觸發 session 重建（帶新 system_message）
+- **FR-008d**：session 重建流程複用既有 `broken` session 的 eviction pattern（ChatbotManager.get_or_create_session 檢查 needs_rebuild → destroy → create new）
+- **FR-008e**：custom_prompt 注入方式：base system_message（from chatbot config）+ custom_prompt texts 合併，以換行分隔
 
 ### Reminder Type Schema
 
@@ -116,6 +139,9 @@
 - **FR-025**：`save_memo` tool（GLOBAL）：LLM 呼叫存取 memo
 - **FR-026**：`list_memos` tool（GLOBAL）：LLM 查詢 memo
 - **FR-027**：`delete_memo` tool（GLOBAL）：LLM 刪除 memo
+- **FR-027a**：`save_custom_prompt` tool（GLOBAL）：LLM 儲存使用者偏好/習慣。儲存後自動標記 session needs_rebuild
+- **FR-027b**：`list_custom_prompts` tool（GLOBAL）：LLM 查詢已記錄的偏好
+- **FR-027c**：`delete_custom_prompt` tool（GLOBAL）：LLM 刪除偏好。刪除後自動標記 session needs_rebuild
 - **FR-028**：`add_reminder` tool（GLOBAL）：LLM 設定 reminder
 - **FR-029**：`schedule_task` tool（GLOBAL）：LLM 設定定期排程
 - **FR-030**：`list_schedules` tool（GLOBAL）：LLM 查詢排程和 reminder
@@ -131,7 +157,7 @@
 | Hub | 無 | 不動 |
 | Router | 無 | 不動 |
 | ChatbotSession | 無 | 不動 |
-| ChatbotManager | 無 | 不動 |
+| ChatbotManager | 最小 | get_or_create_session 加 needs_rebuild 檢查（複用 broken pattern） |
 | Adapters | 無 | 不動（push 已有） |
 | ToolFactory | 最小 | 註冊新 tool（已有流程） |
 | server/__init__.py | 最小 | lifespan 加 MemoryStore + CronScheduler 初始化 |

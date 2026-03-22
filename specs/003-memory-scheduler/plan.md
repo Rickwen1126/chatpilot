@@ -66,7 +66,7 @@ src/chatpilot/
 │   ├── __init__.py
 │   ├── protocol.py             # MemoryStore Protocol
 │   ├── store.py                # SqliteMemoryStore 實作
-│   └── types.py                # Memo, Reminder, Schedule schemas
+│   └── types.py                # Memo, CustomPrompt, Reminder, Schedule schemas
 ├── cron/                       # Cron Scheduler（新增）
 │   ├── __init__.py
 │   ├── scheduler.py            # CronScheduler tick loop + lifecycle
@@ -75,6 +75,9 @@ src/chatpilot/
     ├── save_memo.py
     ├── list_memos.py
     ├── delete_memo.py
+    ├── save_custom_prompt.py
+    ├── list_custom_prompts.py
+    ├── delete_custom_prompt.py
     ├── add_reminder.py
     ├── schedule_task_cron.py    # 避免與既有 submit_task 混淆
     ├── list_schedules.py
