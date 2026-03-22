@@ -15,8 +15,8 @@
 
 **Purpose**: 建立 memory/ 和 cron/ package 結構
 
-- [ ] T001 建立 memory package 結構：src/chatpilot/memory/__init__.py, protocol.py, store.py, types.py
-- [ ] T002 [P] 建立 cron package 結構：src/chatpilot/cron/__init__.py, scheduler.py, parser.py
+- [x] T001 建立 memory package 結構：src/chatpilot/memory/__init__.py, protocol.py, store.py, types.py
+- [x] T002 [P] 建立 cron package 結構：src/chatpilot/cron/__init__.py, scheduler.py, parser.py
 
 ---
 
@@ -26,12 +26,12 @@
 
 **⚠️ 所有 US 任務必須等此 Phase 完成才能開始**
 
-- [ ] T003 定義 Memory Store types in src/chatpilot/memory/types.py：Memo, CustomPrompt, Reminder, Schedule（Pydantic v2 models），MemoryStatus enum（pending/running/completed/failed）。所有欄位 MUST 有 default 值
-- [ ] T004 [P] 定義 MemoryStore Protocol in src/chatpilot/memory/protocol.py：save, get, list, delete, update, query_due_before（per contracts/memory-store.md）
-- [ ] T005 實作 SqliteMemoryStore in src/chatpilot/memory/store.py：共用 data/chatpilot.db，4 張 table（memory_memos, memory_custom_prompts, memory_reminders, memory_schedules），WAL mode，initialize() 建 table + index
-- [ ] T006 [P] 實作 cron 表達式解析器 in src/chatpilot/cron/parser.py：parse_cron(expr) → 計算 next_run_at。支援 daily HH:MM、weekly DAY HH:MM、interval Nm/Nh 三種格式
-- [ ] T007 [P] 單元測試 in tests/unit/test_memory_store.py：CRUD 操作、type 驗證、query_due_before
-- [ ] T008 [P] 單元測試 in tests/unit/test_cron_parser.py：三種 cron 格式解析 + next_run_at 計算
+- [x] T000 定義 Memory Store types in src/chatpilot/memory/types.py：Memo, CustomPrompt, Reminder, Schedule（Pydantic v2 models），MemoryStatus enum（pending/running/completed/failed）。所有欄位 MUST 有 default 值
+- [x] T000 [P] 定義 MemoryStore Protocol in src/chatpilot/memory/protocol.py：save, get, list, delete, update, query_due_before（per contracts/memory-store.md）
+- [x] T000 實作 SqliteMemoryStore in src/chatpilot/memory/store.py：共用 data/chatpilot.db，4 張 table（memory_memos, memory_custom_prompts, memory_reminders, memory_schedules），WAL mode，initialize() 建 table + index
+- [x] T000 [P] 實作 cron 表達式解析器 in src/chatpilot/cron/parser.py：parse_cron(expr) → 計算 next_run_at。支援 daily HH:MM、weekly DAY HH:MM、interval Nm/Nh 三種格式
+- [x] T000 [P] 單元測試 in tests/unit/test_memory_store.py：CRUD 操作、type 驗證、query_due_before
+- [x] T000 [P] 單元測試 in tests/unit/test_cron_parser.py：三種 cron 格式解析 + next_run_at 計算
 
 **Checkpoint**: Memory Store CRUD + Cron Parser 就緒。可開始 US 實作。
 
@@ -45,16 +45,16 @@
 
 ### Implementation
 
-- [ ] T009 [P] [US1] 實作 save_memo tool in src/chatpilot/tools/builtin/save_memo.py：handler 遵守 ToolInvocation → ToolResult，自動帶 route_id。tool description 引導 LLM 主動詢問使用者是否記錄
-- [ ] T010 [P] [US1] 實作 list_memos tool in src/chatpilot/tools/builtin/list_memos.py：列出該 route 所有 memo
-- [ ] T011 [P] [US1] 實作 delete_memo tool in src/chatpilot/tools/builtin/delete_memo.py：刪除指定 memo
-- [ ] T012 [P] [US1] 實作 save_custom_prompt tool in src/chatpilot/tools/builtin/save_custom_prompt.py：儲存偏好 + 標記 session needs_rebuild。tool description 引導 LLM 偵測偏好時主動詢問
-- [ ] T013 [P] [US1] 實作 list_custom_prompts tool in src/chatpilot/tools/builtin/list_custom_prompts.py
-- [ ] T014 [P] [US1] 實作 delete_custom_prompt tool in src/chatpilot/tools/builtin/delete_custom_prompt.py：刪除偏好 + 標記 session needs_rebuild
-- [ ] T015 [US1] ChatbotSession 加 needs_rebuild 屬性 in src/chatpilot/chatbot/session.py：複用 broken pattern
-- [ ] T016 [US1] ChatbotManager 加 memory_store 依賴 + needs_rebuild 檢查 in src/chatpilot/chatbot/manager.py：constructor 加 memory_store 參數，get_or_create_session 檢查 needs_rebuild → destroy → 從 memory_store 讀該 route 的 custom_prompts → 合併到 system_message（格式：base + `[使用者偏好]` + list）→ create new session。log 明確標記「rebuild reason: custom_prompt updated」
-- [ ] T017 [US1] 整合到 app factory in src/chatpilot/server/__init__.py：初始化 MemoryStore，註冊 memo + custom_prompt tools，將 memory_store 傳入 ChatbotManager
-- [ ] T018 [US1] CLI E2E 驗證：chatpilot-cli chat "記住：明天開會" → chatpilot-cli chat "我記了什麼？" → 確認 memo 存取正常
+- [x] T009 [P] [US1] 實作 save_memo tool in src/chatpilot/tools/builtin/save_memo.py：handler 遵守 ToolInvocation → ToolResult，自動帶 route_id。tool description 引導 LLM 主動詢問使用者是否記錄
+- [x] T010 [P] [US1] 實作 list_memos tool in src/chatpilot/tools/builtin/list_memos.py：列出該 route 所有 memo
+- [x] T011 [P] [US1] 實作 delete_memo tool in src/chatpilot/tools/builtin/delete_memo.py：刪除指定 memo
+- [x] T012 [P] [US1] 實作 save_custom_prompt tool in src/chatpilot/tools/builtin/save_custom_prompt.py：儲存偏好 + 標記 session needs_rebuild。tool description 引導 LLM 偵測偏好時主動詢問
+- [x] T013 [P] [US1] 實作 list_custom_prompts tool in src/chatpilot/tools/builtin/list_custom_prompts.py
+- [x] T014 [P] [US1] 實作 delete_custom_prompt tool in src/chatpilot/tools/builtin/delete_custom_prompt.py：刪除偏好 + 標記 session needs_rebuild
+- [x] T015 [US1] ChatbotSession 加 needs_rebuild 屬性 in src/chatpilot/chatbot/session.py：複用 broken pattern
+- [x] T016 [US1] ChatbotManager 加 memory_store 依賴 + needs_rebuild 檢查 in src/chatpilot/chatbot/manager.py：constructor 加 memory_store 參數，get_or_create_session 檢查 needs_rebuild → destroy → 從 memory_store 讀該 route 的 custom_prompts → 合併到 system_message（格式：base + `[使用者偏好]` + list）→ create new session。log 明確標記「rebuild reason: custom_prompt updated」
+- [x] T017 [US1] 整合到 app factory in src/chatpilot/server/__init__.py：初始化 MemoryStore，註冊 memo + custom_prompt tools，將 memory_store 傳入 ChatbotManager
+- [x] T018 [US1] CLI E2E 驗證：chatpilot-cli chat "記住：明天開會" → chatpilot-cli chat "我記了什麼？" → 確認 memo 存取正常
 
 **Checkpoint**: US1 完成。Memo + Custom Prompt 可獨立運作。
 

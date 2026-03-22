@@ -21,6 +21,7 @@ class ChatbotSession:
         self._session = sdk_session
         self._config = config
         self.broken = False
+        self.needs_rebuild = False
 
     @property
     def model(self) -> str:

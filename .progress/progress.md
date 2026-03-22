@@ -1,3 +1,33 @@
+## 2026-03-22 23:31 — 003 spec 完成 + custom_prompt + 平台問題發現
+
+**Goal**: Memory Store + Cron Scheduler spec/plan，加 custom_prompt type
+
+**Done**:
+- 003-memory-scheduler spec 加入 custom_prompt type（使用者偏好/習慣）
+- Session needs_rebuild pattern 設計完成：custom_prompt 更新 → 標記 → 下則訊息重建 session
+- Commit `ae0a5a3`
+
+**Decisions**:
+- custom_prompt 注入 system_message：session create 時合併，不是每輪注入
+- needs_rebuild 複用 broken session eviction pattern，無 race condition（busy gate 序列化）
+- Reminder 未來也走 pipeline 讓 chatbot 潤飾（MVP 先直接 push 原文）
+- 圖床用 Cloudflare R2（免費 10GB/月 + 免費 egress），記在 plan.md Future Tasks
+- 群組觸發關鍵字：`AI `（不分大小寫）+ `@bot mention` 並行，放 config 不放 adapter
+
+**State**: Branch `003-memory-scheduler`, commit `ae0a5a3`. Spec/Plan/Research/DataModel/Contracts 全完成。待 `/speckit.tasks`。
+
+**Next**:
+- [ ] `/speckit.tasks` → 產出 tasks.md
+- [ ] 實作 Memory Store + Cron Scheduler + custom_prompt
+- [ ] 群組 trigger_keywords 功能（`routes.yaml` config-driven，跟 003 無關，獨立做）
+
+**User Notes**:
+- LINE 電腦版無法 @ bot（已知限制），需要關鍵字觸發作為替代方案
+- 觸發方式設計：config `trigger_keywords: ["ai"]`，mention_filter.py 讀 config 檢查，全平台生效
+- 這個跟 003 spec 無關，獨立處理
+
+---
+
 ## 2026-03-22 10:20 — v2 Implementation + CodeTour + Code Review 完成
 
 **Goal**: 實作 v2 全部 42 tasks，建立架構 CodeTour，code review 修 bug
@@ -37,12 +67,12 @@
 - system_message 必須用 `mode: "replace"`（不是 append）。append 會保留 Copilot CLI 的 agent system prompt + built-in tools，導致 Claude 模型跑 agent loop 掃檔案
 - session ID 冒號問題：route_id 的 `:` 改成 `-`（SDK 不接受冒號）
 
-**State**: Branch `002-new-mvp`, commit `ffebe4f`, pushed. 23 tests, ruff clean. LINE + CLI E2E 全功能驗證通過。
+**State**: Branch `003-memory-scheduler`, commit `b48a456`. Spec + Plan + Research + Data Model + Contracts 完成。待 `/speckit.tasks` 產出 task list。main 已 merge + push（`f819d0c`）。
 
 **Next**:
-- [ ] Specs 搬到共用層級：`specs/002-new-mvp/` → `specs/`，對齊實作現況
-- [ ] Merge `002-new-mvp` → `main`，GitHub 改 default branch 為 `main`
-- [ ] 新 branch：memory + scheduler + reminder feature（寫 PRD 再開）
+- [ ] `/speckit.tasks` → 產出 tasks.md
+- [ ] 實作 Memory Store + Cron Scheduler
+- [ ] browse_task (BrowserPipeline) E2E 測試 — code 已寫但未實測
 - [ ] `lifespan()` 160+ 行，可拆分但不急
 - [ ] per-route model override 持久化
 - [ ] 影片支援（agent team tool + frame-by-frame，未來階段）
@@ -52,9 +82,9 @@
 - SDK `list_models()` 不列出所有 model，但直接用 model ID 字串可以跑
 - tunnel 設定在 `~/.cloudflared/config.yaml`：`bot.webric.dev` → `localhost:2999`
 - 圖片設計：buffer 存 ref，LLM 自主決定是否下載
-- 記憶 feature 討論：per-conversation 持久化 + 排程任務 + cron scheduler + 主動 push。應用：todo、reminder、定期查資料。開新 branch + PRD 處理
-- branches: `main` 存在但 remote HEAD 指向 `001-agent-gateway-mvp`，需改 default
-- 後開始做 merge + 新 feature
+- **browse_task（Agent Team 瀏覽器搜尋）已實作但未 E2E 測試**：`pipeline/samples/browser.py`（BrowserPipeline + BrowserSearchNode 用 Playwright headless Chromium）、`tools/builtin/browse_task.py`（AGENT_TEAM_TRIGGER）。測試路徑：chatbot 呼叫 browse_task tool → scheduler.enqueue → RunnerPool → BrowserPipeline → Playwright 搜 Google → push 結果回 chat。需驗證 Playwright 在 server 環境能正常啟動
+- Memory Store + Cron Scheduler spec/plan 完成（003-memory-scheduler branch），含 6 項 research decisions、3 type schemas、2 contracts
+- memo tool description 設計：不讓 LLM 自己決定存什麼，而是偵測到有價值資訊時主動詢問使用者是否記下。行為引導放在 tool description 而非 system prompt，這樣所有 chatbot 自動生效
 
 ---
 
