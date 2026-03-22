@@ -107,8 +107,8 @@
 - **FR-008a**：custom_prompt 欄位：id, route_id, text, category（可選：tone / format / method / general）, created_at
 - **FR-008b**：per-route 可有多條 custom_prompt，session 建立時全部合併注入 system_message
 - **FR-008c**：custom_prompt 更新後，標記當前 session 為 `needs_rebuild`，下一則訊息觸發 session 重建（帶新 system_message）
-- **FR-008d**：session 重建流程複用既有 `broken` session 的 eviction pattern（ChatbotManager.get_or_create_session 檢查 needs_rebuild → destroy → create new）
-- **FR-008e**：custom_prompt 注入方式：base system_message（from chatbot config）+ custom_prompt texts 合併，以換行分隔
+- **FR-008d**：session 重建流程：`needs_rebuild` 是獨立於 `broken` 的第二個 eviction flag。兩者觸發條件不同（broken=SDK crash/timeout，needs_rebuild=custom_prompt 更新），eviction 邏輯相同（destroy → create new），log 分開記錄以區分重建原因
+- **FR-008e**：custom_prompt 注入格式：base system_message + `\n\n[使用者偏好]\n` + 各條 custom_prompt text 以 `\n- ` 串接。範例：`{base}\n\n[使用者偏好]\n- 用繁體中文回答\n- 簡潔為主`
 
 ### Reminder Type Schema
 
@@ -146,7 +146,7 @@
 - **FR-029**：`schedule_task` tool（GLOBAL）：LLM 設定定期排程
 - **FR-030**：`list_schedules` tool（GLOBAL）：LLM 查詢排程和 reminder
 - **FR-031**：`cancel_schedule` tool（GLOBAL）：LLM 取消排程或 reminder
-- **FR-032**：所有 tool 自動帶入 route_id（從 invocation.session_id 推導）
+- **FR-032**：所有 tool 自動帶入 route_id（從 invocation.session_id 推導：`session_id` 格式為 `{platform}-{conversation_id}`，替換第一個 `-` 為 `:` 得到 `route_id`）
 
 ---
 
@@ -170,9 +170,9 @@
 ### 包含
 
 - Memory Store Protocol + SQLite 實作
-- 三個 type：memo、reminder、schedule
+- 四個 type：memo、custom_prompt、reminder、schedule
 - Cron Scheduler tick loop + 狀態追蹤
-- 7 個 chatbot tool
+- 10 個 chatbot tool
 - lifespan 接線
 
 ### 不包含

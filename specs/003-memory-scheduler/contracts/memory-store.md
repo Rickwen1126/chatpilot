@@ -63,7 +63,7 @@ class MemoryStore(Protocol):
 ## 行為約束
 
 - save 時 MUST 驗證 data 符合 type 的 Pydantic schema
-- type MUST 為已註冊的 type（memo / reminder / schedule）
+- type MUST 為已註冊的 type（memo / custom_prompt / reminder / schedule）
 - route_id + type + id 唯一
 - 所有 schema 欄位 MUST 有 default 值（schema 演進安全）
 - SQLite 實作 MUST 使用 WAL mode

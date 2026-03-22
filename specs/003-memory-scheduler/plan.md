@@ -8,7 +8,7 @@
 為 chatpilot gateway 新增兩個獨立核心元件：
 
 1. **Memory Store**：per-conversation 持久化記憶，泛用 CRUD Protocol + SQLite 實作，
-   支援 memo / reminder / schedule 三種 type。
+   支援 memo / custom_prompt / reminder / schedule 四種 type。
 2. **Cron Scheduler**：定時掃描 Memory Store 中到期的 reminder 和 schedule，
    執行動作（push 通知 / 觸發 pipeline），追蹤完整生命週期（pending → running → completed / failed）。
 

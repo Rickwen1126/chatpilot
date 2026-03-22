@@ -52,7 +52,7 @@
 - [ ] T013 [P] [US1] 實作 list_custom_prompts tool in src/chatpilot/tools/builtin/list_custom_prompts.py
 - [ ] T014 [P] [US1] 實作 delete_custom_prompt tool in src/chatpilot/tools/builtin/delete_custom_prompt.py：刪除偏好 + 標記 session needs_rebuild
 - [ ] T015 [US1] ChatbotSession 加 needs_rebuild 屬性 in src/chatpilot/chatbot/session.py：複用 broken pattern
-- [ ] T016 [US1] ChatbotManager.get_or_create_session 加 needs_rebuild 檢查 in src/chatpilot/chatbot/manager.py：needs_rebuild → destroy → 從 Memory Store 讀 custom_prompts → 合併 system_message → create new session
+- [ ] T016 [US1] ChatbotManager 加 memory_store 依賴 + needs_rebuild 檢查 in src/chatpilot/chatbot/manager.py：constructor 加 memory_store 參數，get_or_create_session 檢查 needs_rebuild → destroy → 從 memory_store 讀該 route 的 custom_prompts → 合併到 system_message（格式：base + `[使用者偏好]` + list）→ create new session。log 明確標記「rebuild reason: custom_prompt updated」
 - [ ] T017 [US1] 整合到 app factory in src/chatpilot/server/__init__.py：初始化 MemoryStore，註冊 memo + custom_prompt tools，將 memory_store 傳入 ChatbotManager
 - [ ] T018 [US1] CLI E2E 驗證：chatpilot-cli chat "記住：明天開會" → chatpilot-cli chat "我記了什麼？" → 確認 memo 存取正常
 
