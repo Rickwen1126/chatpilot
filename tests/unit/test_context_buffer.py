@@ -42,11 +42,11 @@ def test_format_context():
     buf = ContextBuffer()
     messages = [
         _ctx_msg("聊天", ContextMessageType.background),
-        _ctx_msg("@bot 幫忙", ContextMessageType.mention_busy),
+        _ctx_msg("@bot 幫忙", ContextMessageType.background),
     ]
     result = buf.format_context(messages)
     assert "[背景]" in result
-    assert "[busy 期間]" in result
+    assert "[背景]" in result
     assert "---" in result
 
 

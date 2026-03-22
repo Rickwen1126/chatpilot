@@ -7,7 +7,13 @@
 - CodeTour `.tours/01-architecture-chatpilot-v2.tour`：Sky Eye 7 stops，追蹤 chat + async task 兩條 data flow
 - Code review 兩輪，修了 10+ issues（見下方 Decisions）
 - 23 tests passing, ruff clean
-- Commit `d13a6c5`
+- Commit `d13a6c5`, `9c283f2`
+- SDK integration 修正：用 SDK 原生 `send_and_wait`，修 system_message 格式、session ID 冒號問題
+- E2E mock test 通過：webhook → mock adapter → hub → router → chatbot → SDK → response（gpt-5-mini, 7 秒回覆）
+- Tour 過程中發現 + 修復 critical issues（tool handler 斷路、busy mention buffer、AccessLevel 合併）
+- LINE adapter fix：`MentionTarget` → `UserMentionee`（linebot SDK v3 API 差異）
+- LINE E2E 通過：私聊「測試 123」→ bot 回覆（gpt-5-mini, 7 秒）
+- Commits: `d13a6c5`, `9c283f2`, `539eba2`, `904b3a1`, `9699ad0`
 
 **Decisions**:
 - Hub busy/idle race：`set_busy` 移到 `create_task` 之前
@@ -21,18 +27,28 @@
 - Runner shutdown 改 `asyncio.Event` 取代 1 秒 polling
 - Router 同分：`>=` last-defined-wins，加文件說明
 - Copilot SDK best practices 加入 CLAUDE.md
+- SDK 原生 send_and_wait 取代自製 event listener
+- system_message 必須用 `mode: "replace"`（不是 append）。append 會保留 Copilot CLI 的 agent system prompt + built-in tools，導致 Claude 模型跑 agent loop 掃檔案
+- session ID 冒號問題：route_id 的 `:` 改成 `-`（SDK 不接受冒號）
 
-**State**: Branch `002-new-mvp`, commit `d13a6c5`, clean working tree. 23 tests, ruff clean.
+**State**: Branch `002-new-mvp`, commit `9699ad0`. 23 tests, ruff clean. Mock + LINE E2E 均通過。
 
 **Next**:
-- [ ] E2E 驗證：啟動 server + LINE webhook 測試（T019, T029 未做）
-- [ ] 私聊 busy gate 行為可能需要 idle 後自動 re-trigger（已封但可能重新討論）
-- [ ] `ContextMessageType.mention_busy` enum value 已無人使用，待清理
+- [ ] Cleanup（task #7）：移除 v1 遺留（agents/base.py, general/, warehouse/, session_manager.py）+ `ContextMessageType.mention_busy`
+- [ ] 群組 @bot mention 測試（驗證 mention filter + context buffer）
+- [ ] 連發兩則測 busy gate
+- [ ] `/model` 切換測試
+- [ ] CLI adapter 補做（US3：目前 cli/main.py 繞過 server）
 - [ ] `lifespan()` 160+ 行，可拆分但不急
 - [ ] per-route model override 持久化（plan.md Open Questions）
 
 **User Notes**:
 - 查看下一步
+- E2E mock test 通過，LINE adapter 還需要 debug
+- Claude 模型在 Copilot CLI 會跑 agent loop 很慢，用 gpt-5-mini 測試秒回。GPT-4.1 疑似當機（0x 是免費不是不可用）
+- 要補做原生 CLI tool（spec US3 的 adapter，目前 cli/main.py 繞過 server 直接呼叫 ChatbotManager）
+- LINE E2E 通過，v2 MVP 完整驗證完成
+- tunnel 設定在 `~/.cloudflared/config.yaml`：`bot.webric.dev` → `localhost:2999`
 
 ---
 

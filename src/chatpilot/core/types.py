@@ -20,7 +20,6 @@ class TaskStatus(str, Enum):
 
 class ContextMessageType(str, Enum):
     background = "background"
-    mention_busy = "mention_busy"
 
 
 class AccessLevel(IntEnum):

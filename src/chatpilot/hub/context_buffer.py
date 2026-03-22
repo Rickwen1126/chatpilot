@@ -7,7 +7,7 @@ import logging
 from collections import defaultdict
 from pathlib import Path
 
-from chatpilot.core.types import ContextMessage, ContextMessageType
+from chatpilot.core.types import ContextMessage
 
 logger = logging.getLogger(__name__)
 
@@ -59,11 +59,7 @@ class ContextBuffer:
         lines = ["[群組近期對話]"]
         for msg in messages:
             ts = msg.timestamp.strftime("%H:%M")
-            if msg.message_type == ContextMessageType.background:
-                tag = "背景"
-            else:
-                tag = "busy 期間"
-            lines.append(f"[{tag}] {msg.user_name} ({ts}): {msg.text}")
+            lines.append(f"[背景] {msg.user_name} ({ts}): {msg.text}")
         lines.append("---")
         lines.append("[以下是直接對你說的訊息]")
         return "\n".join(lines)
