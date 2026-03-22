@@ -1,0 +1,28 @@
+# Binding routing: highest score wins. Same score → last defined wins.
+match_weights:
+  group_id: 10
+  user_id: 8
+  platform: 5
+
+bindings:
+  - match: { platform: "line" }
+    chatbot: general-bot
+  - chatbot: general-bot  # default (no match = score 0)
+
+chatbots:
+  general-bot:
+    model: gpt-4.1
+    # system_message uses mode=replace (fully replaces SDK default prompt)
+    system_message: |
+      你是一個通用助手。
+      你只能使用明確提供給你的工具，禁止使用任何未註冊的內建工具。
+      群組對話中，標記 [背景] 的內容是其他人的閒聊，供你參考但不需回應。
+      --- 分隔線之後是直接對你說的訊息，請優先處理。
+    tools: []
+    context_window: 20
+
+agents: {}
+
+scheduler:
+  concurrent_runners: 2
+  max_queue_size: 100

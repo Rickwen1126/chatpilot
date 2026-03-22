@@ -1,0 +1,42 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environments
+.venv/
+venv/
+
+# Environment variables
+.env
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Config (user-specific, not tracked)
+config/routes.yaml
+
+# uv
+.python-version
+
+# Testing
+.coverage
+htmlcov/
+.pytest_cache/
+
+# Ruff
+.ruff_cache/
+
+# Runtime data
+data/
