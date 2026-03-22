@@ -121,7 +121,7 @@ class ChatbotConfig(BaseModel):
     tools: list[str] = Field(default_factory=list)
     task_history: bool = False
     context_window: int = 20
-    timeout: int = 60
+    timeout: int = 300
 
 
 class AgentConfig(BaseModel):

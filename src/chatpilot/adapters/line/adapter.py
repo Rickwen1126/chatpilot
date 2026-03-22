@@ -7,6 +7,7 @@ import hashlib
 import hmac
 import logging
 import os
+from datetime import datetime, timezone
 
 from fastapi import Request
 from linebot.v3 import WebhookParser
@@ -27,6 +28,7 @@ logger = logging.getLogger(__name__)
 
 LINE_MAX_TEXT_LENGTH = 5000
 TRUNCATION_SUFFIX = "…（訊息過長，已截斷）"
+REPLY_TOKEN_TTL_SECONDS = 25  # LINE reply token expires ~30s, leave 5s buffer
 
 
 def _truncate(text: str) -> str:
@@ -87,11 +89,23 @@ class LineAdapter:
             return []
 
     async def send_reply(self, message: Message, response: Response) -> None:
+        """Reply to a message. Falls back to push if reply token expired."""
+        if self._api is None:
+            raise AdapterError("LINE API not initialized")
+
+        elapsed = (datetime.now(timezone.utc) - message.timestamp).total_seconds()
+        if elapsed > REPLY_TOKEN_TTL_SECONDS:
+            logger.info(
+                "Reply token expired (%.0fs), falling back to push for %s",
+                elapsed, message.conversation_id,
+            )
+            route_id = f"line:{message.conversation_id}"
+            await self.push_message(route_id, response)
+            return
+
         reply_token = message.platform_context.get("reply_token")
         if not reply_token:
             raise AdapterError("Missing reply_token in platform_context")
-        if self._api is None:
-            raise AdapterError("LINE API not initialized")
         text = _truncate(response.text)
         try:
             self._api.reply_message(
@@ -101,7 +115,10 @@ class LineAdapter:
                 )
             )
         except Exception as e:
-            raise AdapterError("LINE reply failed", cause=e) from e
+            # Reply failed (token might have just expired), try push
+            logger.warning("Reply failed, falling back to push: %s", e)
+            route_id = f"line:{message.conversation_id}"
+            await self.push_message(route_id, response)
 
     async def push_message(self, route_id: str, response: Response) -> None:
         """Push message to a conversation. route_id format: line:{conversation_id}."""
