@@ -1,79 +1,92 @@
-"""CLI entry point for chatpilot."""
+"""CLI entry point for chatpilot — talks to running server."""
 
 from __future__ import annotations
 
 import argparse
-import asyncio
+import json
 import sys
-from pathlib import Path
+import urllib.request
 
-from dotenv import load_dotenv
-
-
-async def run_chatbot(chatbot_name: str, message: str) -> None:
-    """Send a message to a chatbot and print the response."""
-    from chatpilot.chatbot.manager import ChatbotManager
-    from chatpilot.core.config import load_config
-    from chatpilot.sdk.session import SdkClient
-    from chatpilot.tools.factory import ToolFactory
-
-    config = load_config(Path("config/routes.yaml"))
-    sdk = SdkClient()
-    await sdk.start()
-    try:
-        manager = ChatbotManager(sdk, config.chatbots, ToolFactory())
-        route_id = f"cli:{chatbot_name}"
-        session = await manager.get_or_create_session(route_id, chatbot_name)
-        response = await session.send_message(message)
-        print(response.text)
-    finally:
-        await sdk.stop()
+DEFAULT_BASE_URL = "http://localhost:2999"
 
 
-async def run_pipeline(pipeline_name: str, input_json: str) -> None:
-    """Trigger a pipeline and print the result."""
-    import json
-    import uuid
-    from datetime import datetime, timezone
-
-    from chatpilot.core.types import TaskInfo
-    from chatpilot.pipeline.executor import PipelineExecutor
-    from chatpilot.pipeline.samples.echo import EchoPipeline
-
-    executor = PipelineExecutor()
-    executor.register(EchoPipeline())
-
-    task = TaskInfo(
-        id=str(uuid.uuid4()),
-        created_at=datetime.now(timezone.utc),
-        pipeline_name=pipeline_name,
-        input_summary=input_json[:200],
-        input_data=json.loads(input_json),
-        chat_route_id="cli:local",
+def chat(base_url: str, message: str, user_id: str = "cli-user") -> None:
+    """Send a message through the full server pipeline."""
+    url = f"{base_url}/cli/chat"
+    data = json.dumps({"message": message, "user_id": user_id}).encode()
+    req = urllib.request.Request(
+        url,
+        data=data,
+        headers={"Content-Type": "application/json"},
+        method="POST",
     )
-    result = await executor.execute(task)
-    print(json.dumps(result.model_dump(), indent=2, ensure_ascii=False, default=str))
+    try:
+        with urllib.request.urlopen(req, timeout=300) as resp:
+            result = json.loads(resp.read().decode())
+            print(result.get("response", "(no response)"))
+    except urllib.error.URLError as e:
+        print(f"Error: {e}. Is the server running?", file=sys.stderr)
+        sys.exit(1)
+
+
+def list_chatbots(base_url: str) -> None:
+    """List available chatbots via /chatbot command."""
+    chat(base_url, "/chatbot list")
+
+
+def switch_chatbot(base_url: str, name: str) -> None:
+    """Switch chatbot via /chatbot command."""
+    chat(base_url, f"/chatbot {name}")
+
+
+def switch_model(base_url: str, model: str) -> None:
+    """Switch model via /model command."""
+    chat(base_url, f"/model {model}")
+
+
+def health(base_url: str) -> None:
+    """Check server health."""
+    url = f"{base_url}/health"
+    try:
+        with urllib.request.urlopen(url, timeout=5) as resp:
+            result = json.loads(resp.read().decode())
+            print(json.dumps(result, indent=2))
+    except urllib.error.URLError as e:
+        print(f"Server not reachable: {e}", file=sys.stderr)
+        sys.exit(1)
 
 
 def main() -> None:
-    load_dotenv()
-
     parser = argparse.ArgumentParser(description="ChatPilot CLI")
+    parser.add_argument(
+        "--url", default=DEFAULT_BASE_URL, help="Server URL"
+    )
     sub = parser.add_subparsers(dest="command")
 
-    chat_p = sub.add_parser("chat", help="Chat with a chatbot")
-    chat_p.add_argument("--chatbot", required=True, help="Chatbot name")
-    chat_p.add_argument("--message", required=True, help="Message text")
+    chat_p = sub.add_parser("chat", help="Send a message")
+    chat_p.add_argument("message", help="Message text")
+    chat_p.add_argument("--user", default="cli-user", help="User ID")
 
-    pipe_p = sub.add_parser("pipeline", help="Run a pipeline")
-    pipe_p.add_argument("--name", required=True, help="Pipeline name")
-    pipe_p.add_argument("--input", required=True, help="Input JSON")
+    sub.add_parser("list", help="List chatbots")
+    sub.add_parser("health", help="Server health check")
+
+    switch_p = sub.add_parser("switch", help="Switch chatbot")
+    switch_p.add_argument("name", help="Chatbot name")
+
+    model_p = sub.add_parser("model", help="Switch model")
+    model_p.add_argument("name", help="Model ID")
 
     args = parser.parse_args()
     if args.command == "chat":
-        asyncio.run(run_chatbot(args.chatbot, args.message))
-    elif args.command == "pipeline":
-        asyncio.run(run_pipeline(args.name, args.input))
+        chat(args.url, args.message, args.user)
+    elif args.command == "list":
+        chat(args.url, "/chatbot list")
+    elif args.command == "switch":
+        switch_chatbot(args.url, args.name)
+    elif args.command == "model":
+        switch_model(args.url, args.name)
+    elif args.command == "health":
+        health(args.url)
     else:
         parser.print_help()
         sys.exit(1)
