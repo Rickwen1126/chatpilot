@@ -2,24 +2,12 @@
 
 from __future__ import annotations
 
-import asyncio
-import json
 import logging
 from typing import Any
 
 from copilot.types import Tool as SdkTool
 
 logger = logging.getLogger(__name__)
-
-
-class ToolCallRecord:
-    """Record of a single tool call for audit trail."""
-
-    def __init__(self, tool: str, input: str):
-        self.tool = tool
-        self.input = input
-        self.output: str = ""
-        self.success: bool = False
 
 
 class SdkSession:
@@ -32,77 +20,29 @@ class SdkSession:
     async def send_and_wait(self, message: str, timeout: float = 60.0) -> str:
         """Send message and wait for assistant response.
 
+        Uses the SDK's built-in send_and_wait which handles
+        event listening, idle detection, and timeout internally.
+
         Raises:
             TimeoutError: If response takes longer than timeout.
-            ProcessExitedError: If CLI process crashes.
         """
-        done = asyncio.Event()
-        result_text = ""
-        tool_calls: list[ToolCallRecord] = []
-        pending: dict[str, ToolCallRecord] = {}
-
-        def on_event(event: Any) -> None:
-            nonlocal result_text
-            if not hasattr(event, "type") or not hasattr(event.type, "value"):
-                return
-            etype = event.type.value
-
-            if etype == "tool.execution_start":
-                data = event.data
-                call_id = getattr(data, "toolCallId", None) or data.get("toolCallId", "")
-                tool_name = getattr(data, "toolName", None) or data.get("toolName", "")
-                args = getattr(data, "arguments", None) or data.get("arguments", {})
-                record = ToolCallRecord(
-                    tool=tool_name,
-                    input=json.dumps(args, ensure_ascii=False, default=str)[:200],
-                )
-                pending[call_id] = record
-                tool_calls.append(record)
-                logger.info(
-                    "Session %s tool_call_start: %s(%s)",
-                    self.session_id, tool_name, record.input,
-                )
-
-            elif etype == "tool.execution_complete":
-                data = event.data
-                call_id = getattr(data, "toolCallId", None) or data.get("toolCallId", "")
-                success = getattr(data, "success", None)
-                if success is None:
-                    success = data.get("success", False)
-                result = getattr(data, "result", None) or data.get("result", {})
-                content = ""
-                if isinstance(result, dict):
-                    content = result.get("content", "")
-                elif hasattr(result, "content"):
-                    content = result.content or ""
-                record = pending.pop(call_id, None)
-                if record:
-                    record.output = str(content)[:300]
-                    record.success = bool(success)
-                logger.info(
-                    "Session %s tool_call_done: %s success=%s",
-                    self.session_id, record.tool if record else "?", success,
-                )
-
-            elif etype == "assistant.message":
-                content = getattr(event.data, "content", None)
-                if content is None:
-                    content = event.data.get("content", "") if isinstance(event.data, dict) else ""
-                result_text = content
-
-            elif etype == "session.idle":
-                done.set()
-
-        self._session.on(on_event)
-        await self._session.send({"prompt": message})
-        await asyncio.wait_for(done.wait(), timeout=timeout)
-        return result_text
+        logger.info(
+            "[SDK] %s sending (%d chars) timeout=%ss", self.session_id, len(message), timeout
+        )
+        result = await self._session.send_and_wait(
+            {"prompt": message}, timeout=timeout
+        )
+        logger.info("[SDK] %s got result: %s", self.session_id, type(result))
+        if result is None:
+            return ""
+        content = getattr(result.data, "content", None) or ""
+        logger.info("[SDK] %s response: %d chars", self.session_id, len(content))
+        return content
 
     async def destroy(self) -> None:
         """Destroy the underlying SDK session."""
         try:
-            if hasattr(self._session, "destroy"):
-                await self._session.destroy()
+            await self._session.destroy()
         except Exception:
             logger.warning("Failed to destroy session %s", self.session_id)
 
@@ -151,7 +91,7 @@ class SdkClient:
         if model:
             config["model"] = model
         if system_message:
-            config["system_message"] = system_message
+            config["system_message"] = {"mode": "append", "content": system_message}
         if tools:
             config["tools"] = tools
         session = await self._client.create_session(config)

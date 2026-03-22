@@ -1,3 +1,41 @@
+## 2026-03-22 10:20 — v2 Implementation + CodeTour + Code Review 完成
+
+**Goal**: 實作 v2 全部 42 tasks，建立架構 CodeTour，code review 修 bug
+
+**Done**:
+- `/speckit.implement` 完成：9 phases, 42 tasks, 32 source files, 2259 LOC
+- CodeTour `.tours/01-architecture-chatpilot-v2.tour`：Sky Eye 7 stops，追蹤 chat + async task 兩條 data flow
+- Code review 兩輪，修了 10+ issues（見下方 Decisions）
+- 23 tests passing, ruff clean
+- Commit `d13a6c5`
+
+**Decisions**:
+- Hub busy/idle race：`set_busy` 移到 `create_task` 之前
+- `/model` 不 mutate shared ChatbotConfig：改用 `_route_model_overrides` per-route dict（in-memory，重啟丟失 — 記在 plan.md Open Questions）
+- Busy 時 mention 不存 buffer，直接拒絕 + 回「處理中」。原因：使用者不知道 buffer 訊息會變成下次的 context
+- Tool 必須用 SDK `copilot.types.Tool` dataclass，不是 plain dict（之前用錯了）。Handler 必須遵守 `(ToolInvocation) -> ToolResult` signature
+- `mark_agent_team_tool` 合併進 `AccessLevel.AGENT_TEAM_TRIGGER = 4`，type contract 取代 runtime flag
+- Chatbot timeout 改為 config 可設（`ChatbotConfig.timeout`），timeout/crash 時 destroy session + mark broken，下次自動重建
+- Task timeout 用 `asyncio.wait_for` 包 pipeline execution
+- Runner persist 失敗不 block push（try/except 分離）
+- Runner shutdown 改 `asyncio.Event` 取代 1 秒 polling
+- Router 同分：`>=` last-defined-wins，加文件說明
+- Copilot SDK best practices 加入 CLAUDE.md
+
+**State**: Branch `002-new-mvp`, commit `d13a6c5`, clean working tree. 23 tests, ruff clean.
+
+**Next**:
+- [ ] E2E 驗證：啟動 server + LINE webhook 測試（T019, T029 未做）
+- [ ] 私聊 busy gate 行為可能需要 idle 後自動 re-trigger（已封但可能重新討論）
+- [ ] `ContextMessageType.mention_busy` enum value 已無人使用，待清理
+- [ ] `lifespan()` 160+ 行，可拆分但不急
+- [ ] per-route model override 持久化（plan.md Open Questions）
+
+**User Notes**:
+- 查看下一步
+
+---
+
 ## 2026-03-21 11:13 — v2 Plan + Tasks 完成，ready to implement
 
 **Goal**: 基於 v2 spec 產出完整實作計畫（plan → research → data model → contracts → tasks），解決所有待決事項，通過 cross-artifact 分析。

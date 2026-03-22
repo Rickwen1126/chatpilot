@@ -50,8 +50,9 @@ class ChatbotManager:
 
         model = self._route_model_overrides.get(route_id, config.model)
         tools = self._tool_factory.get_tools_for_chatbot(config.tools)
+        sdk_session_id = route_id.replace(":", "-")
         sdk_session = await self._sdk.create_session(
-            session_id=route_id,
+            session_id=sdk_session_id,
             model=model,
             system_message=config.system_message,
             tools=tools or None,

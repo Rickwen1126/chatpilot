@@ -40,10 +40,12 @@ class ChatbotSession:
         if context_prefix:
             prompt = f"{context_prefix}\n{text}"
 
+        logger.info("[Chatbot] %s sending (%d chars)", self.chatbot_name, len(prompt))
         try:
             result = await self._session.send_and_wait(
                 prompt, timeout=self._config.timeout
             )
+            logger.info("[Chatbot] %s got response (%d chars)", self.chatbot_name, len(result))
             return Response(text=result)
         except TimeoutError:
             logger.warning("Chatbot timeout for session %s", self._session.session_id)
