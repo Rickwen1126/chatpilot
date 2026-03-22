@@ -69,6 +69,7 @@ def main() -> None:
 
     sub.add_parser("list", help="List chatbots")
     sub.add_parser("health", help="Server health check")
+    sub.add_parser("reload", help="Reload config")
 
     switch_p = sub.add_parser("switch", help="Switch chatbot")
     switch_p.add_argument("name", help="Chatbot name")
@@ -87,6 +88,13 @@ def main() -> None:
         switch_model(args.url, args.name)
     elif args.command == "health":
         health(args.url)
+    elif args.command == "reload":
+        url = f"{args.url}/cli/reload"
+        req = urllib.request.Request(
+            url, data=b"{}", headers={"Content-Type": "application/json"}, method="POST"
+        )
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            print(json.loads(resp.read().decode()).get("status", "done"))
     else:
         parser.print_help()
         sys.exit(1)

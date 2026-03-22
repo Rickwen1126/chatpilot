@@ -8,7 +8,7 @@ from typing import Callable
 
 import yaml
 from pydantic import BaseModel
-from watchdog.events import FileModifiedEvent, FileSystemEventHandler
+from watchdog.events import FileSystemEvent, FileSystemEventHandler
 from watchdog.observers import Observer
 
 from chatpilot.core.types import (
@@ -57,8 +57,8 @@ class _ConfigReloadHandler(FileSystemEventHandler):
         self._path = path
         self._callback = callback
 
-    def on_modified(self, event: FileModifiedEvent) -> None:
-        if not isinstance(event, FileModifiedEvent):
+    def on_modified(self, event: FileSystemEvent) -> None:
+        if event.is_directory:
             return
         if Path(event.src_path).resolve() != self._path.resolve():
             return

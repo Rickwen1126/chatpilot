@@ -50,6 +50,7 @@ async def lifespan(app: FastAPI):
 
     # Load config
     config_path = Path(os.environ.get("ROUTES_PATH", "config/routes.yaml"))
+    app.state.config_path = config_path
     try:
         config = load_config(config_path)
     except FileNotFoundError:

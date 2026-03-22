@@ -110,6 +110,15 @@ async def cli_chat(request: Request) -> JSONResponse:
     return JSONResponse(content={"response": captured["text"]})
 
 
+@router.post("/cli/reload")
+async def cli_reload(request: Request) -> JSONResponse:
+    """Force reload config from routes.yaml."""
+    import os
+    config_path = request.app.state.config_path
+    os.utime(config_path)  # touch to trigger watchdog
+    return JSONResponse(content={"status": "reloaded"})
+
+
 @router.get("/health")
 async def health(request: Request) -> JSONResponse:
     """Health check endpoint."""
