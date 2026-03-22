@@ -5,6 +5,8 @@ Last updated: 2026-03-22
 ## Active Technologies
 - Python 3.11+ + FastAPI, Pydantic v2, github-copilot-sdk, line-bot-sdk, watchdog, pyyaml, uvicorn, playwright
 - Storage: In-memory（MVP）；SQLite（task history）；disk JSON（context buffer cold layer）
+- Python 3.11+（沿用既有） + FastAPI, Pydantic v2, aiosqlite, github-copilot-sdk（全部既有） (003-memory-scheduler)
+- SQLite（複用 TaskStore 的 aiosqlite + WAL 模式） (003-memory-scheduler)
 
 ## Project Structure
 
@@ -77,3 +79,6 @@ Python 3.11+: Pydantic v2 models, Protocol for interfaces, async/await, ruff for
 
 <!-- MANUAL ADDITIONS START -->
 <!-- MANUAL ADDITIONS END -->
+
+## Recent Changes
+- 003-memory-scheduler: Added Python 3.11+（沿用既有） + FastAPI, Pydantic v2, aiosqlite, github-copilot-sdk（全部既有）
