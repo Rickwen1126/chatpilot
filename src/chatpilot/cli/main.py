@@ -1,69 +1,82 @@
-"""CLI entry point — direct agent interaction without webhook server."""
+"""CLI entry point for chatpilot."""
 
 from __future__ import annotations
 
 import argparse
 import asyncio
 import sys
+from pathlib import Path
 
 from dotenv import load_dotenv
 
 
-async def async_main(
-    agent_name: str, message_text: str, session_id: str | None
-) -> None:
-    from chatpilot.agents import agent_registry, register_agent
-    from chatpilot.agents.general import general_agent
-    from chatpilot.core.types import Message
-    from chatpilot.sdk.session_manager import session_manager
+async def run_chatbot(chatbot_name: str, message: str) -> None:
+    """Send a message to a chatbot and print the response."""
+    from chatpilot.chatbot.manager import ChatbotManager
+    from chatpilot.core.config import load_config
+    from chatpilot.sdk.session import SdkClient
+    from chatpilot.tools.factory import ToolFactory
 
-    # Register agents
-    register_agent(general_agent)
-
-    # Start SDK
-    await session_manager.start()
-
-    # Look up agent
-    agent = agent_registry.get(agent_name)
-    if agent is None:
-        print(f"Error: unknown agent '{agent_name}'", file=sys.stderr)
-        print(f"Available agents: {list(agent_registry.keys())}", file=sys.stderr)
-        sys.exit(1)
-
-    # Compute session_id
-    import time
-
-    sid = session_id or f"cli-{int(time.time())}"
-
-    # Build message
-    msg = Message(
-        text=message_text,
-        user_id="cli-user",
-        platform="cli",
-        conversation_id=None,
-    )
-
+    config = load_config(Path("config/routes.yaml"))
+    sdk = SdkClient()
+    await sdk.start()
     try:
-        response = await agent.handle(msg, sid)
+        manager = ChatbotManager(sdk, config.chatbots, ToolFactory())
+        route_id = f"cli:{chatbot_name}"
+        session = await manager.get_or_create_session(route_id, chatbot_name)
+        response = await session.send_message(message)
         print(response.text)
-    except Exception as e:
-        print(f"Error: {e}", file=sys.stderr)
-        sys.exit(1)
     finally:
-        await session_manager.stop()
+        await sdk.stop()
+
+
+async def run_pipeline(pipeline_name: str, input_json: str) -> None:
+    """Trigger a pipeline and print the result."""
+    import json
+    import uuid
+    from datetime import datetime, timezone
+
+    from chatpilot.core.types import TaskInfo
+    from chatpilot.pipeline.executor import PipelineExecutor
+    from chatpilot.pipeline.samples.echo import EchoPipeline
+
+    executor = PipelineExecutor()
+    executor.register(EchoPipeline())
+
+    task = TaskInfo(
+        id=str(uuid.uuid4()),
+        created_at=datetime.now(timezone.utc),
+        pipeline_name=pipeline_name,
+        input_summary=input_json[:200],
+        input_data=json.loads(input_json),
+        chat_route_id="cli:local",
+    )
+    result = await executor.execute(task)
+    print(json.dumps(result.model_dump(), indent=2, ensure_ascii=False, default=str))
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="ChatPilot CLI")
-    parser.add_argument(
-        "--agent", required=True, help="Agent name (e.g., general-agent)"
-    )
-    parser.add_argument("--message", required=True, help="Message text to send")
-    parser.add_argument("--session-id", default=None, help="Optional session ID")
-    args = parser.parse_args()
-
     load_dotenv()
-    asyncio.run(async_main(args.agent, args.message, args.session_id))
+
+    parser = argparse.ArgumentParser(description="ChatPilot CLI")
+    sub = parser.add_subparsers(dest="command")
+
+    chat_p = sub.add_parser("chat", help="Chat with a chatbot")
+    chat_p.add_argument("--chatbot", required=True, help="Chatbot name")
+    chat_p.add_argument("--message", required=True, help="Message text")
+
+    pipe_p = sub.add_parser("pipeline", help="Run a pipeline")
+    pipe_p.add_argument("--name", required=True, help="Pipeline name")
+    pipe_p.add_argument("--input", required=True, help="Input JSON")
+
+    args = parser.parse_args()
+    if args.command == "chat":
+        asyncio.run(run_chatbot(args.chatbot, args.message))
+    elif args.command == "pipeline":
+        asyncio.run(run_pipeline(args.name, args.input))
+    else:
+        parser.print_help()
+        sys.exit(1)
 
 
 if __name__ == "__main__":

@@ -1,37 +1,26 @@
-# Route Configuration
-# Defines which agent handles each platform + conversation pair.
-#
-# Top-level fields:
-#   agentList          - All known agent names (validated at startup)
-#   platforms          - Per-platform routing config
-#
-# Per-platform:
-#   defaultAgent       - Agent used when no conversation route matches
-#   conversationRoutes - Map of conversationId -> {agent, model, workdir}
-#                        Use "null" for private chat / default route
-#
-# Hot reload: Changes to this file are automatically picked up without server restart.
+# Binding routing: highest score wins. Same score → last defined wins.
+match_weights:
+  group_id: 10
+  user_id: 8
+  platform: 5
 
-agentList:
-  - general-agent
-  - warehouse-agent
+bindings:
+  - match: { platform: "line" }
+    chatbot: general-bot
+  - chatbot: general-bot  # default (no match = score 0)
 
-platforms:
-  line:
-    defaultAgent: general-agent
-    conversationRoutes:
-      "null":
-        agent: general-agent
-        model: claude-haiku-4.5
-        workdir: ~/code/chatpilot/
-      "C1234567890abcdef":
-        agent: warehouse-agent
-        model: claude-haiku-4.5
-        workdir: ~/code/chatpilot/
-  mock:
-    defaultAgent: general-agent
-    conversationRoutes:
-      "null":
-        agent: general-agent
-        model: gpt-4.1
-        workdir: ~/code/chatpilot/
+chatbots:
+  general-bot:
+    model: gpt-4.1
+    system_message: |
+      你是一個通用助手。
+      群組對話中，標記 [背景] 的內容是其他人的閒聊，供你參考但不需回應。
+      --- 分隔線之後是直接對你說的訊息，請優先處理。
+    tools: []
+    context_window: 20
+
+agents: {}
+
+scheduler:
+  concurrent_runners: 2
+  max_queue_size: 100

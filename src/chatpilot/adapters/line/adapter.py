@@ -1,0 +1,120 @@
+"""LINE channel adapter — implements ChannelAdapter Protocol."""
+
+from __future__ import annotations
+
+import base64
+import hashlib
+import hmac
+import logging
+import os
+
+from fastapi import Request
+from linebot.v3 import WebhookParser
+from linebot.v3.messaging import (
+    ApiClient,
+    Configuration,
+    MessagingApi,
+    PushMessageRequest,
+    ReplyMessageRequest,
+    TextMessage,
+)
+
+from chatpilot.adapters.line.parser import parse_line_events
+from chatpilot.core.errors import AdapterError
+from chatpilot.core.types import Message, Response
+
+logger = logging.getLogger(__name__)
+
+LINE_MAX_TEXT_LENGTH = 5000
+TRUNCATION_SUFFIX = "…（訊息過長，已截斷）"
+
+
+def _truncate(text: str) -> str:
+    if len(text) <= LINE_MAX_TEXT_LENGTH:
+        return text
+    return text[: LINE_MAX_TEXT_LENGTH - len(TRUNCATION_SUFFIX)] + TRUNCATION_SUFFIX
+
+
+class LineAdapter:
+    """LINE Messaging API adapter."""
+
+    def __init__(self) -> None:
+        self._secret = os.environ.get("LINE_CHANNEL_SECRET", "")
+        token = os.environ.get("LINE_CHANNEL_ACCESS_TOKEN", "")
+        self._parser = WebhookParser(self._secret) if self._secret else None
+        if token:
+            config = Configuration(access_token=token)
+            api_client = ApiClient(config)
+            self._api = MessagingApi(api_client)
+        else:
+            self._api = None
+
+    @property
+    def platform(self) -> str:
+        return "line"
+
+    async def verify_request(self, request: Request) -> bool:
+        signature = request.headers.get("X-Line-Signature", "")
+        body = await request.body()
+        if not signature or not self._secret:
+            raise AdapterError("Missing LINE signature", code="SIGNATURE_INVALID")
+        try:
+            gen_sig = hmac.new(
+                self._secret.encode("utf-8"), body, hashlib.sha256
+            ).digest()
+            valid = hmac.compare_digest(
+                signature.encode("utf-8"),
+                base64.b64encode(gen_sig).decode("utf-8").encode("utf-8"),
+            )
+            if not valid:
+                raise AdapterError("Invalid LINE signature", code="SIGNATURE_INVALID")
+            return True
+        except AdapterError:
+            raise
+        except Exception as e:
+            raise AdapterError("Signature verification failed", cause=e) from e
+
+    async def parse_messages(self, request: Request) -> list[Message]:
+        if self._parser is None:
+            return []
+        body = await request.body()
+        signature = request.headers.get("X-Line-Signature", "")
+        try:
+            events = self._parser.parse(body.decode("utf-8"), signature)
+            return parse_line_events(events)
+        except Exception as e:
+            logger.error("LINE parse error: %s", e)
+            return []
+
+    async def send_reply(self, message: Message, response: Response) -> None:
+        reply_token = message.platform_context.get("reply_token")
+        if not reply_token:
+            raise AdapterError("Missing reply_token in platform_context")
+        if self._api is None:
+            raise AdapterError("LINE API not initialized")
+        text = _truncate(response.text)
+        try:
+            self._api.reply_message(
+                ReplyMessageRequest(
+                    reply_token=reply_token,
+                    messages=[TextMessage(text=text)],
+                )
+            )
+        except Exception as e:
+            raise AdapterError("LINE reply failed", cause=e) from e
+
+    async def push_message(self, route_id: str, response: Response) -> None:
+        """Push message to a conversation. route_id format: line:{conversation_id}."""
+        if self._api is None:
+            raise AdapterError("LINE API not initialized")
+        _, conversation_id = route_id.split(":", 1)
+        text = _truncate(response.text)
+        try:
+            self._api.push_message(
+                PushMessageRequest(
+                    to=conversation_id,
+                    messages=[TextMessage(text=text)],
+                )
+            )
+        except Exception as e:
+            raise AdapterError("LINE push failed", cause=e) from e

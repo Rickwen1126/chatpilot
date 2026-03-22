@@ -1,35 +1,55 @@
-"""Webhook handler — POST /webhook/{platform} thin route."""
+"""Webhook handler — thin route layer for POST /webhook/{platform}."""
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Request, Response
+import logging
+import time
 
-from chatpilot.channels.adapter import AdapterRegistry
+from fastapi import APIRouter, Request
+from fastapi.responses import JSONResponse
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
 
 @router.post("/webhook/{platform}")
-async def webhook_handler(platform: str, request: Request) -> Response:
+async def webhook_handler(platform: str, request: Request) -> JSONResponse:
     """Handle incoming webhook from any platform."""
-    app = request.app
-    adapter_registry: AdapterRegistry = app.state.adapter_registry
+    adapters: dict = request.app.state.adapters
+    hub = request.app.state.hub
 
-    adapter = adapter_registry.get(platform)
+    adapter = adapters.get(platform)
     if adapter is None:
-        return Response(status_code=400, content=f"Unknown platform: {platform}")
+        return JSONResponse(
+            status_code=404,
+            content={"error": f"Unknown platform: {platform}", "code": "PLATFORM_UNKNOWN"},
+        )
 
-    raw_body = await request.body()
-    signature = request.headers.get("x-line-signature", "")
-    if not adapter.verify_signature(raw_body, signature):
-        return Response(status_code=401, content="Invalid signature")
+    try:
+        await adapter.verify_request(request)
+    except Exception as e:
+        logger.warning("Signature verification failed for %s: %s", platform, e)
+        return JSONResponse(
+            status_code=401,
+            content={"error": "Invalid signature", "code": "SIGNATURE_INVALID"},
+        )
 
-    if hasattr(adapter, "parse_messages_with_signature"):
-        messages = adapter.parse_messages_with_signature(raw_body, signature)
-    else:
-        messages = adapter.parse_messages(raw_body)
-
+    messages = await adapter.parse_messages(request)
     for msg in messages:
-        await app.state.processor.process(msg, adapter)
+        await hub.receive(msg, adapter)
 
-    return Response(status_code=200, content="OK")
+    return JSONResponse(status_code=200, content={"status": "ok"})
+
+
+@router.get("/health")
+async def health(request: Request) -> JSONResponse:
+    """Health check endpoint."""
+    uptime = time.time() - request.app.state.start_time
+    return JSONResponse(
+        content={
+            "status": "ok",
+            "version": "0.2.0",
+            "uptime_seconds": int(uptime),
+        }
+    )

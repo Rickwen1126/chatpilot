@@ -167,6 +167,10 @@ v2 直接對應架構圖的模組名稱，降低認知負擔。
 
 **Post-design gate 結果**：全部通過。
 
+## Open Questions（實作後發現）
+
+- [ ] **Per-route model override 持久化**：`/model` 切換目前是 in-memory，重啟丟失。ChatbotConfig 是 shared by type（多個 route 共用同一份），per-route override 存在 `ChatbotManager._route_model_overrides` dict。需決定：(1) 接受重啟歸零（MVP）(2) persist 到 SQLite 或 JSON (3) 寫回 routes.yaml（會和 hot reload 衝突）。同理未來如果 `/chatbot` 指令也做 per-route 覆蓋，也需要同樣的 persistence 決策。
+
 ## Complexity Tracking
 
 > 無 Constitution 違反，本節不適用。

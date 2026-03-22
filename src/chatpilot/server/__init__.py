@@ -4,21 +4,30 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from dotenv import load_dotenv
 from fastapi import FastAPI
 
-from chatpilot.agents import agent_registry, register_agent
-from chatpilot.agents.general import general_agent
-from chatpilot.agents.warehouse import warehouse_agent
-from chatpilot.channels.adapter import AdapterRegistry
-from chatpilot.channels.line import line_adapter
-from chatpilot.channels.mock import mock_adapter
-from chatpilot.core.errors import RouteError
-from chatpilot.dispatch.route_loader import load_route_config
-from chatpilot.sdk.session_manager import session_manager
+from chatpilot.adapters.protocol import ChannelAdapter
+from chatpilot.chatbot.manager import ChatbotManager
+from chatpilot.core.config import GatewayConfig, load_config, watch_config
+from chatpilot.core.types import Message, Response
+from chatpilot.hub.context_buffer import ContextBuffer
+from chatpilot.hub.hub import InMemoryMessageHub
+from chatpilot.pipeline.executor import PipelineExecutor
+from chatpilot.pipeline.samples.echo import EchoPipeline
+from chatpilot.routing.router import BindingRouter
+from chatpilot.scheduler.runner import RunnerPool
+from chatpilot.scheduler.scheduler import InMemoryTaskScheduler
+from chatpilot.scheduler.store import SqliteTaskStore
+from chatpilot.sdk.session import SdkClient
 from chatpilot.server.webhook import router
+from chatpilot.tools.builtin.submit_task import create_submit_task_tool
+from chatpilot.tools.builtin.task_history import create_task_history_tool
+from chatpilot.tools.factory import ToolFactory
 
 logger = logging.getLogger(__name__)
 
@@ -26,82 +35,157 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup and shutdown lifecycle."""
-
-    # Load .env
     load_dotenv()
 
-    # Configure logging
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s %(name)s %(levelname)s %(message)s",
     )
 
-    # Start Copilot SDK
-    await session_manager.start()
+    app.state.start_time = time.time()
 
-    # Register adapters
-    adapter_registry: AdapterRegistry = {}
-    line_adapter.initialize()
-    adapter_registry["line"] = line_adapter
-    adapter_registry["mock"] = mock_adapter
-    app.state.adapter_registry = adapter_registry
-
-    # Register agents
-    register_agent(general_agent)
-    register_agent(warehouse_agent)
-
-    # Load routes
-    routes_path = os.environ.get("ROUTES_PATH", "config/routes.yaml")
+    # Load config
+    config_path = Path(os.environ.get("ROUTES_PATH", "config/routes.yaml"))
     try:
-        route_config = load_route_config(routes_path)
-        app.state.route_config = route_config
-        logger.info(
-            "Route config loaded: %d platform(s) from %s",
-            len(route_config.platforms),
-            routes_path,
-        )
-
-        # Validate agent names in agentList
-        for name in route_config.agent_list:
-            if name not in agent_registry:
-                raise RouteError(f"unknown agent in agentList: {name}")
+        config = load_config(config_path)
     except FileNotFoundError:
-        from chatpilot.core.types import RouteConfig
+        logger.warning("Config not found: %s — using defaults", config_path)
+        config = GatewayConfig()
 
-        logger.warning(
-            "Routes file not found: %s — starting with empty config", routes_path
-        )
-        route_config = RouteConfig(agent_list=[], platforms={})
-        app.state.route_config = route_config
+    # Start SDK client
+    sdk_client = SdkClient()
+    await sdk_client.start()
 
-    # Timeout config
-    timeout_s = int(os.environ.get("REPLY_TIMEOUT_MS", "20000")) / 1000.0
+    # Tool factory
+    tool_factory = ToolFactory()
 
-    # Create and store the processor (lazy import to avoid circular dependency)
-    from chatpilot.processing.processor import MessageProcessor
+    # Adapters
+    adapters: dict[str, ChannelAdapter] = {}
+    try:
+        from chatpilot.adapters.line.adapter import LineAdapter
+        adapters["line"] = LineAdapter()
+    except Exception:
+        logger.warning("LINE adapter not available (missing env vars?)")
 
-    processor = MessageProcessor(route_config, routes_path, agent_registry, timeout_s)
-    app.state.processor = processor
+    from chatpilot.adapters.mock import MockAdapter
+    adapters["mock"] = MockAdapter()
 
-    # RouteWatcher disabled until Task 7 migrates it to new schema
-    logger.info(
-        "RouteWatcher disabled (pending migration to RouteConfig schema)"
+    app.state.adapters = adapters
+
+    # Binding router
+    binding_router = BindingRouter(config.bindings, config.match_weights)
+
+    # Chatbot manager
+    chatbot_manager = ChatbotManager(sdk_client, config.chatbots, tool_factory)
+
+    # Context buffer
+    context_buffer = ContextBuffer()
+
+    # Message hub
+    hub = InMemoryMessageHub(
+        context_buffer=context_buffer,
+        adapters=adapters,
     )
 
-    logger.info("Server started. Webhook endpoint: POST /webhook/{platform}")
+    async def on_proceed(
+        message: Message, context_prefix: str | None, adapter: ChannelAdapter
+    ) -> None:
+        """Hub callback: route message → chatbot → reply."""
+        route = binding_router.resolve(message)
+        if route is None:
+            logger.warning("No binding matched for %s", message.conversation_id)
+            return
+        session = await chatbot_manager.get_or_create_session(
+            route.route_id, route.chatbot_name
+        )
+        response = await session.send_message(message.text, context_prefix)
+        await adapter.send_reply(message, response)
+
+    async def on_command(
+        command: str, args: str, message: Message, adapter: ChannelAdapter
+    ) -> None:
+        """Hub callback: handle prefix commands."""
+        route_id = f"{message.platform}:{message.conversation_id}"
+        if command == "model" and args.strip():
+            await chatbot_manager.switch_model(route_id, args.strip())
+            await adapter.send_reply(
+                message, Response(text=f"已切換模型為 {args.strip()}")
+            )
+        elif command == "chatbot" and args.strip():
+            new_chatbot = args.strip()
+            if not chatbot_manager.has_chatbot(new_chatbot):
+                await adapter.send_reply(
+                    message, Response(text=f"未知的 chatbot: {new_chatbot}")
+                )
+                return
+            await chatbot_manager.destroy_session(route_id)
+            await chatbot_manager.get_or_create_session(route_id, new_chatbot)
+            await adapter.send_reply(
+                message, Response(text=f"已切換 chatbot 為 {new_chatbot}")
+            )
+        else:
+            logger.debug("Unknown command: /%s", command)
+
+    hub.set_on_proceed(on_proceed)
+    hub.set_on_command(on_command)
+    app.state.hub = hub
+
+    # Task scheduler + pipeline
+    task_store = SqliteTaskStore()
+    await task_store.initialize()
+
+    scheduler = InMemoryTaskScheduler(
+        store=task_store,
+        max_queue_size=config.scheduler.max_queue_size,
+    )
+
+    pipeline_executor = PipelineExecutor()
+    pipeline_executor.register(EchoPipeline())
+
+    runner_pool = RunnerPool(
+        max_workers=config.scheduler.concurrent_runners,
+        pipeline_executor=pipeline_executor,
+        task_store=task_store,
+        hub=hub,
+        task_timeout=config.scheduler.task_timeout,
+    )
+    await runner_pool.start(scheduler)
+
+    # Register built-in tools
+    submit_tool = create_submit_task_tool(scheduler)
+    tool_factory.register(submit_tool)
+
+    history_tool = create_task_history_tool(scheduler)
+    tool_factory.register(history_tool)
+
+    app.state.scheduler = scheduler
+
+    # Config hot reload
+    def on_config_reload(new_config: GatewayConfig) -> None:
+        binding_router.update(new_config.bindings, new_config.match_weights)
+        chatbot_manager.update_configs(new_config.chatbots)
+        logger.info("Config reloaded successfully")
+
+    observer = None
+    if config_path.exists():
+        observer = watch_config(config_path, on_config_reload)
+
+    logger.info("Server started. Webhook: POST /webhook/{platform}")
 
     yield
 
     # Shutdown
-    await session_manager.stop()
-    logger.info("[SHUTDOWN] server stopped")
+    await runner_pool.stop()
+    await task_store.close()
+    if observer:
+        observer.stop()
+    await chatbot_manager.destroy_all()
+    await sdk_client.stop()
+    logger.info("Server stopped")
 
 
 def create_app() -> FastAPI:
     """Create and configure the FastAPI application."""
-    app = FastAPI(title="ChatPilot Agent Gateway", lifespan=lifespan)
+    app = FastAPI(title="ChatPilot Agent Gateway v2", lifespan=lifespan)
     app.include_router(router)
     return app
-
-
-app = create_app()
