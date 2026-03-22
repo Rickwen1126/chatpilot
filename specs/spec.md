@@ -1,8 +1,7 @@
 # 功能規格：Agent Gateway MVP v2
 
-**Feature Branch**: `002-new-mvp`
 **Created**: 2026-03-17
-**Status**: Draft
+**Status**: Implemented (v2 MVP)
 
 ## 一、產品定位
 

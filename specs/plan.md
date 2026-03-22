@@ -1,7 +1,7 @@
 # Implementation Plan: Agent Gateway MVP v2
 
-**Branch**: `002-new-mvp` | **Date**: 2026-03-18 | **Spec**: [spec.md](spec.md)
-**Input**: Feature specification from `/specs/002-new-mvp/spec.md`
+**Date**: 2026-03-18 | **Spec**: [spec.md](spec.md) | **Status**: Implemented
+**Input**: Feature specification from `specs/spec.md`
 
 ## Summary
 

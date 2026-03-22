@@ -37,26 +37,24 @@
 - system_message 必須用 `mode: "replace"`（不是 append）。append 會保留 Copilot CLI 的 agent system prompt + built-in tools，導致 Claude 模型跑 agent loop 掃檔案
 - session ID 冒號問題：route_id 的 `:` 改成 `-`（SDK 不接受冒號）
 
-**State**: Branch `002-new-mvp`, commit `9c6f56d`. 23 tests, ruff clean. LINE E2E 全功能驗證通過（私聊 + 2 群組 + 圖片下載 + /chatbot 切換）。
+**State**: Branch `002-new-mvp`, commit `ffebe4f`, pushed. 23 tests, ruff clean. LINE + CLI E2E 全功能驗證通過。
 
 **Next**:
-- [ ] CLI adapter 補做（US3：目前 cli/main.py 繞過 server）
+- [ ] Specs 搬到共用層級：`specs/002-new-mvp/` → `specs/`，對齊實作現況
+- [ ] Merge `002-new-mvp` → `main`，GitHub 改 default branch 為 `main`
+- [ ] 新 branch：memory + scheduler + reminder feature（寫 PRD 再開）
 - [ ] `lifespan()` 160+ 行，可拆分但不急
-- [ ] per-route model override 持久化（plan.md Open Questions）
-- [ ] 連發兩則測 busy gate（未實測）
+- [ ] per-route model override 持久化
 - [ ] 影片支援（agent team tool + frame-by-frame，未來階段）
 
 **User Notes**:
-- 查看下一步
 - Claude 模型在 Copilot CLI 會跑 agent loop 很慢，用 gpt-5-mini 測試秒回
-- SDK `list_models()` 不列出所有 model，但直接用 model ID 字串可以跑（gpt-5.4, gpt-5.4-mini 都可用）
-- DuckDuckGo HTML 版比 API 版好很多，中文即時新聞都搜得到
+- SDK `list_models()` 不列出所有 model，但直接用 model ID 字串可以跑
 - tunnel 設定在 `~/.cloudflared/config.yaml`：`bot.webric.dev` → `localhost:2999`
-- 圖片支援 + LINE mention fix + @Bot /command fix + 平台問題文件化完成
-- LINE E2E 全功能驗證通過（私聊 + 2群組 + 圖片下載 + chatbot 切換）
-- 圖片設計：buffer 存 ref（`[圖片 ref:line:{id}]`），LLM 自主決定是否呼叫 download_media 下載。不預先展開，ref 只是文字噪音
-- LINE mention 偵測：linebot SDK v3 用 `is_self`（snake_case），schema 顯示 `isSelf`（camelCase）導致偵測失敗
-- 群組 @Bot /command：LINE 把 @Bot 放在 text 前面，Hub 用 regex `^@\S+\s+` strip 後檢查 /
+- 圖片設計：buffer 存 ref，LLM 自主決定是否下載
+- 記憶 feature 討論：per-conversation 持久化 + 排程任務 + cron scheduler + 主動 push。應用：todo、reminder、定期查資料。開新 branch + PRD 處理
+- branches: `main` 存在但 remote HEAD 指向 `001-agent-gateway-mvp`，需改 default
+- 後開始做 merge + 新 feature
 
 ---
 
