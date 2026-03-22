@@ -91,7 +91,7 @@ class SdkClient:
         if model:
             config["model"] = model
         if system_message:
-            config["system_message"] = {"mode": "append", "content": system_message}
+            config["system_message"] = {"mode": "replace", "content": system_message}
         if tools:
             config["tools"] = tools
         session = await self._client.create_session(config)
