@@ -80,18 +80,34 @@ class ChatbotManager:
         model = self._route_model_overrides.get(route_id, config.model)
         tools = self._tool_factory.get_tools_for_chatbot(config.tools)
         sdk_session_id = route_id.replace(":", "-")
-        sdk_session = await self._sdk.create_session(
-            session_id=sdk_session_id,
-            model=model,
-            system_message=system_message,
-            tools=tools or None,
-        )
+
+        # Try resume first (preserves conversation history)
+        try:
+            sdk_session = await self._sdk.resume_session(
+                session_id=sdk_session_id,
+                model=model,
+                system_message=system_message,
+                tools=tools or None,
+            )
+            logger.info(
+                "Resumed session route=%s chatbot=%s",
+                route_id, chatbot_name,
+            )
+        except Exception:
+            # Resume failed (first time or SDK lost session) → create new
+            sdk_session = await self._sdk.create_session(
+                session_id=sdk_session_id,
+                model=model,
+                system_message=system_message,
+                tools=tools or None,
+            )
+            logger.info(
+                "Created new session route=%s chatbot=%s",
+                route_id, chatbot_name,
+            )
+
         session = ChatbotSession(sdk_session, config)
         self._sessions[route_id] = session
-        logger.info(
-            "Created session route=%s chatbot=%s",
-            route_id, chatbot_name,
-        )
         return session
 
     async def _build_system_message(
