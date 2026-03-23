@@ -37,8 +37,10 @@ assert_status() {
     fi
 }
 
+CLI_TIMEOUT=30
+
 cli_chat() {
-    uv run chatpilot-cli chat "$1" --user "$USER" --url "$BASE_URL" 2>/dev/null
+    timeout "$CLI_TIMEOUT" uv run chatpilot-cli chat "$1" --user "$USER" --url "$BASE_URL" 2>/dev/null
 }
 
 mock_webhook() {
@@ -199,9 +201,9 @@ fi
 header "Quote Search (shinyipaint)"
 # Switch to shinyipaint chatbot first
 QUOTE_USER="e2e-quote-$(date +%s)"
-uv run chatpilot-cli --url "$BASE_URL" chat "/chatbot shinyipaint" --user "$QUOTE_USER" > /dev/null 2>&1
+timeout "$CLI_TIMEOUT" uv run chatpilot-cli --url "$BASE_URL" chat "/chatbot shinyipaint" --user "$QUOTE_USER" > /dev/null 2>&1
 sleep 2
-QUOTE_RESP=$(uv run chatpilot-cli --url "$BASE_URL" chat "幫我找虹牌的歷史報價" --user "$QUOTE_USER" 2>/dev/null)
+QUOTE_RESP=$(timeout "$CLI_TIMEOUT" uv run chatpilot-cli --url "$BASE_URL" chat "幫我找虹牌的歷史報價" --user "$QUOTE_USER" 2>/dev/null)
 if echo "$QUOTE_RESP" | grep -qi "虹牌\|報價\|水泥漆\|防水漆"; then
     green "  ✓ quote_search tool returned results"
     PASS=$((PASS + 1))
