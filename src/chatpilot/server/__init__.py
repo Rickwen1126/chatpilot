@@ -7,6 +7,7 @@ import os
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Any
 
 from dotenv import load_dotenv
 from fastapi import FastAPI
@@ -155,6 +156,7 @@ def _register_tools(
     adapters: dict[str, ChannelAdapter],
     memory_store: MemoryStore,
     chatbot_manager: ChatbotManager,
+    r2_storage: Any = None,
 ) -> None:
     from chatpilot.tools.builtin.add_reminder import create_add_reminder_tool
     from chatpilot.tools.builtin.browse_task import create_browse_task_tool
@@ -163,12 +165,14 @@ def _register_tools(
         create_delete_custom_prompt_tool,
     )
     from chatpilot.tools.builtin.delete_memo import create_delete_memo_tool
+    from chatpilot.tools.builtin.document_edit import create_document_edit_tool
     from chatpilot.tools.builtin.download_media import create_download_media_tool
     from chatpilot.tools.builtin.list_custom_prompts import (
         create_list_custom_prompts_tool,
     )
     from chatpilot.tools.builtin.list_memos import create_list_memos_tool
     from chatpilot.tools.builtin.list_schedules import create_list_schedules_tool
+    from chatpilot.tools.builtin.quote_search import create_quote_search_tool
     from chatpilot.tools.builtin.save_custom_prompt import (
         create_save_custom_prompt_tool,
     )
@@ -183,10 +187,11 @@ def _register_tools(
     def _get_session(route_id: str):
         return chatbot_manager.get_session(route_id)
 
-    # Warehouse tool
+    # Warehouse + quote tools
     from chatpilot.tools.builtin.warehouse_query import create_warehouse_query_tool
 
     tool_factory.register(create_warehouse_query_tool())
+    tool_factory.register(create_quote_search_tool())
 
     # Task tools
     tool_factory.register(create_submit_task_tool(scheduler))
@@ -196,6 +201,10 @@ def _register_tools(
     # Search + media
     tool_factory.register(create_web_search_tool())
     tool_factory.register(create_download_media_tool(adapters))
+
+    # Document edit
+    if r2_storage is not None:
+        tool_factory.register(create_document_edit_tool(adapters, r2_storage))
 
     # Memory tools
     tool_factory.register(create_save_memo_tool(memory_store))
@@ -285,8 +294,15 @@ async def lifespan(app: FastAPI):
     )
     await cron_scheduler.start()
 
+    # R2 storage
+    from chatpilot.storage.r2 import R2Storage
+
+    r2_storage = R2Storage()
+
     # Tools
-    _register_tools(tool_factory, scheduler, adapters, memory_store, chatbot_manager)
+    _register_tools(
+        tool_factory, scheduler, adapters, memory_store, chatbot_manager, r2_storage
+    )
     app.state.scheduler = scheduler
 
     # Hot reload
