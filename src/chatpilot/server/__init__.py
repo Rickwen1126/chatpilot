@@ -64,7 +64,7 @@ def _init_hub(
     adapters: dict[str, ChannelAdapter],
     binding_router: BindingRouter,
     chatbot_manager: ChatbotManager,
-    image_injector=None,
+    response_injector=None,
 ) -> InMemoryMessageHub:
     hub = InMemoryMessageHub(
         context_buffer=context_buffer,
@@ -86,21 +86,27 @@ def _init_hub(
         )
         response = await session.send_message(message.text, context_prefix)
 
-        # Check for pending images from tools
+        # Inject pending items from tools (images, links, files)
         from chatpilot.core.types import Attachment
 
         chatbot_for_sid = chatbot_manager.get_current_chatbot(
             route.route_id
         ) or route.chatbot_name
         sdk_sid = f"{route.route_id.replace(':', '-')}@{chatbot_for_sid}"
-        pending_urls = image_injector.pop(sdk_sid)
-        if pending_urls:
-            response = Response(
-                text=response.text,
-                attachments=[
-                    Attachment(type="image", url=u) for u in pending_urls
-                ],
-            )
+        pending = response_injector.pop(sdk_sid)
+        if pending:
+            attachments = list(response.attachments)
+            text = response.text
+            for item in pending:
+                if item.type == "image":
+                    attachments.append(Attachment(type="image", url=item.data))
+                elif item.type == "link":
+                    # Append link at end to prevent LLM rewriting
+                    if item.data not in text:
+                        text = f"{text}\n\n👉 {item.data}"
+                elif item.type == "file":
+                    attachments.append(Attachment(type="file", url=item.data))
+            response = Response(text=text, attachments=attachments)
 
         await adapter.send_reply(message, response)
 
@@ -160,7 +166,7 @@ def _register_tools(
     adapters: dict[str, ChannelAdapter],
     memory_store: MemoryStore,
     chatbot_manager: ChatbotManager,
-    image_injector=None,
+    response_injector=None,
     r2_storage: Any = None,
 ) -> None:
     from chatpilot.tools.builtin.add_reminder import create_add_reminder_tool
@@ -195,7 +201,7 @@ def _register_tools(
     # Warehouse + quote tools
     from chatpilot.tools.builtin.warehouse_query import create_warehouse_query_tool
 
-    tool_factory.register(create_warehouse_query_tool(image_injector))
+    tool_factory.register(create_warehouse_query_tool(response_injector))
     tool_factory.register(create_quote_search_tool())
 
     # Task tools
@@ -262,9 +268,9 @@ async def lifespan(app: FastAPI):
     )
 
     # Image injector
-    from chatpilot.core.image_injector import ImageInjector
+    from chatpilot.core.response_injector import ResponseInjector
 
-    image_injector = ImageInjector()
+    response_injector = ResponseInjector()
 
     # Trigger keywords
     from chatpilot.hub.mention_filter import configure as configure_keywords
@@ -273,7 +279,7 @@ async def lifespan(app: FastAPI):
 
     # Hub
     hub = _init_hub(
-        ContextBuffer(), adapters, binding_router, chatbot_manager, image_injector
+        ContextBuffer(), adapters, binding_router, chatbot_manager, response_injector
     )
     app.state.hub = hub
 
@@ -314,7 +320,7 @@ async def lifespan(app: FastAPI):
     # Tools
     _register_tools(
         tool_factory, scheduler, adapters, memory_store,
-        chatbot_manager, image_injector, r2_storage,
+        chatbot_manager, response_injector, r2_storage,
     )
     app.state.scheduler = scheduler
 

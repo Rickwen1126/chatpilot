@@ -46,7 +46,7 @@ UNIT_TO_ZONE = {
 }
 
 
-def create_warehouse_query_tool(image_injector=None) -> ToolDefinition:
+def create_warehouse_query_tool(response_injector=None) -> ToolDefinition:
     """Create warehouse query tool for inventory lookup."""
 
     async def handler(invocation: ToolInvocation) -> ToolResult:
@@ -75,11 +75,17 @@ def create_warehouse_query_tool(image_injector=None) -> ToolDefinition:
             # Extract [image:URL] and queue via injector
             import re as _re
 
-            img_match = _re.search(r"\[image:(https?://[^\]]+)\]", result)
-            if img_match and image_injector:
+            if response_injector:
                 session_id = invocation.get("session_id", "")
-                image_injector.add(session_id, img_match.group(1))
-                result = _re.sub(r"\n?\[image:[^\]]+\]", "", result)
+                # Inject zone image
+                img_match = _re.search(r"\[image:(https?://[^\]]+)\]", result)
+                if img_match:
+                    response_injector.add(session_id, "image", img_match.group(1))
+                    result = _re.sub(r"\n?\[image:[^\]]+\]", "", result)
+                # Inject deep link (prevent LLM from rewriting)
+                link_match = _re.search(r"(https://warehouse\.\S+)", result)
+                if link_match:
+                    response_injector.add(session_id, "link", link_match.group(1))
 
             return ToolResult(
                 textResultForLlm=result,
