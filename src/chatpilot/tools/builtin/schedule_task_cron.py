@@ -50,7 +50,7 @@ def create_schedule_task_cron_tool(memory_store: Any) -> ToolDefinition:
                 {
                     "cron_expr": cron_expr,
                     "pipeline_name": pipeline_name,
-                    "input_data": description,
+                    "input_data": {"description": description} if description else {},
                     "next_run_at": next_run_at.isoformat(),
                 },
             )
