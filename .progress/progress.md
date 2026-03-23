@@ -1,3 +1,41 @@
+## 2026-03-23 08:33 — 003 Memory Store + Cron Scheduler 實作完成
+
+**Goal**: 實作 Memory Store + Cron Scheduler（35 tasks），E2E 驗證
+
+**Done**:
+- 35/35 tasks complete, 41 tests passing
+- memory/ package: types, protocol, SqliteMemoryStore（4 tables, WAL）
+- cron/ package: parser（daily/weekly/interval）, CronScheduler（tick loop + lifecycle）
+- 10 tools: save/list/delete_memo, save/list/delete_custom_prompt, add_reminder, schedule_task_cron, list_schedules, cancel_schedule
+- ChatbotManager: resume-first session + needs_rebuild + custom_prompt injection
+- E2E 全部驗證通過（見下方 User Notes）
+- Commits: `a2df70d` ~ `8f3b95b`, pushed to `003-memory-scheduler`
+
+**Decisions**:
+- Resume-first session：先 try resume，失敗才 create。session_id 確定性（route_id 轉換），不需 persist
+- Custom prompt 注入格式：base system_message + `\n\n[使用者偏好]\n- text1\n- text2`
+- needs_rebuild 獨立於 broken（分開 log）
+- schedule_task_cron input_data 必須包成 dict（Pydantic 驗證）
+
+**State**: Branch `003-memory-scheduler`, commit `8f3b95b`, pushed. 41 tests, ruff clean. E2E 全通。
+
+**Next**:
+- [ ] Merge 003 → main
+- [ ] Cancel schedule LLM ID 傳遞問題（list 顯示的 ID 截斷，LLM 傳給 cancel 時用錯格式）— tool description 優化
+- [ ] trigger_keywords（AI 開頭觸發，config-driven）— 獨立功能
+- [ ] 圖片回傳（R2 圖床）— Future
+- [ ] browse_task E2E 測試 — 未驗證
+
+**User Notes**:
+- 003 Memory Store + Cron Scheduler 全部實作完成 + E2E 驗證通過
+- 記憶延續：server 重啟後 bot 仍記得「我叫 Rick」（resume_session 生效）
+- Custom prompt 注入：使用者說「以後用英文」→ 存偏好 → session rebuild → 下則全英文回覆
+- Reminder push：設定 1 分鐘後提醒 → CronScheduler 60s tick 掃到 → push 成功
+- Schedule + list：設定 echo pipeline 每 2 分鐘 → list 顯示正確
+- Cancel：LLM 傳了截斷的 ID 導致找不到，非 code bug，是 tool description 可以優化的地方
+
+---
+
 ## 2026-03-22 23:31 — 003 spec 完成 + custom_prompt + 平台問題發現
 
 **Goal**: Memory Store + Cron Scheduler spec/plan，加 custom_prompt type
