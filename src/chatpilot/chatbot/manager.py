@@ -29,6 +29,7 @@ class ChatbotManager:
         self._memory_store = memory_store
         self._sessions: dict[str, ChatbotSession] = {}
         self._route_model_overrides: dict[str, str] = {}
+        self._route_chatbot_overrides: dict[str, str] = {}
 
     def update_configs(self, configs: dict[str, ChatbotConfig]) -> None:
         self._configs = configs
@@ -37,30 +38,33 @@ class ChatbotManager:
         return name in self._configs
 
     def get_session(self, route_id: str) -> ChatbotSession | None:
-        """Get existing session by route_id (for needs_rebuild marking)."""
         return self._sessions.get(route_id)
+
+    def get_current_chatbot(self, route_id: str) -> str | None:
+        """Get the chatbot name for a route (override or None)."""
+        return self._route_chatbot_overrides.get(route_id)
 
     async def get_or_create_session(
         self, route_id: str, chatbot_name: str
     ) -> ChatbotSession:
-        """Get existing session or create a new one."""
+        """Get existing session or create/resume one."""
+        # Apply chatbot override
+        chatbot_name = self._route_chatbot_overrides.get(
+            route_id, chatbot_name
+        )
+
         existing = self._sessions.get(route_id)
 
-        # Check eviction flags
+        # Eviction checks
         if existing and existing.broken:
             self._sessions.pop(route_id, None)
-            logger.info(
-                "Evicted session route=%s reason=broken", route_id
-            )
+            logger.info("Evicted route=%s reason=broken", route_id)
             existing = None
 
         if existing and existing.needs_rebuild:
             await existing.destroy()
             self._sessions.pop(route_id, None)
-            logger.info(
-                "Evicted session route=%s reason=custom_prompt_updated",
-                route_id,
-            )
+            logger.info("Evicted route=%s reason=custom_prompt", route_id)
             existing = None
 
         if existing:
@@ -68,20 +72,18 @@ class ChatbotManager:
 
         config = self._configs.get(chatbot_name)
         if config is None:
-            raise ValueError(
-                f"Chatbot '{chatbot_name}' not found in config"
-            )
+            raise ValueError(f"Chatbot '{chatbot_name}' not found")
 
-        # Build system_message with custom_prompts
         system_message = await self._build_system_message(
             config.system_message, route_id
         )
-
         model = self._route_model_overrides.get(route_id, config.model)
         tools = self._tool_factory.get_tools_for_chatbot(config.tools)
-        sdk_session_id = route_id.replace(":", "-")
 
-        # Try resume first (preserves conversation history)
+        # Session ID includes chatbot name → each chatbot has its own history
+        sdk_session_id = f"{route_id.replace(':', '-')}-{chatbot_name}"
+
+        # Try resume (preserves conversation history for same chatbot)
         try:
             sdk_session = await self._sdk.resume_session(
                 session_id=sdk_session_id,
@@ -90,11 +92,9 @@ class ChatbotManager:
                 tools=tools or None,
             )
             logger.info(
-                "Resumed session route=%s chatbot=%s",
-                route_id, chatbot_name,
+                "Resumed route=%s chatbot=%s", route_id, chatbot_name
             )
         except Exception:
-            # Resume failed (first time or SDK lost session) → create new
             sdk_session = await self._sdk.create_session(
                 session_id=sdk_session_id,
                 model=model,
@@ -102,8 +102,7 @@ class ChatbotManager:
                 tools=tools or None,
             )
             logger.info(
-                "Created new session route=%s chatbot=%s",
-                route_id, chatbot_name,
+                "Created route=%s chatbot=%s", route_id, chatbot_name
             )
 
         session = ChatbotSession(sdk_session, config)
@@ -113,34 +112,39 @@ class ChatbotManager:
     async def _build_system_message(
         self, base: str, route_id: str
     ) -> str:
-        """Merge base system_message with custom_prompts from memory."""
         if self._memory_store is None:
             return base
-
         try:
             prompts = await self._memory_store.list(
                 route_id, "custom_prompt"
             )
         except Exception:
-            logger.warning(
-                "Failed to load custom_prompts for %s", route_id
-            )
             return base
-
         if not prompts:
             return base
-
         lines = [p["text"] for p in prompts if p.get("text")]
         if not lines:
             return base
-
         custom_section = "\n- ".join(lines)
         return f"{base}\n\n[使用者偏好]\n- {custom_section}"
 
+    async def switch_chatbot(
+        self, route_id: str, chatbot_name: str
+    ) -> None:
+        """Switch chatbot for a route. Destroys old session, creates fresh."""
+        old = self._sessions.pop(route_id, None)
+        if old:
+            await old.destroy()
+        self._route_chatbot_overrides[route_id] = chatbot_name
+        logger.info(
+            "Switched chatbot route=%s to %s", route_id, chatbot_name
+        )
+
     async def switch_model(self, route_id: str, new_model: str) -> None:
-        old_session = self._sessions.pop(route_id, None)
-        if old_session:
-            await old_session.destroy()
+        """Switch model. Destroys session, next message resumes with new model."""
+        old = self._sessions.pop(route_id, None)
+        if old:
+            await old.destroy()
         self._route_model_overrides[route_id] = new_model
         logger.info("Switched model route=%s to %s", route_id, new_model)
 

@@ -96,7 +96,23 @@ def _init_hub(
             )
         elif command == "chatbot":
             arg = args.strip()
-            if not arg or arg == "list":
+            if not arg:
+                # Show current chatbot + tools
+                current = chatbot_manager.get_current_chatbot(route_id)
+                if not current:
+                    route = binding_router.resolve(message)
+                    current = route.chatbot_name if route else "unknown"
+                cfg = chatbot_manager._configs.get(current)
+                tools_str = ", ".join(cfg.tools) if cfg else "none"
+                await adapter.send_reply(
+                    message,
+                    Response(
+                        text=f"目前: {current}\n"
+                        f"Model: {cfg.model if cfg else '?'}\n"
+                        f"Tools: {tools_str}"
+                    ),
+                )
+            elif arg == "list":
                 names = list(chatbot_manager._configs.keys())
                 await adapter.send_reply(
                     message,
@@ -107,8 +123,7 @@ def _init_hub(
                     message, Response(text=f"未知的 chatbot: {arg}")
                 )
             else:
-                await chatbot_manager.destroy_session(route_id)
-                await chatbot_manager.get_or_create_session(route_id, arg)
+                await chatbot_manager.switch_chatbot(route_id, arg)
                 await adapter.send_reply(
                     message, Response(text=f"已切換 chatbot 為 {arg}")
                 )
