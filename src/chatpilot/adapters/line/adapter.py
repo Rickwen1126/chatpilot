@@ -14,6 +14,7 @@ from linebot.v3 import WebhookParser
 from linebot.v3.messaging import (
     ApiClient,
     Configuration,
+    ImageMessage,
     MessagingApi,
     MessagingApiBlob,
     PushMessageRequest,
@@ -30,6 +31,20 @@ logger = logging.getLogger(__name__)
 LINE_MAX_TEXT_LENGTH = 5000
 LINE_MAX_MESSAGES_PER_CALL = 5  # LINE allows up to 5 messages per API call
 REPLY_TOKEN_TTL_SECONDS = 25  # LINE reply token expires ~30s, leave 5s buffer
+
+
+def _build_messages(response: Response) -> list:
+    """Build LINE message objects from Response (text + attachments)."""
+    msgs = []
+    for chunk in _split_text(response.text):
+        msgs.append(TextMessage(text=chunk))
+    for att in response.attachments:
+        if att.type == "image" and att.url:
+            msgs.append(ImageMessage(
+                original_content_url=att.url,
+                preview_image_url=att.url,
+            ))
+    return msgs
 
 
 def _split_text(text: str) -> list[str]:
@@ -109,12 +124,12 @@ class LineAdapter:
         if self._api is None:
             raise AdapterError("LINE API not initialized")
 
-        chunks = _split_text(response.text)
+        msgs = _build_messages(response)
         route_id = f"line:{message.conversation_id}"
 
-        # If expired or too many chunks, use push for everything
+        # If expired or too many messages, use push
         elapsed = (datetime.now(timezone.utc) - message.timestamp).total_seconds()
-        if elapsed > REPLY_TOKEN_TTL_SECONDS or len(chunks) > LINE_MAX_MESSAGES_PER_CALL:
+        if elapsed > REPLY_TOKEN_TTL_SECONDS or len(msgs) > LINE_MAX_MESSAGES_PER_CALL:
             if elapsed > REPLY_TOKEN_TTL_SECONDS:
                 logger.info("Reply token expired (%.0fs), using push", elapsed)
             await self.push_message(route_id, response)
@@ -125,10 +140,7 @@ class LineAdapter:
             raise AdapterError("Missing reply_token in platform_context")
         try:
             self._api.reply_message(
-                ReplyMessageRequest(
-                    reply_token=reply_token,
-                    messages=[TextMessage(text=c) for c in chunks],
-                )
+                ReplyMessageRequest(reply_token=reply_token, messages=msgs)
             )
         except Exception as e:
             logger.warning("Reply failed, falling back to push: %s", e)
@@ -139,17 +151,13 @@ class LineAdapter:
         if self._api is None:
             raise AdapterError("LINE API not initialized")
         _, conversation_id = route_id.split(":", 1)
-        chunks = _split_text(response.text)
+        msgs = _build_messages(response)
 
-        # Send in batches of LINE_MAX_MESSAGES_PER_CALL
-        for i in range(0, len(chunks), LINE_MAX_MESSAGES_PER_CALL):
-            batch = chunks[i : i + LINE_MAX_MESSAGES_PER_CALL]
+        for i in range(0, len(msgs), LINE_MAX_MESSAGES_PER_CALL):
+            batch = msgs[i : i + LINE_MAX_MESSAGES_PER_CALL]
             try:
                 self._api.push_message(
-                    PushMessageRequest(
-                        to=conversation_id,
-                        messages=[TextMessage(text=c) for c in batch],
-                    )
+                    PushMessageRequest(to=conversation_id, messages=batch)
                 )
             except Exception as e:
                 raise AdapterError("LINE push failed", cause=e) from e
