@@ -99,18 +99,50 @@ def create_warehouse_query_tool() -> ToolDefinition:
 
 
 async def _search_items(query: str) -> str:
-    """Search items by keyword."""
+    """Search items by keyword. Falls back to materials search if no direct match."""
     import asyncio
 
-    def _fetch():
-        params = urllib.parse.urlencode({"q": query})
+    def _fetch_items(q: str) -> list:
+        params = urllib.parse.urlencode({"q": q})
         url = f"{WAREHOUSE_API}/items/search?{params}"
         req = urllib.request.Request(url, headers={"Accept": "application/json"})
         with urllib.request.urlopen(req, timeout=10) as resp:
             return json.loads(resp.read().decode())
 
-    items = await asyncio.to_thread(_fetch)
-    return _format_search_results(items, query)
+    def _fetch_materials(q: str) -> list:
+        params = urllib.parse.urlencode({"search": q})
+        url = f"{WAREHOUSE_API}/materials?{params}"
+        req = urllib.request.Request(url, headers={"Accept": "application/json"})
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            return json.loads(resp.read().decode())
+
+    # Try direct item search first
+    items = await asyncio.to_thread(_fetch_items, query)
+    if items:
+        return _format_search_results(items, query)
+
+    # Fallback: search materials catalog, then search by material name
+    materials = await asyncio.to_thread(_fetch_materials, query)
+    if materials:
+        all_items = []
+        for mat in materials[:5]:
+            mat_name = mat.get("name", "")
+            if mat_name:
+                found = await asyncio.to_thread(_fetch_items, mat_name)
+                all_items.extend(found)
+        if all_items:
+            return _format_search_results(all_items, query)
+
+        # Materials found but no items in stock
+        names = [m.get("name", "") for m in materials[:5]]
+        deep_link = _make_deep_link(query)
+        return (
+            "找到相關物料但目前無庫存：\n"
+            + "\n".join(f"  {n}" for n in names)
+            + f"\n\n👉 {deep_link}"
+        )
+
+    return f"找不到「{query}」相關的物料或庫存\n\n👉 {_make_deep_link(query)}"
 
 
 async def _query_location(unit_id: str) -> str:
