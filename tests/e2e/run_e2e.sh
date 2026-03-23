@@ -142,6 +142,59 @@ sleep 12
 green "  ✓ context buffer messages sent (check server log for context injection)"
 PASS=$((PASS + 1))
 
+# ─── R2 Image Push ────────────────────────────────────────────────
+header "R2 Image Upload + Push"
+R2_RESULT=$(uv run python -c "
+import asyncio, os
+from dotenv import load_dotenv
+load_dotenv()
+
+async def test():
+    endpoint = os.environ.get('R2_ENDPOINT', '')
+    if not endpoint:
+        return 'SKIP:R2_not_configured'
+
+    from chatpilot.storage.r2 import R2Storage
+    import struct, zlib
+
+    # Generate 10x10 blue PNG
+    w, h = 10, 10
+    raw = b''
+    for _ in range(h):
+        raw += b'\x00' + bytes([0, 0, 255]) * w
+    compressed = zlib.compress(raw)
+    def chunk(ct, d):
+        c = ct + d
+        return struct.pack('>I', len(d)) + c + struct.pack('>I', zlib.crc32(c) & 0xffffffff)
+    png = (b'\x89PNG\r\n\x1a\n' +
+           chunk(b'IHDR', struct.pack('>IIBBBBB', w, h, 8, 2, 0, 0, 0)) +
+           chunk(b'IDAT', compressed) + chunk(b'IEND', b''))
+
+    r2 = R2Storage()
+    url = await r2.upload(png, 'image/png', 'png')
+    if not url:
+        return 'FAIL:upload_returned_none'
+
+    # Verify mock adapter can build messages with attachment
+    from chatpilot.core.types import Attachment, Response
+    resp = Response(text='test', attachments=[Attachment(type='image', url=url)])
+    if len(resp.attachments) == 1 and resp.attachments[0].url == url:
+        return f'OK:{url}'
+    return 'FAIL:attachment_mismatch'
+
+print(asyncio.run(test()))
+" 2>/dev/null)
+
+if echo "$R2_RESULT" | grep -q "^OK:"; then
+    green "  ✓ R2 upload + attachment OK"
+    PASS=$((PASS + 1))
+elif echo "$R2_RESULT" | grep -q "^SKIP"; then
+    green "  ⊘ R2 not configured, skipped"
+else
+    red "  ✗ R2 image test failed: $R2_RESULT"
+    FAIL=$((FAIL + 1))
+fi
+
 # ─── Summary ──────────────────────────────────────────────────────
 header "Summary"
 echo ""
