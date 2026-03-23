@@ -27,84 +27,43 @@ from chatpilot.scheduler.scheduler import InMemoryTaskScheduler
 from chatpilot.scheduler.store import SqliteTaskStore
 from chatpilot.sdk.session import SdkClient
 from chatpilot.server.webhook import router
-from chatpilot.tools.builtin.browse_task import create_browse_task_tool
-from chatpilot.tools.builtin.delete_custom_prompt import create_delete_custom_prompt_tool
-from chatpilot.tools.builtin.delete_memo import create_delete_memo_tool
-from chatpilot.tools.builtin.download_media import create_download_media_tool
-from chatpilot.tools.builtin.list_custom_prompts import create_list_custom_prompts_tool
-from chatpilot.tools.builtin.list_memos import create_list_memos_tool
-from chatpilot.tools.builtin.save_custom_prompt import create_save_custom_prompt_tool
-from chatpilot.tools.builtin.save_memo import create_save_memo_tool
-from chatpilot.tools.builtin.submit_task import create_submit_task_tool
-from chatpilot.tools.builtin.task_history import create_task_history_tool
-from chatpilot.tools.builtin.web_search import create_web_search_tool
 from chatpilot.tools.factory import ToolFactory
 
 logger = logging.getLogger(__name__)
 
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    """Startup and shutdown lifecycle."""
-    load_dotenv()
+# ── Startup helpers ──────────────────────────────────────────────
 
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(name)s %(levelname)s %(message)s",
-    )
 
-    app.state.start_time = time.time()
-
-    # Load config
-    config_path = Path(os.environ.get("ROUTES_PATH", "config/routes.yaml"))
-    app.state.config_path = config_path
+def _load_gateway_config(config_path: Path) -> GatewayConfig:
     try:
-        config = load_config(config_path)
+        return load_config(config_path)
     except FileNotFoundError:
         logger.warning("Config not found: %s — using defaults", config_path)
-        config = GatewayConfig()
+        return GatewayConfig()
 
-    # Start SDK client
-    sdk_client = SdkClient()
-    await sdk_client.start()
 
-    # Memory store
-    memory_store = MemoryStore()
-    await memory_store.initialize()
-
-    # Tool factory
-    tool_factory = ToolFactory()
-
-    # Adapters
+def _init_adapters() -> dict[str, ChannelAdapter]:
     adapters: dict[str, ChannelAdapter] = {}
     try:
         from chatpilot.adapters.line.adapter import LineAdapter
+
         adapters["line"] = LineAdapter()
     except Exception:
         logger.warning("LINE adapter not available (missing env vars?)")
 
     from chatpilot.adapters.mock import MockAdapter
+
     adapters["mock"] = MockAdapter()
+    return adapters
 
-    app.state.adapters = adapters
 
-    # Binding router
-    binding_router = BindingRouter(config.bindings, config.match_weights)
-
-    # Chatbot manager
-    chatbot_manager = ChatbotManager(
-        sdk_client, config.chatbots, tool_factory, memory_store=memory_store
-    )
-
-    # Context buffer
-    # Trigger keywords
-    from chatpilot.hub.mention_filter import configure as configure_keywords
-
-    configure_keywords(config.trigger_keywords)
-
-    context_buffer = ContextBuffer()
-
-    # Message hub
+def _init_hub(
+    context_buffer: ContextBuffer,
+    adapters: dict[str, ChannelAdapter],
+    binding_router: BindingRouter,
+    chatbot_manager: ChatbotManager,
+) -> InMemoryMessageHub:
     hub = InMemoryMessageHub(
         context_buffer=context_buffer,
         adapters=adapters,
@@ -113,16 +72,13 @@ async def lifespan(app: FastAPI):
     async def on_proceed(
         message: Message, context_prefix: str | None, adapter: ChannelAdapter
     ) -> None:
-        """Hub callback: route message → chatbot → reply."""
         route = binding_router.resolve(message)
         if route is None:
             logger.warning("No binding matched for %s", message.conversation_id)
             return
-        # Inject platform format hint if adapter defines one
         hint = getattr(adapter, "format_hint", None)
         if hint:
             context_prefix = f"{context_prefix}\n{hint}" if context_prefix else hint
-
         session = await chatbot_manager.get_or_create_session(
             route.route_id, route.chatbot_name
         )
@@ -132,7 +88,6 @@ async def lifespan(app: FastAPI):
     async def on_command(
         command: str, args: str, message: Message, adapter: ChannelAdapter
     ) -> None:
-        """Hub callback: handle prefix commands."""
         route_id = f"{message.platform}:{message.conversation_id}"
         if command == "model" and args.strip():
             await chatbot_manager.switch_model(route_id, args.strip())
@@ -144,7 +99,8 @@ async def lifespan(app: FastAPI):
             if not arg or arg == "list":
                 names = list(chatbot_manager._configs.keys())
                 await adapter.send_reply(
-                    message, Response(text=f"可用 chatbot：\n{chr(10).join(names)}")
+                    message,
+                    Response(text=f"可用 chatbot：\n{chr(10).join(names)}"),
                 )
             elif not chatbot_manager.has_chatbot(arg):
                 await adapter.send_reply(
@@ -161,6 +117,109 @@ async def lifespan(app: FastAPI):
 
     hub.set_on_proceed(on_proceed)
     hub.set_on_command(on_command)
+    return hub
+
+
+def _register_tools(
+    tool_factory: ToolFactory,
+    scheduler: InMemoryTaskScheduler,
+    adapters: dict[str, ChannelAdapter],
+    memory_store: MemoryStore,
+    chatbot_manager: ChatbotManager,
+) -> None:
+    from chatpilot.tools.builtin.add_reminder import create_add_reminder_tool
+    from chatpilot.tools.builtin.browse_task import create_browse_task_tool
+    from chatpilot.tools.builtin.cancel_schedule import create_cancel_schedule_tool
+    from chatpilot.tools.builtin.delete_custom_prompt import (
+        create_delete_custom_prompt_tool,
+    )
+    from chatpilot.tools.builtin.delete_memo import create_delete_memo_tool
+    from chatpilot.tools.builtin.download_media import create_download_media_tool
+    from chatpilot.tools.builtin.list_custom_prompts import (
+        create_list_custom_prompts_tool,
+    )
+    from chatpilot.tools.builtin.list_memos import create_list_memos_tool
+    from chatpilot.tools.builtin.list_schedules import create_list_schedules_tool
+    from chatpilot.tools.builtin.save_custom_prompt import (
+        create_save_custom_prompt_tool,
+    )
+    from chatpilot.tools.builtin.save_memo import create_save_memo_tool
+    from chatpilot.tools.builtin.schedule_task_cron import (
+        create_schedule_task_cron_tool,
+    )
+    from chatpilot.tools.builtin.submit_task import create_submit_task_tool
+    from chatpilot.tools.builtin.task_history import create_task_history_tool
+    from chatpilot.tools.builtin.web_search import create_web_search_tool
+
+    def _get_session(route_id: str):
+        return chatbot_manager.get_session(route_id)
+
+    # Task tools
+    tool_factory.register(create_submit_task_tool(scheduler))
+    tool_factory.register(create_task_history_tool(scheduler))
+    tool_factory.register(create_browse_task_tool(scheduler))
+
+    # Search + media
+    tool_factory.register(create_web_search_tool())
+    tool_factory.register(create_download_media_tool(adapters))
+
+    # Memory tools
+    tool_factory.register(create_save_memo_tool(memory_store))
+    tool_factory.register(create_list_memos_tool(memory_store))
+    tool_factory.register(create_delete_memo_tool(memory_store))
+    tool_factory.register(create_save_custom_prompt_tool(memory_store, _get_session))
+    tool_factory.register(create_list_custom_prompts_tool(memory_store))
+    tool_factory.register(create_delete_custom_prompt_tool(memory_store, _get_session))
+
+    # Reminder + schedule tools
+    tool_factory.register(create_add_reminder_tool(memory_store))
+    tool_factory.register(create_schedule_task_cron_tool(memory_store))
+    tool_factory.register(create_list_schedules_tool(memory_store))
+    tool_factory.register(create_cancel_schedule_tool(memory_store))
+
+
+# ── Lifespan ─────────────────────────────────────────────────────
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Startup and shutdown lifecycle."""
+    load_dotenv()
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(name)s %(levelname)s %(message)s",
+    )
+    app.state.start_time = time.time()
+
+    # Config
+    config_path = Path(os.environ.get("ROUTES_PATH", "config/routes.yaml"))
+    app.state.config_path = config_path
+    config = _load_gateway_config(config_path)
+
+    # Core services
+    sdk_client = SdkClient()
+    await sdk_client.start()
+
+    memory_store = MemoryStore()
+    await memory_store.initialize()
+
+    tool_factory = ToolFactory()
+    adapters = _init_adapters()
+    app.state.adapters = adapters
+
+    # Routing + chatbot
+    binding_router = BindingRouter(config.bindings, config.match_weights)
+    chatbot_manager = ChatbotManager(
+        sdk_client, config.chatbots, tool_factory, memory_store=memory_store
+    )
+
+    # Trigger keywords
+    from chatpilot.hub.mention_filter import configure as configure_keywords
+
+    configure_keywords(config.trigger_keywords)
+
+    # Hub
+    hub = _init_hub(ContextBuffer(), adapters, binding_router, chatbot_manager)
     app.state.hub = hub
 
     # Task scheduler + pipeline
@@ -168,8 +227,7 @@ async def lifespan(app: FastAPI):
     await task_store.initialize()
 
     scheduler = InMemoryTaskScheduler(
-        store=task_store,
-        max_queue_size=config.scheduler.max_queue_size,
+        store=task_store, max_queue_size=config.scheduler.max_queue_size
     )
 
     pipeline_executor = PipelineExecutor()
@@ -189,69 +247,23 @@ async def lifespan(app: FastAPI):
     from chatpilot.cron.scheduler import CronScheduler
 
     cron_scheduler = CronScheduler(
-        memory_store=memory_store,
-        hub=hub,
-        task_scheduler=scheduler,
+        memory_store=memory_store, hub=hub, task_scheduler=scheduler
     )
     await cron_scheduler.start()
 
-    # Register built-in tools
-    submit_tool = create_submit_task_tool(scheduler)
-    tool_factory.register(submit_tool)
-
-    history_tool = create_task_history_tool(scheduler)
-    tool_factory.register(history_tool)
-
-    web_search_tool = create_web_search_tool()
-    tool_factory.register(web_search_tool)
-
-    browse_tool = create_browse_task_tool(scheduler)
-    tool_factory.register(browse_tool)
-
-    media_tool = create_download_media_tool(adapters)
-    tool_factory.register(media_tool)
-
-    # Memory tools
-    def _get_session(route_id: str):
-        return chatbot_manager.get_session(route_id)
-
-    tool_factory.register(create_save_memo_tool(memory_store))
-    tool_factory.register(create_list_memos_tool(memory_store))
-    tool_factory.register(create_delete_memo_tool(memory_store))
-    tool_factory.register(
-        create_save_custom_prompt_tool(memory_store, _get_session)
-    )
-    tool_factory.register(create_list_custom_prompts_tool(memory_store))
-    tool_factory.register(
-        create_delete_custom_prompt_tool(memory_store, _get_session)
-    )
-
-    from chatpilot.tools.builtin.add_reminder import create_add_reminder_tool
-
-    tool_factory.register(create_add_reminder_tool(memory_store))
-
-    from chatpilot.tools.builtin.cancel_schedule import create_cancel_schedule_tool
-    from chatpilot.tools.builtin.list_schedules import create_list_schedules_tool
-    from chatpilot.tools.builtin.schedule_task_cron import create_schedule_task_cron_tool
-
-    tool_factory.register(create_schedule_task_cron_tool(memory_store))
-    tool_factory.register(create_list_schedules_tool(memory_store))
-    tool_factory.register(create_cancel_schedule_tool(memory_store))
-
+    # Tools
+    _register_tools(tool_factory, scheduler, adapters, memory_store, chatbot_manager)
     app.state.scheduler = scheduler
 
-    # Config hot reload
+    # Hot reload
     def on_config_reload(new_config: GatewayConfig) -> None:
         binding_router.update(new_config.bindings, new_config.match_weights)
         chatbot_manager.update_configs(new_config.chatbots)
         logger.info("Config reloaded successfully")
 
-    observer = None
-    if config_path.exists():
-        observer = watch_config(config_path, on_config_reload)
+    observer = watch_config(config_path, on_config_reload) if config_path.exists() else None
 
     logger.info("Server started. Webhook: POST /webhook/{platform}")
-
     yield
 
     # Shutdown
