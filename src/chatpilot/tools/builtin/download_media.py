@@ -36,7 +36,10 @@ def create_download_media_tool(adapters: dict) -> ToolDefinition:
                 resultType="failure",
             )
 
-        platform, media_id = ref.split(":", 1)
+        parts = ref.split(":")
+        platform = parts[0]
+        media_id = parts[1] if len(parts) >= 2 else ""
+        filename = parts[2] if len(parts) >= 3 else None
         adapter = adapters.get(platform)
         if adapter is None:
             return ToolResult(
@@ -58,13 +61,26 @@ def create_download_media_tool(adapters: dict) -> ToolDefinition:
             )
 
         b64 = base64.b64encode(data).decode("ascii")
-        logger.info("Downloaded media %s (%d bytes)", ref, len(data))
+        label = filename or ref
+        logger.info("Downloaded media %s (%d bytes)", label, len(data))
+
+        # Detect mime type from filename
+        mime = "image/jpeg"
+        if filename:
+            ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+            mime_map = {
+                "png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg",
+                "gif": "image/gif", "pdf": "application/pdf",
+                "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            }
+            mime = mime_map.get(ext, "application/octet-stream")
 
         return ToolResult(
-            textResultForLlm=f"已下載圖片 {ref}（{len(data)} bytes）",
+            textResultForLlm=f"已下載 {label}（{len(data)} bytes）",
             resultType="success",
             binaryResultsForLlm=[
-                {"data": b64, "mimeType": "image/jpeg", "type": "image"},
+                {"data": b64, "mimeType": mime, "type": "image"},
             ],
         )
 
