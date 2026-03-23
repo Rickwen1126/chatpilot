@@ -21,7 +21,7 @@ def create_delete_memo_tool(memory_store: Any) -> ToolDefinition:
     async def handler(invocation: ToolInvocation) -> ToolResult:
         args = invocation.get("arguments") or {}
         session_id = invocation.get("session_id", "")
-        route_id = session_id.replace("-", ":", 1)
+        route_id = session_id.split("@")[0].replace("-", ":", 1)
 
         memo_id = args.get("memo_id", "").strip()
         if not memo_id:

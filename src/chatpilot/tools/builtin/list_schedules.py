@@ -20,7 +20,7 @@ def create_list_schedules_tool(memory_store: Any) -> ToolDefinition:
 
     async def handler(invocation: ToolInvocation) -> ToolResult:
         session_id = invocation.get("session_id", "")
-        route_id = session_id.replace("-", ":", 1)
+        route_id = session_id.split("@")[0].replace("-", ":", 1)
 
         try:
             reminders = await memory_store.list(route_id, "reminder")

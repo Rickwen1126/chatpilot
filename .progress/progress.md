@@ -1,3 +1,50 @@
+## 2026-03-23 15:56 — shinyipaint tools + 業主 demo + milestone 確認
+
+**Goal**: 實作 quote_search + document_edit tools，demo 給業主，確認後續計畫
+
+**Done**:
+- quote_search tool — JSON 搜尋歷史報價（building_type/area/brand/keyword），LINE demo 成功
+- document_edit tool — .xlsx/.docx 編輯 via openpyxl/python-docx + R2 上傳
+- LINE FileMessageContent parser — 產出 `[檔案 ref:line:{id}:{filename}]`
+- 統一 tool call logging — `_to_sdk_tool()` wrap handler，所有 tool 印 `[tool_call]`/`[tool_result]`
+- ChatbotManager debug log — session setup 印 tool list
+- data/quotes/quotes.json — 8 筆模擬報價 + .gitignore exception
+- 單元測試 28 個（quote_search 9 + document_edit 19），全 69 tests passing
+- E2E checklist 更新 + run_e2e.sh 加 quote_search/document_edit 測試段
+- python-docx + openpyxl 依賴加入 pyproject.toml
+- Commits: `dbfe8c8` ~ `68598e9`
+
+**Decisions**:
+- document_edit 用 GLOBAL AccessLevel（同步流程），未來複雜版改 AGENT_TEAM_TRIGGER + pipeline
+- R2Storage 在 lifespan 初始化，傳入 _register_tools
+- worktree 開發 → merge 回 main（有 server/__init__.py conflict，已解）
+
+**State**: Branch `main`, commit `68598e9`. Server 跑著 port 2999.
+
+**Bugs discovered**:
+- `session_id → route_id` 轉換 bug：`replace("-", ":", 1)` 只換第一個 dash，session_id 含 `-chatbotName` 後綴 → reminder/schedule push 失敗（route_id 多了 `-shinyipaint`）
+- document_edit ref 解析：LLM 呼叫 download_media 而非 document_edit，且 download_media 收三段式 ref `line:id:filename` media_id 解析錯 → failure
+- 倉庫搜尋精度：用戶說「黑色消光」但 DB 叫「平光 黑」，全文匹配不上（倉庫 API 端問題）
+
+**Next**:
+- [ ] 修 route_id 轉換 bug（影響所有 memory tools 的 push）
+- [ ] 修 download_media 支援三段式 ref + system_message 引導 document_edit
+- [ ] 倉庫盤點（3/25 前，用 warehouse-batch-inventory skill）
+- [ ] observer bot — 大群組資訊觀察（物料位置、需求、整理）
+- [ ] 王大叔出貨單記錄功能
+- [ ] 報價單數位化流程（手寫照片→OCR→AI checklist 補關鍵字→存 DB）
+
+**User Notes**:
+- 3/25(三) milestone：倉庫系統正式開始使用，今天(3/23)只是 demo
+- 倉庫 alignment 三管齊下：大群組觀察(自動) + 人工盤點(批次) + 王大叔出貨單
+- 報價單痛點：業務寫「茶園」但後來問「某某工作室」，後勤找一整天。AI 在 key 單時用 checklist 補齊所有可搜尋關鍵字（地址、建設/設計公司、別名）
+- observer bot feature 在 .bank/ 裡有定義
+- quote_search 的 quotes.json 是 demo 用，正式版接報價數位化流程
+- 請款抓漏需求：工期 2-3 年，分段請款不連續（例：請 1-5F，跳 6-7F，後請 8-10F），容易忘記請中間樓層。AI 做第二雙眼交叉驗證，不取代小姐工作。小姐抓的 < AI 的 → 回頭確認，雙面紗設計
+- SOP 數位化：傳統油漆工法口耳相傳，拼圖式採集（現場語音問師傅+拍照錄影+老闆訪談→AI整理）。啟動待業主授權進場。TODO：晚上討論 SOP 文件的具體策略/做法
+
+---
+
 ## 2026-03-23 08:33 — 003 Memory Store + Cron Scheduler 實作完成
 
 **Goal**: 實作 Memory Store + Cron Scheduler（35 tasks），E2E 驗證

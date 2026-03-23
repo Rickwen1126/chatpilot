@@ -85,8 +85,8 @@ class ChatbotManager:
             route_id, chatbot_name, tool_names,
         )
 
-        # Session ID includes chatbot name → each chatbot has its own history
-        sdk_session_id = f"{route_id.replace(':', '-')}-{chatbot_name}"
+        # Session ID: route@chatbot (@ separator preserves route_id derivation)
+        sdk_session_id = f"{route_id.replace(':', '-')}@{chatbot_name}"
 
         # Try resume (preserves conversation history for same chatbot)
         try:

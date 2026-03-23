@@ -92,7 +92,7 @@ def _init_hub(
         chatbot_for_sid = chatbot_manager.get_current_chatbot(
             route.route_id
         ) or route.chatbot_name
-        sdk_sid = f"{route.route_id.replace(':', '-')}-{chatbot_for_sid}"
+        sdk_sid = f"{route.route_id.replace(':', '-')}@{chatbot_for_sid}"
         pending_urls = image_injector.pop(sdk_sid)
         if pending_urls:
             response = Response(
