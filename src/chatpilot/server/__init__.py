@@ -154,6 +154,11 @@ def _register_tools(
     def _get_session(route_id: str):
         return chatbot_manager.get_session(route_id)
 
+    # Warehouse tool
+    from chatpilot.tools.builtin.warehouse_query import create_warehouse_query_tool
+
+    tool_factory.register(create_warehouse_query_tool())
+
     # Task tools
     tool_factory.register(create_submit_task_tool(scheduler))
     tool_factory.register(create_task_history_tool(scheduler))

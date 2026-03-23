@@ -17,7 +17,7 @@
 - needs_rebuild 獨立於 broken（分開 log）
 - schedule_task_cron input_data 必須包成 dict（Pydantic 驗證）
 
-**State**: Branch `main`, commit `55f361c`, pushed. 41 tests, ruff clean.
+**State**: Branch `main`, commit `efbb3a1`, pushed. 41 tests, ruff clean. R2 + LINE 圖片回傳 E2E 驗證通過。
 
 **Done (continued)**:
 - Cancel schedule 改 index-based（不用 ID）
@@ -28,7 +28,6 @@
 - R2 驗證通過（upload + public fetch OK，有幾秒傳播延遲）
 
 **Next**:
-- [ ] 圖片回傳 E2E：需要 LLM 生成圖片的場景觸發 → R2 upload → LINE ImageMessage
 - [ ] browse_task E2E — 未驗證
 - [ ] broken session rebuild — 未驗證
 
@@ -42,6 +41,10 @@
 - R2 storage 驗證通過：upload OK、public fetch 200（有幾秒 CDN 傳播延遲，不影響使用）
 - 圖片回傳功能已接上：R2 upload → Response.attachments → LINE ImageMessage。但還沒有觸發場景（需要 LLM 生成圖片的 tool 才能 E2E 測試）
 - R2 Public Development URL 有 rate limit 警告，生產建議用 Custom Domain
+- R2 + LINE 圖片回傳 E2E 成功：1.4MB JPG upload → R2 → LINE ImageMessage push → 使用者收到圖片
+- R2 public fetch 有幾秒 CDN 傳播延遲，push 前 sleep 5s 解決
+- E2E script 加入 R2 測試（有 config 時跑，沒有時 skip）
+- 你的私聊 route_id：`line:Ufc68d77c84b42995d970dc6639da4316`
 
 ---
 
