@@ -1,0 +1,98 @@
+[
+  {
+    "id": "Q-2025-001",
+    "project_name": "幸福社區 A 棟",
+    "date": "2025-06-15",
+    "building_type": "住宅",
+    "area_ping": 500,
+    "paint_brand": "虹牌",
+    "paint_type": "水泥漆",
+    "paint_volume_liters": 800,
+    "total_amount": 150000,
+    "notes": "含外牆防水底漆"
+  },
+  {
+    "id": "Q-2025-002",
+    "project_name": "科技園區辦公大樓",
+    "date": "2025-08-20",
+    "building_type": "商辦",
+    "area_ping": 2000,
+    "paint_brand": "立邦",
+    "paint_type": "乳膠漆",
+    "paint_volume_liters": 3200,
+    "total_amount": 800000,
+    "notes": "室內全棟，含天花板"
+  },
+  {
+    "id": "Q-2025-003",
+    "project_name": "大安花園住宅",
+    "date": "2025-09-10",
+    "building_type": "住宅",
+    "area_ping": 350,
+    "paint_brand": "得利",
+    "paint_type": "乳膠漆",
+    "paint_volume_liters": 560,
+    "total_amount": 180000,
+    "notes": "高級住宅，色彩客製"
+  },
+  {
+    "id": "Q-2025-004",
+    "project_name": "中和工業廠房",
+    "date": "2025-10-05",
+    "building_type": "廠房",
+    "area_ping": 3000,
+    "paint_brand": "虹牌",
+    "paint_type": "防水漆",
+    "paint_volume_liters": 5000,
+    "total_amount": 450000,
+    "notes": "地坪 + 牆面防水"
+  },
+  {
+    "id": "Q-2025-005",
+    "project_name": "信義商辦 B 棟",
+    "date": "2025-11-12",
+    "building_type": "商辦",
+    "area_ping": 1200,
+    "paint_brand": "立邦",
+    "paint_type": "乳膠漆",
+    "paint_volume_liters": 1900,
+    "total_amount": 520000,
+    "notes": "辦公區 + 公共空間"
+  },
+  {
+    "id": "Q-2026-001",
+    "project_name": "新莊幸福城",
+    "date": "2026-01-08",
+    "building_type": "住宅",
+    "area_ping": 800,
+    "paint_brand": "虹牌",
+    "paint_type": "水泥漆",
+    "paint_volume_liters": 1300,
+    "total_amount": 230000,
+    "notes": "社區大樓三棟"
+  },
+  {
+    "id": "Q-2026-002",
+    "project_name": "桃園物流中心",
+    "date": "2026-02-14",
+    "building_type": "廠房",
+    "area_ping": 5000,
+    "paint_brand": "虹牌",
+    "paint_type": "環氧地坪漆",
+    "paint_volume_liters": 8000,
+    "total_amount": 950000,
+    "notes": "倉儲地坪，抗壓耐磨"
+  },
+  {
+    "id": "Q-2026-003",
+    "project_name": "板橋馥華社區",
+    "date": "2026-03-01",
+    "building_type": "住宅",
+    "area_ping": 600,
+    "paint_brand": "得利",
+    "paint_type": "乳膠漆",
+    "paint_volume_liters": 960,
+    "total_amount": 280000,
+    "notes": "全室內，含兒童房低 VOC 漆"
+  }
+]
