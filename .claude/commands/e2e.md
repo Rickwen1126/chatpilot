@@ -25,24 +25,59 @@ Run the E2E test script:
 bash tests/e2e/run_e2e.sh
 ```
 
-### Test Coverage
+### E2E Checklist
 
-| Test | Verifies |
-|------|----------|
-| Health | Server responds, version correct |
-| CLI Chat | Full pipeline: hub → router → chatbot → SDK → response |
-| /chatbot list | Command routing + chatbot registry |
-| Mock Webhook | Adapter parse + hub receive |
-| Unknown Platform | 404 for unregistered adapter |
-| Trigger Keywords | "bot 你好" triggers without @mention in group |
-| Memo | save_memo → confirm → list_memos (Memory Store CRUD) |
-| Reminder | add_reminder + CronScheduler tick push |
-| Schedule + Cancel | schedule_task_cron + list_schedules + cancel by index |
-| Config Reload | /cli/reload endpoint |
-| Context Buffer | Group non-mention → buffer → @mention drains context |
+Each item maps to a test scenario. All must pass before release.
+
+**Core Gateway**
+- [ ] Health endpoint returns 200 + version
+- [ ] CLI chat full pipeline (hub → router → chatbot → SDK → response)
+- [ ] Mock webhook 200 OK
+- [ ] Unknown platform returns 404
+- [ ] /chatbot list shows all chatbots
+- [ ] /chatbot {name} switches chatbot
+
+**Group Behavior**
+- [ ] Group non-mention → silent buffer (no response)
+- [ ] Group @bot mention → chatbot responds with context prefix
+- [ ] Group "bot 你好" keyword trigger → chatbot responds (trigger_keywords)
+- [ ] Group @Bot /chatbot list → slash command works
+- [ ] Busy gate: second mention while processing → "處理中" reply
+
+**Adapters**
+- [ ] LINE private chat → chatbot responds
+- [ ] LINE group @bot → chatbot responds
+- [ ] LINE reply token expired → fallback to push
+- [ ] LINE image → [圖片 ref:line:{id}] in context buffer
+- [ ] LINE @bot "剛那張圖是什麼" → LLM calls download_media
+
+**Memory Store**
+- [ ] save_memo → LLM asks confirmation → stores in SQLite
+- [ ] list_memos → shows saved memos
+- [ ] delete_memo → removes memo
+- [ ] save_custom_prompt → stores preference + marks needs_rebuild
+- [ ] Session rebuild after custom_prompt → new system_message includes preference
+
+**Reminder + Schedule**
+- [ ] add_reminder → stored with due_at
+- [ ] CronScheduler tick → due reminder pushed
+- [ ] schedule_task_cron → stored with next_run_at
+- [ ] CronScheduler tick → due schedule triggers pipeline
+- [ ] list_schedules → shows pending reminders + schedules
+- [ ] cancel_schedule by index → deletes correct item
+
+**Session**
+- [ ] Server restart → resume_session preserves conversation history
+- [ ] Broken session (timeout) → next message creates new session
+- [ ] Config hot reload → routes.yaml change takes effect without restart
+
+**Pending (not yet automated)**
+- [ ] browse_task pipeline (Playwright headless)
+- [ ] Broken session rebuild (needs short timeout test)
 
 ### After Running
 
 - Report pass/fail count
 - If failures: check server logs for details
 - Reminder test needs ~60s for CronScheduler tick
+- Some tests require LINE (marked in checklist)
