@@ -73,9 +73,19 @@ class ToolFactory:
 
 def _to_sdk_tool(defn: ToolDefinition) -> SdkTool:
     """Convert internal ToolDefinition to SDK Tool dataclass."""
+    original = defn.handler
+
+    async def _logged_handler(invocation: Any) -> Any:
+        args = invocation.get("arguments") or {}
+        logger.info("[tool_call] %s args=%s", defn.name, args)
+        result = await original(invocation)
+        status = result.get("resultType", "?") if isinstance(result, dict) else "?"
+        logger.info("[tool_result] %s status=%s", defn.name, status)
+        return result
+
     return SdkTool(
         name=defn.name,
         description=defn.description,
-        handler=defn.handler,
+        handler=_logged_handler,
         parameters=defn.parameters,
     )

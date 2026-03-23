@@ -79,6 +79,11 @@ class ChatbotManager:
         )
         model = self._route_model_overrides.get(route_id, config.model)
         tools = self._tool_factory.get_tools_for_chatbot(config.tools)
+        tool_names = [t.name for t in tools] if tools else []
+        logger.info(
+            "Session setup route=%s chatbot=%s tools=%s",
+            route_id, chatbot_name, tool_names,
+        )
 
         # Session ID includes chatbot name → each chatbot has its own history
         sdk_session_id = f"{route_id.replace(':', '-')}-{chatbot_name}"
