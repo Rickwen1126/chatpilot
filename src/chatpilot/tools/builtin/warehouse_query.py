@@ -13,6 +13,14 @@ from chatpilot.core.types import AccessLevel, ToolDefinition
 
 logger = logging.getLogger(__name__)
 
+# Pending images: tool sets, on_proceed reads + clears
+_pending_images: dict[str, str] = {}  # session_id → image_url
+
+
+def pop_pending_image(session_id: str) -> str | None:
+    """Pop pending zone image URL for a session (called by on_proceed)."""
+    return _pending_images.pop(session_id, None)
+
 WAREHOUSE_API = "http://localhost:8000/api/v1"
 WAREHOUSE_WEB = "https://warehouse.shinyipaint.com.tw"
 R2_ZONE_BASE = "https://pub-fcc500f8fb48414aba2084e196f653eb.r2.dev/zone"
@@ -70,6 +78,15 @@ def create_warehouse_query_tool() -> ToolDefinition:
                 result = await _low_stock()
             else:
                 result = await _search_items(query)
+
+            # Extract [image:URL] and store for on_proceed
+            import re as _re
+
+            img_match = _re.search(r"\[image:(https?://[^\]]+)\]", result)
+            if img_match:
+                session_id = invocation.get("session_id", "")
+                _pending_images[session_id] = img_match.group(1)
+                result = _re.sub(r"\n?\[image:[^\]]+\]", "", result)
 
             return ToolResult(
                 textResultForLlm=result,
