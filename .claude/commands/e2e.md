@@ -71,9 +71,15 @@ Each item maps to a test scenario. All must pass before release.
 - [ ] Broken session (timeout) → next message creates new session
 - [ ] Config hot reload → routes.yaml change takes effect without restart
 
+**Shinyipaint Tools**
+- [ ] quote_search → 切 shinyipaint chatbot，查詢虹牌報價，回傳歷史資料
+- [ ] document_edit xlsx round-trip → 建立 xlsx → append rows → 驗證內容
+- [ ] document_edit docx round-trip → 建立 docx → append paragraph → 驗證內容
+
 **Pending (not yet automated)**
 - [ ] browse_task pipeline (Playwright headless)
 - [ ] Broken session rebuild (needs short timeout test)
+- [ ] document_edit full flow via LINE（上傳檔案 → 編輯 → R2 → 回傳連結）
 
 ### After Running
 

@@ -195,6 +195,71 @@ else
     FAIL=$((FAIL + 1))
 fi
 
+# ─── Quote Search ────────────────────────────────────────────────
+header "Quote Search (shinyipaint)"
+# Switch to shinyipaint chatbot first
+QUOTE_USER="e2e-quote-$(date +%s)"
+uv run chatpilot-cli --url "$BASE_URL" chat "/chatbot shinyipaint" --user "$QUOTE_USER" > /dev/null 2>&1
+sleep 2
+QUOTE_RESP=$(uv run chatpilot-cli --url "$BASE_URL" chat "幫我找虹牌的歷史報價" --user "$QUOTE_USER" 2>/dev/null)
+if echo "$QUOTE_RESP" | grep -qi "虹牌\|報價\|水泥漆\|防水漆"; then
+    green "  ✓ quote_search tool returned results"
+    PASS=$((PASS + 1))
+else
+    red "  ✗ quote_search — no quote data in response"
+    echo "    got: $QUOTE_RESP"
+    FAIL=$((FAIL + 1))
+fi
+
+# ─── Document Edit (unit-level in E2E) ──────────────────────────
+header "Document Edit (xlsx + docx round-trip)"
+DOC_RESULT=$(uv run python -c "
+import asyncio, io, json
+
+async def test():
+    from chatpilot.tools.builtin.document_edit import _edit_xlsx, _edit_docx
+    import openpyxl, docx
+
+    # xlsx: create → append → verify
+    wb = openpyxl.Workbook()
+    wb.active.append(['品名', '數量'])
+    wb.active.append(['水泥漆', 10])
+    buf = io.BytesIO()
+    wb.save(buf)
+    xlsx_bytes = buf.getvalue()
+
+    edited = await _edit_xlsx(xlsx_bytes, '', json.dumps([['乳膠漆', 5]]))
+    wb2 = openpyxl.load_workbook(io.BytesIO(edited))
+    rows = list(wb2.active.iter_rows(values_only=True))
+    if len(rows) != 3 or rows[2] != ('乳膠漆', 5):
+        return 'FAIL:xlsx_append'
+
+    # docx: create → append → verify
+    doc = docx.Document()
+    doc.add_paragraph('原始段落')
+    buf2 = io.BytesIO()
+    doc.save(buf2)
+    docx_bytes = buf2.getvalue()
+
+    edited2 = await _edit_docx(docx_bytes, '', json.dumps('新增結論'))
+    doc2 = docx.Document(io.BytesIO(edited2))
+    texts = [p.text for p in doc2.paragraphs]
+    if '新增結論' not in texts:
+        return 'FAIL:docx_append'
+
+    return 'OK'
+
+print(asyncio.run(test()))
+" 2>/dev/null)
+
+if [ "$DOC_RESULT" = "OK" ]; then
+    green "  ✓ xlsx append + docx append round-trip OK"
+    PASS=$((PASS + 1))
+else
+    red "  ✗ document_edit round-trip failed: $DOC_RESULT"
+    FAIL=$((FAIL + 1))
+fi
+
 # ─── Summary ──────────────────────────────────────────────────────
 header "Summary"
 echo ""
