@@ -97,6 +97,11 @@ async def lifespan(app: FastAPI):
     )
 
     # Context buffer
+    # Trigger keywords
+    from chatpilot.hub.mention_filter import configure as configure_keywords
+
+    configure_keywords(config.trigger_keywords)
+
     context_buffer = ContextBuffer()
 
     # Message hub

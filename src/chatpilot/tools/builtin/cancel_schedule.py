@@ -1,4 +1,4 @@
-"""cancel_schedule tool — cancel a reminder or scheduled task by its ID."""
+"""cancel_schedule tool — cancel a reminder or schedule by index number."""
 
 from __future__ import annotations
 
@@ -13,56 +13,82 @@ logger = logging.getLogger(__name__)
 
 
 def create_cancel_schedule_tool(memory_store: Any) -> ToolDefinition:
-    """Create a cancel_schedule tool definition.
-
-    Handler follows SDK ToolHandler signature: (ToolInvocation) -> ToolResult.
-    """
+    """Create a cancel_schedule tool that cancels by index from list."""
 
     async def handler(invocation: ToolInvocation) -> ToolResult:
         args = invocation.get("arguments") or {}
         session_id = invocation.get("session_id", "")
         route_id = session_id.replace("-", ":", 1)
 
-        item_id = args.get("item_id", "").strip()
-        if not item_id:
+        index = args.get("index", 0)
+        try:
+            index = int(index)
+        except (TypeError, ValueError):
             return ToolResult(
-                textResultForLlm="請提供要取消的排程/提醒 ID",
+                textResultForLlm="請提供要取消的編號（數字）",
                 resultType="failure",
             )
 
+        if index < 1:
+            return ToolResult(
+                textResultForLlm="編號必須大於 0",
+                resultType="failure",
+            )
+
+        # Rebuild the same list as list_schedules
+        items: list[tuple[str, str, dict]] = []
         try:
-            deleted = await memory_store.delete(route_id, "reminder", item_id)
-            if not deleted:
-                deleted = await memory_store.delete(route_id, "schedule", item_id)
+            reminders = await memory_store.list(route_id, "reminder")
+            for r in reminders:
+                if r.get("status", "pending") == "pending":
+                    items.append(("reminder", r["id"], r))
+            schedules = await memory_store.list(route_id, "schedule")
+            for s in schedules:
+                if s.get("status", "pending") == "pending":
+                    items.append(("schedule", s["id"], s))
         except Exception as e:
-            logger.error("cancel_schedule failed: %s", e)
+            return ToolResult(
+                textResultForLlm=f"查詢失敗: {e}",
+                resultType="failure",
+            )
+
+        if index > len(items):
+            return ToolResult(
+                textResultForLlm=f"只有 {len(items)} 筆排程，沒有第 {index} 筆",
+                resultType="failure",
+            )
+
+        type_name, item_id, item = items[index - 1]
+        desc = item.get("text", item.get("cron_expr", ""))
+
+        try:
+            await memory_store.delete(route_id, type_name, item_id)
+        except Exception as e:
             return ToolResult(
                 textResultForLlm=f"取消失敗: {e}",
                 resultType="failure",
             )
 
-        if deleted:
-            return ToolResult(
-                textResultForLlm=f"已取消排程/提醒 {item_id[:8]}",
-                resultType="success",
-            )
         return ToolResult(
-            textResultForLlm=f"找不到 ID 為 {item_id[:8]} 的排程或提醒",
-            resultType="failure",
+            textResultForLlm=f"已取消第 {index} 筆 [{type_name}]：{desc}",
+            resultType="success",
         )
 
     return ToolDefinition(
         name="cancel_schedule",
-        description="取消一筆提醒或排程任務。",
+        description=(
+            "取消一筆提醒或排程。使用 list_schedules 列出的編號，"
+            "例如使用者說「取消第 2 個」就傳 index=2。"
+        ),
         parameters={
             "type": "object",
             "properties": {
-                "item_id": {
-                    "type": "string",
-                    "description": "要取消的排程或提醒 ID",
+                "index": {
+                    "type": "integer",
+                    "description": "要取消的項目編號（從 list_schedules 取得）",
                 },
             },
-            "required": ["item_id"],
+            "required": ["index"],
         },
         handler=handler,
         access_level=AccessLevel.GLOBAL,

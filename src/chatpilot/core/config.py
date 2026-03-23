@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Callable
 
 import yaml
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from watchdog.events import FileSystemEvent, FileSystemEventHandler
 from watchdog.observers import Observer
 
@@ -28,6 +28,7 @@ class GatewayConfig(BaseModel):
     chatbots: dict[str, ChatbotConfig] = {}
     agents: dict[str, AgentConfig] = {}
     scheduler: SchedulerConfig = SchedulerConfig()
+    trigger_keywords: list[str] = Field(default_factory=list)
 
 
 def load_config(path: Path) -> GatewayConfig:
