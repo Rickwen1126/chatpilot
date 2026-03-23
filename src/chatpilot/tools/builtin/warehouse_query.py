@@ -15,6 +15,18 @@ logger = logging.getLogger(__name__)
 
 WAREHOUSE_API = "http://localhost:8000/api/v1"
 WAREHOUSE_WEB = "https://warehouse.shinyipaint.com.tw"
+R2_ZONE_BASE = "https://pub-fcc500f8fb48414aba2084e196f653eb.r2.dev/zone"
+
+ZONE_IMAGES = {
+    "zone_AB": f"{R2_ZONE_BASE}/floor_plan_zone_AB.png",
+    "zone_CD": f"{R2_ZONE_BASE}/floor_plan_zone_CD.png",
+    "zone_H": f"{R2_ZONE_BASE}/floor_plan_zone_H.png",
+    "zone_E": f"{R2_ZONE_BASE}/floor_plan_zone_E.png",
+    "zone_J": f"{R2_ZONE_BASE}/floor_plan_zone_J.png",
+    "zone_flat": f"{R2_ZONE_BASE}/floor_plan_zone_flat.png",
+    "zone_1F": f"{R2_ZONE_BASE}/floor_plan_zone_1F.png",
+    "overview": f"{R2_ZONE_BASE}/floor_plan_overview.png",
+}
 
 UNIT_TO_ZONE = {
     "A1": "zone_AB", "A2": "zone_AB", "A3": "zone_AB", "A4": "zone_AB",
@@ -268,12 +280,16 @@ def _format_search_results(items: list, query: str) -> str:
     deep_link = _make_deep_link(query)
     lines.append(f"\n👉 {deep_link}")
 
-    # Zone info for image selection
+    # Zone image URL
     if len(zones_seen) == 1:
         zone = zones_seen.pop()
-        lines.append(f"\n[zone:{zone}]")
+        img_url = ZONE_IMAGES.get(zone)
+        if img_url:
+            lines.append(f"\n[image:{img_url}]")
     elif len(zones_seen) > 1:
-        lines.append("\n[zone:overview]")
+        img_url = ZONE_IMAGES.get("overview")
+        if img_url:
+            lines.append(f"\n[image:{img_url}]")
 
     return "\n".join(lines)
 

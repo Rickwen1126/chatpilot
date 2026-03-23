@@ -83,6 +83,20 @@ def _init_hub(
             route.route_id, route.chatbot_name
         )
         response = await session.send_message(message.text, context_prefix)
+
+        # Extract [image:URL] from response text → attachments
+        import re as _re
+
+        from chatpilot.core.types import Attachment
+
+        img_matches = _re.findall(r"\[image:(https?://[^\]]+)\]", response.text)
+        if img_matches:
+            clean_text = _re.sub(r"\n?\[image:https?://[^\]]+\]", "", response.text).strip()
+            response = Response(
+                text=clean_text or response.text,
+                attachments=[Attachment(type="image", url=u) for u in img_matches],
+            )
+
         await adapter.send_reply(message, response)
 
     async def on_command(
