@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 
 from linebot.v3.webhooks import (
+    FileMessageContent,
     ImageMessageContent,
     MessageEvent,
     TextMessageContent,
@@ -77,6 +78,27 @@ def parse_line_events(events: list) -> list[Message]:
                 group_id=group_id,
                 conversation_id=conversation_id,
                 is_mention=False,  # image alone is never a mention
+                platform_context={
+                    "reply_token": event.reply_token,
+                    "message_id": event.message.id,
+                },
+            )
+            messages.append(msg)
+
+        elif isinstance(event.message, FileMessageContent):
+            fname = event.message.file_name or "file"
+            logger.info(
+                "LINE file from %s: %s (%d bytes)",
+                user_id[:8], fname, event.message.file_size or 0,
+            )
+            msg = Message(
+                text=f"[檔案 ref:line:{event.message.id}:{fname}]",
+                user_id=user_id,
+                user_name="",
+                platform="line",
+                group_id=group_id,
+                conversation_id=conversation_id,
+                is_mention=False,
                 platform_context={
                     "reply_token": event.reply_token,
                     "message_id": event.message.id,
