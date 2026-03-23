@@ -40,3 +40,6 @@ htmlcov/
 
 # Runtime data
 data/
+
+# Worktrees
+.worktrees/
