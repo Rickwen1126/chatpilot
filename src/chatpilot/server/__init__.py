@@ -17,6 +17,7 @@ from chatpilot.core.config import GatewayConfig, load_config, watch_config
 from chatpilot.core.types import Message, Response
 from chatpilot.hub.context_buffer import ContextBuffer
 from chatpilot.hub.hub import InMemoryMessageHub
+from chatpilot.memory.store import SqliteMemoryStore as MemoryStore
 from chatpilot.pipeline.executor import PipelineExecutor
 from chatpilot.pipeline.samples.browser import BrowserPipeline
 from chatpilot.pipeline.samples.echo import EchoPipeline
@@ -27,7 +28,13 @@ from chatpilot.scheduler.store import SqliteTaskStore
 from chatpilot.sdk.session import SdkClient
 from chatpilot.server.webhook import router
 from chatpilot.tools.builtin.browse_task import create_browse_task_tool
+from chatpilot.tools.builtin.delete_custom_prompt import create_delete_custom_prompt_tool
+from chatpilot.tools.builtin.delete_memo import create_delete_memo_tool
 from chatpilot.tools.builtin.download_media import create_download_media_tool
+from chatpilot.tools.builtin.list_custom_prompts import create_list_custom_prompts_tool
+from chatpilot.tools.builtin.list_memos import create_list_memos_tool
+from chatpilot.tools.builtin.save_custom_prompt import create_save_custom_prompt_tool
+from chatpilot.tools.builtin.save_memo import create_save_memo_tool
 from chatpilot.tools.builtin.submit_task import create_submit_task_tool
 from chatpilot.tools.builtin.task_history import create_task_history_tool
 from chatpilot.tools.builtin.web_search import create_web_search_tool
@@ -61,6 +68,10 @@ async def lifespan(app: FastAPI):
     sdk_client = SdkClient()
     await sdk_client.start()
 
+    # Memory store
+    memory_store = MemoryStore()
+    await memory_store.initialize()
+
     # Tool factory
     tool_factory = ToolFactory()
 
@@ -81,7 +92,9 @@ async def lifespan(app: FastAPI):
     binding_router = BindingRouter(config.bindings, config.match_weights)
 
     # Chatbot manager
-    chatbot_manager = ChatbotManager(sdk_client, config.chatbots, tool_factory)
+    chatbot_manager = ChatbotManager(
+        sdk_client, config.chatbots, tool_factory, memory_store=memory_store
+    )
 
     # Context buffer
     context_buffer = ContextBuffer()
@@ -167,6 +180,16 @@ async def lifespan(app: FastAPI):
     )
     await runner_pool.start(scheduler)
 
+    # Cron scheduler
+    from chatpilot.cron.scheduler import CronScheduler
+
+    cron_scheduler = CronScheduler(
+        memory_store=memory_store,
+        hub=hub,
+        task_scheduler=scheduler,
+    )
+    await cron_scheduler.start()
+
     # Register built-in tools
     submit_tool = create_submit_task_tool(scheduler)
     tool_factory.register(submit_tool)
@@ -182,6 +205,33 @@ async def lifespan(app: FastAPI):
 
     media_tool = create_download_media_tool(adapters)
     tool_factory.register(media_tool)
+
+    # Memory tools
+    def _get_session(route_id: str):
+        return chatbot_manager.get_session(route_id)
+
+    tool_factory.register(create_save_memo_tool(memory_store))
+    tool_factory.register(create_list_memos_tool(memory_store))
+    tool_factory.register(create_delete_memo_tool(memory_store))
+    tool_factory.register(
+        create_save_custom_prompt_tool(memory_store, _get_session)
+    )
+    tool_factory.register(create_list_custom_prompts_tool(memory_store))
+    tool_factory.register(
+        create_delete_custom_prompt_tool(memory_store, _get_session)
+    )
+
+    from chatpilot.tools.builtin.add_reminder import create_add_reminder_tool
+
+    tool_factory.register(create_add_reminder_tool(memory_store))
+
+    from chatpilot.tools.builtin.cancel_schedule import create_cancel_schedule_tool
+    from chatpilot.tools.builtin.list_schedules import create_list_schedules_tool
+    from chatpilot.tools.builtin.schedule_task_cron import create_schedule_task_cron_tool
+
+    tool_factory.register(create_schedule_task_cron_tool(memory_store))
+    tool_factory.register(create_list_schedules_tool(memory_store))
+    tool_factory.register(create_cancel_schedule_tool(memory_store))
 
     app.state.scheduler = scheduler
 
@@ -200,8 +250,10 @@ async def lifespan(app: FastAPI):
     yield
 
     # Shutdown
+    await cron_scheduler.stop()
     await runner_pool.stop()
     await task_store.close()
+    await memory_store.close()
     if observer:
         observer.stop()
     await chatbot_manager.destroy_all()

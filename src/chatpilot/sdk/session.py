@@ -103,6 +103,8 @@ class SdkClient:
         session_id: str,
         *,
         model: str | None = None,
+        system_message: str | None = None,
+        tools: list[SdkTool] | None = None,
     ) -> SdkSession:
         """Resume an existing SDK session."""
         if self._client is None:
@@ -115,6 +117,12 @@ class SdkClient:
         }
         if model:
             config["model"] = model
+        if system_message:
+            config["system_message"] = {
+                "mode": "replace", "content": system_message
+            }
+        if tools:
+            config["tools"] = tools
         session = await self._client.resume_session(session_id, config)
         logger.debug("Resumed session %s (model=%s)", session_id, model)
         return SdkSession(session, session_id)

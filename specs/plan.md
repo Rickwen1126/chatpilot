@@ -171,6 +171,12 @@ v2 直接對應架構圖的模組名稱，降低認知負擔。
 
 - [ ] **Per-route model override 持久化**：`/model` 切換目前是 in-memory，重啟丟失。ChatbotConfig 是 shared by type（多個 route 共用同一份），per-route override 存在 `ChatbotManager._route_model_overrides` dict。需決定：(1) 接受重啟歸零（MVP）(2) persist 到 SQLite 或 JSON (3) 寫回 routes.yaml（會和 hot reload 衝突）。同理未來如果 `/chatbot` 指令也做 per-route 覆蓋，也需要同樣的 persistence 決策。
 
+## Future Tasks
+
+- [ ] **圖片回傳（Response attachments）**：Response model 加 attachments 欄位，adapter 根據 attachment type 發送圖片。圖床使用 Cloudflare R2（免費 10GB/月 + 免費 egress），上傳圖片取得公開 URL，全平台（LINE/Discord/Telegram）統一用 URL 傳圖。需要：R2 bucket 設定、upload 工具、Response model 擴展、各 adapter 圖片發送實作
+- [ ] **browse_task E2E 測試**：BrowserPipeline（Playwright headless）已實作但未 E2E 驗證。測試路徑：chatbot 呼叫 browse_task → scheduler.enqueue → RunnerPool → BrowserPipeline → Playwright 搜 Google → push 結果。需確認 Playwright 在 server 環境正常啟動
+- [ ] **影片支援**：Agent team tool + frame-by-frame 分析，未來階段
+
 ## Complexity Tracking
 
 > 無 Constitution 違反，本節不適用。
