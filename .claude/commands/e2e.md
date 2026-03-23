@@ -41,6 +41,7 @@ Each item maps to a test scenario. All must pass before release.
 - [ ] Group non-mention → silent buffer (no response)
 - [ ] Group @bot mention → chatbot responds with context prefix
 - [ ] Group "bot 你好" keyword trigger → chatbot responds (trigger_keywords)
+- [ ] Group "bot /chatbot list" → keyword + slash command works
 - [ ] Group @Bot /chatbot list → slash command works
 - [ ] Busy gate: second mention while processing → "處理中" reply
 

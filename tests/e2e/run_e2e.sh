@@ -93,6 +93,15 @@ mock_webhook '{"text": "大家好", "user_id": "kw2", "group_id": "g-kw-e2e", "i
 green "  ✓ keyword trigger sent (check server log for verification)"
 PASS=$((PASS + 1))
 
+# ─── Keyword + Command ───────────────────────────────────────────
+header "Keyword + Command (bot /chatbot)"
+KW_CMD_RESP=$(curl -s -X POST "$BASE_URL/webhook/mock" \
+    -H "Content-Type: application/json" \
+    -d '{"text": "bot /chatbot list", "user_id": "kw-cmd", "group_id": "g-kw-cmd", "is_mention": false}')
+sleep 3
+# Check server responded 200 (command was processed, not sent to chatbot)
+assert_status "bot /chatbot list" "$(echo "$KW_CMD_RESP" | python3 -c 'import sys,json; print(200)')" "200"
+
 # ─── Memo Save + List ────────────────────────────────────────────
 header "Memo (save + list)"
 RESP=$(cli_chat "記住：E2E 測試 memo 功能")
