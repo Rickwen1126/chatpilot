@@ -280,7 +280,7 @@ def _format_search_results(items: list, query: str) -> str:
     deep_link = _make_deep_link(query)
     lines.append(f"\n👉 {deep_link}")
 
-    # Zone image URL
+    # Zone tag (parsed by on_proceed to attach image)
     if len(zones_seen) == 1:
         zone = zones_seen.pop()
         img_url = ZONE_IMAGES.get(zone)

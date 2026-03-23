@@ -91,11 +91,39 @@ def _init_hub(
 
         img_matches = _re.findall(r"\[image:(https?://[^\]]+)\]", response.text)
         if img_matches:
-            clean_text = _re.sub(r"\n?\[image:https?://[^\]]+\]", "", response.text).strip()
+            clean_text = _re.sub(
+                r"\n?\[image:https?://[^\]]+\]", "", response.text
+            ).strip()
             response = Response(
                 text=clean_text or response.text,
                 attachments=[Attachment(type="image", url=u) for u in img_matches],
             )
+        elif not response.attachments:
+            # Fallback: detect warehouse unit IDs in text → attach zone map
+            from chatpilot.tools.builtin.warehouse_query import (
+                UNIT_TO_ZONE,
+                ZONE_IMAGES,
+            )
+
+            zones = set()
+            for uid in UNIT_TO_ZONE:
+                if uid in response.text:
+                    z = UNIT_TO_ZONE[uid]
+                    zones.add(z)
+            if len(zones) == 1:
+                img = ZONE_IMAGES.get(zones.pop())
+                if img:
+                    response = Response(
+                        text=response.text,
+                        attachments=[Attachment(type="image", url=img)],
+                    )
+            elif len(zones) > 1:
+                img = ZONE_IMAGES.get("overview")
+                if img:
+                    response = Response(
+                        text=response.text,
+                        attachments=[Attachment(type="image", url=img)],
+                    )
 
         await adapter.send_reply(message, response)
 
