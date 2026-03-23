@@ -57,8 +57,12 @@ class InMemoryMessageHub:
         mentioned = is_mention(message)
 
         # Check prefix commands (group requires mention, private chat always)
-        # Strip leading @mention if present: "@Bot /chatbot list" → "/chatbot list"
-        text = re.sub(r"^@\S+\s+", "", message.text.strip()) if mentioned else message.text.strip()
+        # Strip leading @mention or keyword: "@Bot /chatbot" or "bot /chatbot" → "/chatbot"
+        text = message.text.strip()
+        if mentioned and not text.startswith("/"):
+            text = re.sub(r"^@\S+\s+", "", text)  # strip @Bot
+            if not text.startswith("/"):
+                text = re.sub(r"^\S+\s+", "", text, count=1)  # strip keyword (e.g. "bot ")
         if text.startswith("/") and mentioned:
             cmd_parts = text.split(maxsplit=1)
             command = cmd_parts[0][1:]

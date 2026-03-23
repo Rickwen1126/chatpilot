@@ -3,7 +3,7 @@
 # Usage: ./tests/e2e/run_e2e.sh
 # Requires: server running on localhost:2999
 
-set -e
+# No set -e: we handle errors per-test
 
 BASE_URL="${CHATPILOT_URL:-http://localhost:2999}"
 PASS=0
