@@ -38,8 +38,9 @@ htmlcov/
 # Ruff
 .ruff_cache/
 
-# Runtime data
-data/
+# Runtime data (keep seed/fixture dirs)
+data/*
+!data/quotes/
 
 # Worktrees
 .worktrees/
