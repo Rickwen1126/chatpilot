@@ -13,13 +13,6 @@ from chatpilot.core.types import AccessLevel, ToolDefinition
 
 logger = logging.getLogger(__name__)
 
-# Pending images: tool sets, on_proceed reads + clears
-_pending_images: dict[str, str] = {}  # session_id → image_url
-
-
-def pop_pending_image(session_id: str) -> str | None:
-    """Pop pending zone image URL for a session (called by on_proceed)."""
-    return _pending_images.pop(session_id, None)
 
 WAREHOUSE_API = "http://localhost:8000/api/v1"
 WAREHOUSE_WEB = "https://warehouse.shinyipaint.com.tw"
@@ -53,7 +46,7 @@ UNIT_TO_ZONE = {
 }
 
 
-def create_warehouse_query_tool() -> ToolDefinition:
+def create_warehouse_query_tool(image_injector=None) -> ToolDefinition:
     """Create warehouse query tool for inventory lookup."""
 
     async def handler(invocation: ToolInvocation) -> ToolResult:
@@ -79,13 +72,13 @@ def create_warehouse_query_tool() -> ToolDefinition:
             else:
                 result = await _search_items(query)
 
-            # Extract [image:URL] and store for on_proceed
+            # Extract [image:URL] and queue via injector
             import re as _re
 
             img_match = _re.search(r"\[image:(https?://[^\]]+)\]", result)
-            if img_match:
+            if img_match and image_injector:
                 session_id = invocation.get("session_id", "")
-                _pending_images[session_id] = img_match.group(1)
+                image_injector.add(session_id, img_match.group(1))
                 result = _re.sub(r"\n?\[image:[^\]]+\]", "", result)
 
             return ToolResult(

@@ -63,6 +63,7 @@ def _init_hub(
     adapters: dict[str, ChannelAdapter],
     binding_router: BindingRouter,
     chatbot_manager: ChatbotManager,
+    image_injector=None,
 ) -> InMemoryMessageHub:
     hub = InMemoryMessageHub(
         context_buffer=context_buffer,
@@ -84,21 +85,20 @@ def _init_hub(
         )
         response = await session.send_message(message.text, context_prefix)
 
-        # Check for pending warehouse zone image
+        # Check for pending images from tools
         from chatpilot.core.types import Attachment
-        from chatpilot.tools.builtin.warehouse_query import pop_pending_image
 
-        sdk_sid = route.route_id.replace(":", "-")
-        # Try with chatbot suffix
-        chatbot_name_for_sid = chatbot_manager.get_current_chatbot(
+        chatbot_for_sid = chatbot_manager.get_current_chatbot(
             route.route_id
         ) or route.chatbot_name
-        full_sid = f"{sdk_sid}-{chatbot_name_for_sid}"
-        pending_img = pop_pending_image(full_sid)
-        if pending_img:
+        sdk_sid = f"{route.route_id.replace(':', '-')}-{chatbot_for_sid}"
+        pending_urls = image_injector.pop(sdk_sid)
+        if pending_urls:
             response = Response(
                 text=response.text,
-                attachments=[Attachment(type="image", url=pending_img)],
+                attachments=[
+                    Attachment(type="image", url=u) for u in pending_urls
+                ],
             )
 
         await adapter.send_reply(message, response)
@@ -159,6 +159,7 @@ def _register_tools(
     adapters: dict[str, ChannelAdapter],
     memory_store: MemoryStore,
     chatbot_manager: ChatbotManager,
+    image_injector=None,
 ) -> None:
     from chatpilot.tools.builtin.add_reminder import create_add_reminder_tool
     from chatpilot.tools.builtin.browse_task import create_browse_task_tool
@@ -190,7 +191,7 @@ def _register_tools(
     # Warehouse tool
     from chatpilot.tools.builtin.warehouse_query import create_warehouse_query_tool
 
-    tool_factory.register(create_warehouse_query_tool())
+    tool_factory.register(create_warehouse_query_tool(image_injector))
 
     # Task tools
     tool_factory.register(create_submit_task_tool(scheduler))
@@ -251,13 +252,20 @@ async def lifespan(app: FastAPI):
         sdk_client, config.chatbots, tool_factory, memory_store=memory_store
     )
 
+    # Image injector
+    from chatpilot.core.image_injector import ImageInjector
+
+    image_injector = ImageInjector()
+
     # Trigger keywords
     from chatpilot.hub.mention_filter import configure as configure_keywords
 
     configure_keywords(config.trigger_keywords)
 
     # Hub
-    hub = _init_hub(ContextBuffer(), adapters, binding_router, chatbot_manager)
+    hub = _init_hub(
+        ContextBuffer(), adapters, binding_router, chatbot_manager, image_injector
+    )
     app.state.hub = hub
 
     # Task scheduler + pipeline
@@ -290,7 +298,10 @@ async def lifespan(app: FastAPI):
     await cron_scheduler.start()
 
     # Tools
-    _register_tools(tool_factory, scheduler, adapters, memory_store, chatbot_manager)
+    _register_tools(
+        tool_factory, scheduler, adapters, memory_store,
+        chatbot_manager, image_injector,
+    )
     app.state.scheduler = scheduler
 
     # Hot reload
