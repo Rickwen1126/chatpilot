@@ -9,7 +9,7 @@ def create_add_reminder_tool(memory_store) -> ToolDefinition:
     async def handler(invocation: ToolInvocation) -> ToolResult:
         args = invocation.get("arguments") or {}
         session_id = invocation.get("session_id", "")
-        route_id = session_id.split("@")[0].replace("-", ":", 1)
+        route_id = session_id.split("__")[0].replace("-", ":", 1)
 
         text = args.get("text", "")
         due_at = args.get("due_at", "")

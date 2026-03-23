@@ -86,7 +86,7 @@ class ChatbotManager:
         )
 
         # Session ID: route@chatbot (@ separator preserves route_id derivation)
-        sdk_session_id = f"{route_id.replace(':', '-')}@{chatbot_name}"
+        sdk_session_id = f"{route_id.replace(':', '-')}__{chatbot_name}"
 
         # Try resume (preserves conversation history for same chatbot)
         try:
