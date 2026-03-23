@@ -180,6 +180,16 @@ async def lifespan(app: FastAPI):
     )
     await runner_pool.start(scheduler)
 
+    # Cron scheduler
+    from chatpilot.cron.scheduler import CronScheduler
+
+    cron_scheduler = CronScheduler(
+        memory_store=memory_store,
+        hub=hub,
+        task_scheduler=scheduler,
+    )
+    await cron_scheduler.start()
+
     # Register built-in tools
     submit_tool = create_submit_task_tool(scheduler)
     tool_factory.register(submit_tool)
@@ -211,6 +221,18 @@ async def lifespan(app: FastAPI):
         create_delete_custom_prompt_tool(memory_store, _get_session)
     )
 
+    from chatpilot.tools.builtin.add_reminder import create_add_reminder_tool
+
+    tool_factory.register(create_add_reminder_tool(memory_store))
+
+    from chatpilot.tools.builtin.cancel_schedule import create_cancel_schedule_tool
+    from chatpilot.tools.builtin.list_schedules import create_list_schedules_tool
+    from chatpilot.tools.builtin.schedule_task_cron import create_schedule_task_cron_tool
+
+    tool_factory.register(create_schedule_task_cron_tool(memory_store))
+    tool_factory.register(create_list_schedules_tool(memory_store))
+    tool_factory.register(create_cancel_schedule_tool(memory_store))
+
     app.state.scheduler = scheduler
 
     # Config hot reload
@@ -228,6 +250,7 @@ async def lifespan(app: FastAPI):
     yield
 
     # Shutdown
+    await cron_scheduler.stop()
     await runner_pool.stop()
     await task_store.close()
     await memory_store.close()

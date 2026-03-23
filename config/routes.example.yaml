@@ -18,7 +18,7 @@ chatbots:
       你只能使用明確提供給你的工具，禁止使用任何未註冊的內建工具。
       群組對話中，標記 [背景] 的內容是其他人的閒聊，供你參考但不需回應。
       --- 分隔線之後是直接對你說的訊息，請優先處理。
-    tools: []
+    tools: [web_search, download_media, save_memo, list_memos, delete_memo, save_custom_prompt, list_custom_prompts, delete_custom_prompt, add_reminder, schedule_task_cron, list_schedules, cancel_schedule]
     context_window: 20
 
 agents: {}

@@ -68,12 +68,12 @@
 
 ### Implementation
 
-- [ ] T019 [P] [US2] 實作 add_reminder tool in src/chatpilot/tools/builtin/add_reminder.py：LLM 提供 text + due_at，存入 Memory Store（type=reminder, status=pending）
-- [ ] T020 [US2] 實作 CronScheduler in src/chatpilot/cron/scheduler.py：tick loop（asyncio, 60s interval），掃描 query_due_before("reminder", now)，到期 → status=running → hub.push → status=completed/failed + last_error。掃 status=failed → warning log
-- [ ] T021 [US2] 整合 CronScheduler 到 app factory in src/chatpilot/server/__init__.py：lifespan 啟動 CronScheduler（傳入 memory_store + hub），shutdown 時 stop
-- [ ] T022 [US2] 註冊 add_reminder tool 到 ToolFactory in src/chatpilot/server/__init__.py
-- [ ] T023 [P] [US2] 單元測試 in tests/unit/test_cron_scheduler.py：mock memory_store + mock hub，驗證 tick → 掃到 reminder → push → 更新 status
-- [ ] T024 [US2] CLI E2E 驗證：chatpilot-cli chat "1 分鐘後提醒我測試" → 等 60 秒 → 確認 push 通知
+- [x] T019 [P] [US2] 實作 add_reminder tool in src/chatpilot/tools/builtin/add_reminder.py：LLM 提供 text + due_at，存入 Memory Store（type=reminder, status=pending）
+- [x] T020 [US2] 實作 CronScheduler in src/chatpilot/cron/scheduler.py：tick loop（asyncio, 60s interval），掃描 query_due_before("reminder", now)，到期 → status=running → hub.push → status=completed/failed + last_error。掃 status=failed → warning log
+- [x] T021 [US2] 整合 CronScheduler 到 app factory in src/chatpilot/server/__init__.py：lifespan 啟動 CronScheduler（傳入 memory_store + hub），shutdown 時 stop
+- [x] T022 [US2] 註冊 add_reminder tool 到 ToolFactory in src/chatpilot/server/__init__.py
+- [x] T023 [P] [US2] 單元測試 in tests/unit/test_cron_scheduler.py：mock memory_store + mock hub，驗證 tick → 掃到 reminder → push → 更新 status
+- [x] T024 [US2] CLI E2E 驗證：chatpilot-cli chat "1 分鐘後提醒我測試" → 等 60 秒 → 確認 push 通知
 
 **Checkpoint**: US2 完成。Reminder + CronScheduler 可獨立運作。
 
@@ -87,9 +87,9 @@
 
 ### Implementation
 
-- [ ] T025 [P] [US3] 實作 schedule_task_cron tool in src/chatpilot/tools/builtin/schedule_task_cron.py：LLM 提供 cron_expr + pipeline_name + input_data，用 cron parser 算 next_run_at，存入 Memory Store（type=schedule, status=pending）
-- [ ] T026 [US3] CronScheduler 加 schedule handler in src/chatpilot/cron/scheduler.py：掃描 query_due_before("schedule", now)，到期 → status=running → task_scheduler.enqueue(TaskInfo) → 成功則算 next_run_at + reset pending → 失敗則 status=failed
-- [ ] T027 [US3] CLI E2E 驗證：chatpilot-cli chat "每 2 分鐘搜尋台股" → 等 2 分鐘 → 確認 pipeline 執行 + push 結果
+- [x] T025 [P] [US3] 實作 schedule_task_cron tool in src/chatpilot/tools/builtin/schedule_task_cron.py：LLM 提供 cron_expr + pipeline_name + input_data，用 cron parser 算 next_run_at，存入 Memory Store（type=schedule, status=pending）
+- [x] T026 [US3] CronScheduler 加 schedule handler in src/chatpilot/cron/scheduler.py：掃描 query_due_before("schedule", now)，到期 → status=running → task_scheduler.enqueue(TaskInfo) → 成功則算 next_run_at + reset pending → 失敗則 status=failed
+- [x] T027 [US3] CLI E2E 驗證：chatpilot-cli chat "每 2 分鐘搜尋台股" → 等 2 分鐘 → 確認 pipeline 執行 + push 結果
 
 **Checkpoint**: US3 完成。Schedule + Pipeline 觸發可運作。
 
@@ -103,9 +103,9 @@
 
 ### Implementation
 
-- [ ] T028 [P] [US4] 實作 list_schedules tool in src/chatpilot/tools/builtin/list_schedules.py：列出該 route 所有 reminder（pending）+ schedule（pending），合併顯示
-- [ ] T029 [P] [US4] 實作 cancel_schedule tool in src/chatpilot/tools/builtin/cancel_schedule.py：刪除指定 reminder 或 schedule
-- [ ] T030 [US4] CLI E2E 驗證：設定 reminder + schedule → chatpilot-cli chat "我有哪些排程？" → chatpilot-cli chat "取消第 1 個" → 確認已刪除
+- [x] T028 [P] [US4] 實作 list_schedules tool in src/chatpilot/tools/builtin/list_schedules.py：列出該 route 所有 reminder（pending）+ schedule（pending），合併顯示
+- [x] T029 [P] [US4] 實作 cancel_schedule tool in src/chatpilot/tools/builtin/cancel_schedule.py：刪除指定 reminder 或 schedule
+- [x] T030 [US4] CLI E2E 驗證：設定 reminder + schedule → chatpilot-cli chat "我有哪些排程？" → chatpilot-cli chat "取消第 1 個" → 確認已刪除
 
 **Checkpoint**: US4 完成。排程管理可用。
 
@@ -115,11 +115,11 @@
 
 **Purpose**: config 更新、logging、edge case
 
-- [ ] T031 [P] 更新 config/routes.yaml：所有 chatbot 的 tools 列表加入 memo + custom_prompt + reminder + schedule 相關 tool
-- [ ] T032 [P] 更新 config/routes.example.yaml：同上
-- [ ] T033 [P] 完整 logging：Memory Store CRUD 操作 + CronScheduler tick/dispatch/success/failure 統一 log 格式
-- [ ] T034 邊界情況 hardening：(1) 空 memo 不存 (2) 過去的 due_at 立即觸發 (3) cron_expr 格式錯誤回友善錯誤 (4) route_id 推導失敗的處理
-- [ ] T035 執行 ruff check + pytest 全量測試，確認全部通過
+- [x] T031 [P] 更新 config/routes.yaml：所有 chatbot 的 tools 列表加入 memo + custom_prompt + reminder + schedule 相關 tool
+- [x] T032 [P] 更新 config/routes.example.yaml：同上
+- [x] T033 [P] 完整 logging：Memory Store CRUD 操作 + CronScheduler tick/dispatch/success/failure 統一 log 格式
+- [x] T034 邊界情況 hardening：(1) 空 memo 不存 (2) 過去的 due_at 立即觸發 (3) cron_expr 格式錯誤回友善錯誤 (4) route_id 推導失敗的處理
+- [x] T035 執行 ruff check + pytest 全量測試，確認全部通過
 
 ---
 
