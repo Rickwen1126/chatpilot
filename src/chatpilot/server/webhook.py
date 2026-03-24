@@ -113,10 +113,17 @@ async def cli_chat(request: Request) -> JSONResponse:
 @router.get("/cli/routes")
 async def cli_routes(request: Request) -> JSONResponse:
     """List all known routes with chatbot binding info."""
+    import json as _json
     from pathlib import Path
 
     chatbot_manager = request.app.state.chatbot_manager
     binding_router = request.app.state.binding_router
+
+    # Load labels
+    labels_path = Path("data/route_labels.json")
+    labels: dict = {}
+    if labels_path.exists():
+        labels = _json.loads(labels_path.read_text(encoding="utf-8"))
 
     # Collect route_ids from SDK session state
     session_dir = Path.home() / ".copilot" / "session-state"
@@ -158,6 +165,7 @@ async def cli_routes(request: Request) -> JSONResponse:
 
         routes.append({
             "route_id": route_id,
+            "label": labels.get(route_id),
             "platform": info["platform"],
             "conversation_id": info["conversation_id"],
             "current_chatbot": override or default_binding or "unknown",
@@ -167,6 +175,36 @@ async def cli_routes(request: Request) -> JSONResponse:
         })
 
     return JSONResponse(content={"routes": routes, "total": len(routes)})
+
+
+@router.post("/cli/routes/label")
+async def cli_route_label(request: Request) -> JSONResponse:
+    """Set a label for a route_id."""
+    import json
+    from pathlib import Path
+
+    body = await request.json()
+    route_id = body.get("route_id", "")
+    label = body.get("label", "")
+
+    if not route_id:
+        return JSONResponse(status_code=400, content={"error": "route_id required"})
+
+    labels_path = Path("data/route_labels.json")
+    labels_path.parent.mkdir(parents=True, exist_ok=True)
+    labels: dict = {}
+    if labels_path.exists():
+        labels = json.loads(labels_path.read_text(encoding="utf-8"))
+
+    if label:
+        labels[route_id] = label
+    else:
+        labels.pop(route_id, None)
+
+    labels_path.write_text(
+        json.dumps(labels, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    return JSONResponse(content={"route_id": route_id, "label": label or None})
 
 
 @router.post("/cli/reload")
