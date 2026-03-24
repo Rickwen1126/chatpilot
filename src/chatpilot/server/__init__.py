@@ -171,6 +171,9 @@ def _register_tools(
     get_available_tools: Any = None,
 ) -> None:
     from chatpilot.tools.builtin.add_reminder import create_add_reminder_tool
+    from chatpilot.tools.builtin.batch_image_analyze import (
+        create_batch_image_analyze_tool,
+    )
     from chatpilot.tools.builtin.browse_task import create_browse_task_tool
     from chatpilot.tools.builtin.cancel_schedule import create_cancel_schedule_tool
     from chatpilot.tools.builtin.delete_custom_prompt import (
@@ -209,6 +212,7 @@ def _register_tools(
     tool_factory.register(create_submit_task_tool(scheduler))
     tool_factory.register(create_task_history_tool(scheduler))
     tool_factory.register(create_browse_task_tool(scheduler))
+    tool_factory.register(create_batch_image_analyze_tool(scheduler))
 
     # Search + media
     tool_factory.register(create_web_search_tool())
@@ -338,6 +342,13 @@ async def lifespan(app: FastAPI):
         get_available_tools,
     )
     app.state.scheduler = scheduler
+
+    # Batch vision pipeline (after tools registered — needs download_media)
+    from chatpilot.pipeline.samples.batch_vision import BatchImageVisionPipeline
+
+    pipeline_executor.register(
+        BatchImageVisionPipeline(sdk_client, tool_factory)
+    )
 
     # Hot reload
     def on_config_reload(new_config: GatewayConfig) -> None:

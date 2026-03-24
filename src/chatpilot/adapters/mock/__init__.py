@@ -46,4 +46,23 @@ class MockAdapter:
         self.pushes.append((route_id, response.text))
 
     async def download_media(self, media_id: str) -> bytes | None:
-        return None
+        """Return a tiny test PNG for mock media IDs."""
+        import struct
+        import zlib
+
+        w, h = 2, 2
+        raw = b""
+        for _ in range(h):
+            raw += b"\x00" + bytes([255, 0, 0]) * w  # red pixels
+        compressed = zlib.compress(raw)
+
+        def chunk(ct: bytes, d: bytes) -> bytes:
+            c = ct + d
+            return struct.pack(">I", len(d)) + c + struct.pack(">I", zlib.crc32(c) & 0xFFFFFFFF)
+
+        return (
+            b"\x89PNG\r\n\x1a\n"
+            + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0))
+            + chunk(b"IDAT", compressed)
+            + chunk(b"IEND", b"")
+        )
