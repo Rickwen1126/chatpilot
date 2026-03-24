@@ -26,7 +26,9 @@ CREATE TABLE IF NOT EXISTS tasks (
     output_full    TEXT,
     chat_route_id  TEXT NOT NULL,
     pipeline_name  TEXT NOT NULL,
-    error          TEXT
+    error          TEXT,
+    input_data     TEXT DEFAULT '{}',
+    reply_mode     TEXT DEFAULT 'direct'
 );
 """
 
@@ -50,8 +52,26 @@ class SqliteTaskStore:
         await self._db.execute(CREATE_TABLE)
         for idx in CREATE_INDEXES:
             await self._db.execute(idx)
+        await self._migrate()
         await self._db.commit()
         logger.info("TaskStore initialized at %s", self._db_path)
+
+    async def _migrate(self) -> None:
+        """Add new columns to existing databases."""
+        if self._db is None:
+            return
+        async with self._db.execute("PRAGMA table_info(tasks)") as cursor:
+            cols = [row[1] for row in await cursor.fetchall()]
+        if "input_data" not in cols:
+            await self._db.execute(
+                "ALTER TABLE tasks ADD COLUMN input_data TEXT DEFAULT '{}'"
+            )
+            logger.info("Migrated tasks: added input_data column")
+        if "reply_mode" not in cols:
+            await self._db.execute(
+                "ALTER TABLE tasks ADD COLUMN reply_mode TEXT DEFAULT 'direct'"
+            )
+            logger.info("Migrated tasks: added reply_mode column")
 
     async def close(self) -> None:
         if self._db:
@@ -64,8 +84,8 @@ class SqliteTaskStore:
             """INSERT OR REPLACE INTO tasks
                (id, status, created_at, started_at, completed_at, duration_ms,
                 input_summary, output_summary, output_full, chat_route_id,
-                pipeline_name, error)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                pipeline_name, error, input_data, reply_mode)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 task.id,
                 task.status.value,
@@ -79,6 +99,8 @@ class SqliteTaskStore:
                 task.chat_route_id,
                 task.pipeline_name,
                 task.error,
+                json.dumps(task.input_data) if task.input_data else "{}",
+                task.reply_mode,
             ),
         )
         await self._db.commit()
@@ -132,4 +154,6 @@ def _row_to_task(row: tuple) -> TaskInfo:
         chat_route_id=row[9],
         pipeline_name=row[10],
         error=row[11],
+        input_data=json.loads(row[12]) if len(row) > 12 and row[12] else {},
+        reply_mode=row[13] if len(row) > 13 and row[13] else "direct",
     )

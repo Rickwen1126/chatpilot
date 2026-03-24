@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from typing import Any
 
 from chatpilot.chatbot.session import ChatbotSession
 from chatpilot.core.types import ChatbotConfig
 from chatpilot.sdk.session import SdkClient
 from chatpilot.tools.factory import ToolFactory
+
+DEFAULT_WORKSPACE_ROOT = "data/workspace"
 
 logger = logging.getLogger(__name__)
 
@@ -74,19 +77,22 @@ class ChatbotManager:
         if config is None:
             raise ValueError(f"Chatbot '{chatbot_name}' not found")
 
+        # Session ID: route@chatbot (@ separator preserves route_id derivation)
+        sdk_session_id = f"{route_id.replace(':', '-')}__{chatbot_name}"
+
+        # Resolve working directory: config.workdir or default per-session
+        workdir = self._resolve_workdir(config.workdir, sdk_session_id)
+
         system_message = await self._build_system_message(
-            config.system_message, route_id
+            config.system_message, route_id, workdir
         )
         model = self._route_model_overrides.get(route_id, config.model)
         tools = self._tool_factory.get_tools_for_chatbot(config.tools)
         tool_names = [t.name for t in tools] if tools else []
         logger.info(
-            "Session setup route=%s chatbot=%s tools=%s",
-            route_id, chatbot_name, tool_names,
+            "Session setup route=%s chatbot=%s tools=%s workdir=%s",
+            route_id, chatbot_name, tool_names, workdir,
         )
-
-        # Session ID: route@chatbot (@ separator preserves route_id derivation)
-        sdk_session_id = f"{route_id.replace(':', '-')}__{chatbot_name}"
 
         # Try resume (preserves conversation history for same chatbot)
         try:
@@ -95,6 +101,7 @@ class ChatbotManager:
                 model=model,
                 system_message=system_message,
                 tools=tools or None,
+                working_directory=workdir,
             )
             logger.info(
                 "Resumed route=%s chatbot=%s", route_id, chatbot_name
@@ -105,6 +112,7 @@ class ChatbotManager:
                 model=model,
                 system_message=system_message,
                 tools=tools or None,
+                working_directory=workdir,
             )
             logger.info(
                 "Created route=%s chatbot=%s", route_id, chatbot_name
@@ -114,24 +122,44 @@ class ChatbotManager:
         self._sessions[route_id] = session
         return session
 
-    async def _build_system_message(
-        self, base: str, route_id: str
+    @staticmethod
+    def _resolve_workdir(
+        config_workdir: str | None, session_id: str
     ) -> str:
-        if self._memory_store is None:
-            return base
-        try:
-            prompts = await self._memory_store.list(
-                route_id, "custom_prompt"
+        """Resolve workspace directory: config value or default per-session."""
+        if config_workdir:
+            path = Path(config_workdir)
+        else:
+            path = Path(DEFAULT_WORKSPACE_ROOT) / session_id
+        path.mkdir(parents=True, exist_ok=True)
+        return str(path.resolve())
+
+    async def _build_system_message(
+        self, base: str, route_id: str, workdir: str | None = None
+    ) -> str:
+        parts = [base]
+
+        # Workspace info
+        if workdir:
+            parts.append(
+                f"\n[工作目錄]\n你的工作目錄是 {workdir}，"
+                "如果需要暫存或輸出檔案，請放在這個目錄下。"
             )
-        except Exception:
-            return base
-        if not prompts:
-            return base
-        lines = [p["text"] for p in prompts if p.get("text")]
-        if not lines:
-            return base
-        custom_section = "\n- ".join(lines)
-        return f"{base}\n\n[使用者偏好]\n- {custom_section}"
+
+        # Custom prompts
+        if self._memory_store is not None:
+            try:
+                prompts = await self._memory_store.list(
+                    route_id, "custom_prompt"
+                )
+            except Exception:
+                prompts = []
+            lines = [p["text"] for p in prompts if p.get("text")]
+            if lines:
+                custom_section = "\n- ".join(lines)
+                parts.append(f"\n[使用者偏好]\n- {custom_section}")
+
+        return "".join(parts)
 
     async def switch_chatbot(
         self, route_id: str, chatbot_name: str

@@ -53,9 +53,9 @@ def create_list_schedules_tool(memory_store: Any) -> ToolDefinition:
 
         for s in schedules:
             cron_expr = s.get("cron_expr", "")
-            pipeline_name = s.get("pipeline_name", "")
+            tool_name = s.get("tool_name", "")
             input_data = s.get("input_data", "")
-            label = f"{pipeline_name} {input_data}".strip()
+            label = f"{tool_name} {input_data}".strip()
             lines.append(f"{idx}. [schedule] {cron_expr} {label}（ID: {s['id'][:8]}）")
             idx += 1
 

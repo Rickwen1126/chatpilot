@@ -25,46 +25,75 @@ def mock_hub():
     return hub
 
 
-async def test_reminder_push(store, mock_hub):
-    """Due reminder should be pushed and marked completed."""
+@pytest.fixture
+def mock_task_scheduler():
+    scheduler = AsyncMock()
+    scheduler.enqueue = AsyncMock()
+    return scheduler
+
+
+async def test_reminder_enqueues_general_agent(store, mock_hub, mock_task_scheduler):
+    """Due reminder should enqueue a general-agent task and be marked completed."""
     past = (datetime.now(timezone.utc) - timedelta(minutes=1)).isoformat()
     await store.save("r1", "reminder", {"text": "開會", "due_at": past})
 
-    scheduler = CronScheduler(store, mock_hub, tick_interval=60)
+    scheduler = CronScheduler(
+        store, mock_hub, task_scheduler=mock_task_scheduler, tick_interval=60
+    )
     await scheduler._tick()
 
-    # Hub push was called
-    mock_hub.push.assert_called_once()
-    call_args = mock_hub.push.call_args
-    assert call_args[0][0] == "r1"
-    assert "開會" in call_args[0][1].text
+    # Task enqueued (not direct push)
+    mock_task_scheduler.enqueue.assert_called_once()
+    task = mock_task_scheduler.enqueue.call_args[0][0]
+    assert task.pipeline_name == "general-agent"
+    assert "開會" in task.input_data.get("description", "")
+    assert task.chat_route_id == "r1"
 
     # Reminder marked completed
     items = await store.list("r1", "reminder")
     assert items[0]["status"] == MemoryStatus.completed.value
 
 
-async def test_reminder_not_due(store, mock_hub):
+async def test_reminder_not_due(store, mock_hub, mock_task_scheduler):
     """Future reminder should not be triggered."""
     future = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
     await store.save("r1", "reminder", {"text": "later", "due_at": future})
 
-    scheduler = CronScheduler(store, mock_hub, tick_interval=60)
+    scheduler = CronScheduler(
+        store, mock_hub, task_scheduler=mock_task_scheduler, tick_interval=60
+    )
     await scheduler._tick()
 
-    mock_hub.push.assert_not_called()
+    mock_task_scheduler.enqueue.assert_not_called()
 
 
-async def test_reminder_push_failure(store, mock_hub):
-    """Failed push should mark reminder as failed with error."""
+async def test_reminder_no_scheduler_fails(store, mock_hub):
+    """Reminder without task_scheduler should fail gracefully."""
     past = (datetime.now(timezone.utc) - timedelta(minutes=1)).isoformat()
     await store.save("r1", "reminder", {"text": "fail", "due_at": past})
-
-    mock_hub.push.side_effect = Exception("push failed")
 
     scheduler = CronScheduler(store, mock_hub, tick_interval=60)
     await scheduler._tick()
 
     items = await store.list("r1", "reminder")
     assert items[0]["status"] == MemoryStatus.failed.value
-    assert "push failed" in items[0]["last_error"]
+    assert "task_scheduler" in items[0]["last_error"]
+
+
+async def test_schedule_uses_tool_name(store, mock_hub, mock_task_scheduler):
+    """Schedule should use tool_name field."""
+    past = (datetime.now(timezone.utc) - timedelta(minutes=1)).isoformat()
+    await store.save("r1", "schedule", {
+        "cron_expr": "daily 08:00",
+        "tool_name": "echo",
+        "next_run_at": past,
+    })
+
+    scheduler = CronScheduler(
+        store, mock_hub, task_scheduler=mock_task_scheduler, tick_interval=60
+    )
+    await scheduler._tick()
+
+    mock_task_scheduler.enqueue.assert_called_once()
+    task = mock_task_scheduler.enqueue.call_args[0][0]
+    assert task.pipeline_name == "echo"

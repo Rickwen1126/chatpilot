@@ -12,11 +12,30 @@ from chatpilot.core.types import AccessLevel, ToolDefinition
 logger = logging.getLogger(__name__)
 
 
-def create_schedule_task_cron_tool(memory_store: Any) -> ToolDefinition:
+def create_schedule_task_cron_tool(
+    memory_store: Any,
+    get_available_tools: Any = None,
+) -> ToolDefinition:
     """Create a schedule_task_cron tool definition.
 
     Handler follows SDK ToolHandler signature: (ToolInvocation) -> ToolResult.
+    get_available_tools: callable returning list[str] of registered tool names.
     """
+
+    def _build_description() -> str:
+        tools = get_available_tools() if get_available_tools else []
+        if tools:
+            tools_list = "、".join(f"'{t}'" for t in tools)
+            return (
+                "建立週期性排程任務。提供 cron 表達式（如 'daily 08:00'、"
+                "'weekly mon 09:00'、'interval 30m'）和 tool 名稱。"
+                f"可用的 tool：{tools_list}。"
+                "只能使用這些已註冊的 tool 名稱，不可自創。"
+            )
+        return (
+            "建立週期性排程任務。提供 cron 表達式（如 'daily 08:00'、"
+            "'weekly mon 09:00'、'interval 30m'）和 tool 名稱。"
+        )
 
     async def handler(invocation: ToolInvocation) -> ToolResult:
         args = invocation.get("arguments") or {}
@@ -24,12 +43,23 @@ def create_schedule_task_cron_tool(memory_store: Any) -> ToolDefinition:
         route_id = session_id.split("__")[0].replace("-", ":", 1)
 
         cron_expr = args.get("cron_expr", "").strip()
-        pipeline_name = args.get("pipeline_name", "").strip()
+        tool_name = args.get("tool_name", "").strip()
         description = args.get("description", "").strip()
 
-        if not cron_expr or not pipeline_name:
+        if not cron_expr or not tool_name:
             return ToolResult(
-                textResultForLlm="需要提供 cron 表達式和 pipeline 名稱",
+                textResultForLlm="需要提供 cron 表達式和 tool 名稱",
+                resultType="failure",
+            )
+
+        # Validate tool_name against available tools
+        available = get_available_tools() if get_available_tools else []
+        if available and tool_name not in available:
+            return ToolResult(
+                textResultForLlm=(
+                    f"tool '{tool_name}' 不存在。"
+                    f"可用的 tool：{', '.join(available)}"
+                ),
                 resultType="failure",
             )
 
@@ -49,14 +79,14 @@ def create_schedule_task_cron_tool(memory_store: Any) -> ToolDefinition:
                 "schedule",
                 {
                     "cron_expr": cron_expr,
-                    "pipeline_name": pipeline_name,
+                    "tool_name": tool_name,
                     "input_data": {"description": description} if description else {},
                     "next_run_at": next_run_at.isoformat(),
                 },
             )
             return ToolResult(
                 textResultForLlm=(
-                    f"已建立排程：{cron_expr} {pipeline_name}"
+                    f"已建立排程：{cron_expr} {tool_name}"
                     f"{f' — {description}' if description else ''}"
                     f"（ID: {schedule_id[:8]}，下次執行: {next_run_at.isoformat()}）"
                 ),
@@ -71,12 +101,7 @@ def create_schedule_task_cron_tool(memory_store: Any) -> ToolDefinition:
 
     return ToolDefinition(
         name="schedule_task_cron",
-        description=(
-            "建立週期性排程任務。提供 cron 表達式（如 'daily 08:00'、"
-            "'weekly mon 09:00'、'interval 30m'）和 pipeline 名稱。"
-            "可用的 pipeline：'echo'（回聲測試）、'browser-search'（瀏覽器搜尋）。"
-            "只能使用這些已註冊的 pipeline 名稱，不可自創。"
-        ),
+        description=_build_description(),
         parameters={
             "type": "object",
             "properties": {
@@ -84,16 +109,16 @@ def create_schedule_task_cron_tool(memory_store: Any) -> ToolDefinition:
                     "type": "string",
                     "description": "排程表達式（daily HH:MM / weekly DAY HH:MM / interval Nm）",
                 },
-                "pipeline_name": {
+                "tool_name": {
                     "type": "string",
-                    "description": "要執行的 pipeline 名稱",
+                    "description": "要執行的 tool 名稱",
                 },
                 "description": {
                     "type": "string",
-                    "description": "排程說明，作為 pipeline 的 input_data（選填）",
+                    "description": "排程說明，作為 tool 的 input_data（選填）",
                 },
             },
-            "required": ["cron_expr", "pipeline_name"],
+            "required": ["cron_expr", "tool_name"],
         },
         handler=handler,
         access_level=AccessLevel.GLOBAL,

@@ -15,6 +15,7 @@ from chatpilot.core.types import (
     AgentConfig,
     Binding,
     ChatbotConfig,
+    CronSchedulerConfig,
     MatchWeights,
     SchedulerConfig,
 )
@@ -28,6 +29,7 @@ class GatewayConfig(BaseModel):
     chatbots: dict[str, ChatbotConfig] = {}
     agents: dict[str, AgentConfig] = {}
     scheduler: SchedulerConfig = SchedulerConfig()
+    cron_scheduler: CronSchedulerConfig = CronSchedulerConfig()
     trigger_keywords: list[str] = Field(default_factory=list)
 
 

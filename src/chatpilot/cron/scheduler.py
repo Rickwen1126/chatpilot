@@ -6,7 +6,6 @@ import asyncio
 import logging
 from datetime import datetime, timezone
 
-from chatpilot.core.types import Response
 from chatpilot.cron.parser import calculate_next_run
 from chatpilot.memory.types import MemoryStatus
 
@@ -22,11 +21,13 @@ class CronScheduler:
         hub,
         task_scheduler=None,
         tick_interval: int = 60,
+        available_tools: list[str] | None = None,
     ) -> None:
         self._memory_store = memory_store
         self._hub = hub
         self._task_scheduler = task_scheduler
         self._tick_interval = tick_interval
+        self._available_tools = available_tools or []
         self._running = False
         self._task: asyncio.Task | None = None
 
@@ -88,16 +89,31 @@ class CronScheduler:
         )
 
         try:
-            await self._hub.push(
-                route_id, Response(text=f"提醒：{text}")
+            if self._task_scheduler is None:
+                raise RuntimeError("No task_scheduler configured")
+
+            import uuid
+
+            from chatpilot.core.types import TaskInfo
+
+            task = TaskInfo(
+                id=str(uuid.uuid4()),
+                created_at=datetime.now(timezone.utc),
+                pipeline_name="general-agent",
+                input_summary=f"提醒：{text}",
+                input_data={"description": f"提醒使用者：{text}"},
+                chat_route_id=route_id,
             )
-            # Mark completed
+            await self._task_scheduler.enqueue(task)
+
+            # Mark completed (task enqueued successfully)
             await self._memory_store.update(
                 route_id, "reminder", rid,
                 {"status": MemoryStatus.completed.value},
             )
             logger.info(
-                "Reminder %s pushed to %s", rid[:8], route_id[:16]
+                "Reminder %s enqueued as general-agent task for %s",
+                rid[:8], route_id[:16],
             )
         except Exception as e:
             await self._memory_store.update(
@@ -114,7 +130,7 @@ class CronScheduler:
     async def _handle_schedule(self, schedule: dict) -> None:
         sid = schedule["id"]
         route_id = schedule["route_id"]
-        pipeline_name = schedule.get("pipeline_name", "")
+        tool_name = schedule.get("tool_name", "")
         cron_expr = schedule.get("cron_expr", "")
 
         # Mark running
@@ -134,7 +150,7 @@ class CronScheduler:
             task = TaskInfo(
                 id=str(uuid.uuid4()),
                 created_at=datetime.now(timezone.utc),
-                pipeline_name=pipeline_name,
+                pipeline_name=tool_name,
                 input_summary=f"Cron: {cron_expr}",
                 input_data=schedule.get("input_data", {}),
                 chat_route_id=route_id,

@@ -78,6 +78,7 @@ class SdkClient:
         model: str | None = None,
         system_message: str | None = None,
         tools: list[SdkTool] | None = None,
+        working_directory: str | None = None,
     ) -> SdkSession:
         """Create a new SDK session."""
         if self._client is None:
@@ -94,8 +95,13 @@ class SdkClient:
             config["system_message"] = {"mode": "replace", "content": system_message}
         if tools:
             config["tools"] = tools
+        if working_directory:
+            config["working_directory"] = working_directory
         session = await self._client.create_session(config)
-        logger.debug("Created session %s (model=%s)", session_id, model)
+        logger.debug(
+            "Created session %s (model=%s, workdir=%s)",
+            session_id, model, working_directory,
+        )
         return SdkSession(session, session_id)
 
     async def resume_session(
@@ -105,6 +111,7 @@ class SdkClient:
         model: str | None = None,
         system_message: str | None = None,
         tools: list[SdkTool] | None = None,
+        working_directory: str | None = None,
     ) -> SdkSession:
         """Resume an existing SDK session."""
         if self._client is None:
@@ -123,8 +130,13 @@ class SdkClient:
             }
         if tools:
             config["tools"] = tools
+        if working_directory:
+            config["working_directory"] = working_directory
         session = await self._client.resume_session(session_id, config)
-        logger.debug("Resumed session %s (model=%s)", session_id, model)
+        logger.debug(
+            "Resumed session %s (model=%s, workdir=%s)",
+            session_id, model, working_directory,
+        )
         return SdkSession(session, session_id)
 
     async def destroy_session(self, session: SdkSession) -> None:

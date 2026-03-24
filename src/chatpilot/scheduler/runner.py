@@ -7,7 +7,7 @@ import logging
 import time
 from datetime import datetime, timezone
 
-from chatpilot.core.types import NodeOutput, Response, TaskInfo, TaskStatus
+from chatpilot.core.types import NodeOutput, TaskInfo, TaskStatus
 from chatpilot.hub.hub import InMemoryMessageHub
 from chatpilot.pipeline.executor import PipelineExecutor
 from chatpilot.scheduler.store import SqliteTaskStore
@@ -125,10 +125,12 @@ class RunnerPool:
         except Exception:
             logger.exception("Failed to persist task %s", task.id[:8])
 
-        # Push result back to chat
+        # Push result back to chat via Hub pipeline result path
         result_text = _format_result(task)
         try:
-            await self._hub.push(task.chat_route_id, Response(text=result_text))
+            await self._hub.receive_pipeline_result(
+                task.chat_route_id, result_text, task.reply_mode
+            )
         except Exception:
             logger.exception("Failed to push result for task %s", task.id[:8])
 

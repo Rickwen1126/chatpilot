@@ -65,7 +65,7 @@ CREATE TABLE IF NOT EXISTS memory_schedules (
     id             TEXT PRIMARY KEY,
     route_id       TEXT NOT NULL,
     cron_expr      TEXT NOT NULL,
-    pipeline_name  TEXT NOT NULL,
+    tool_name      TEXT NOT NULL,
     input_data     TEXT NOT NULL DEFAULT '{}',
     status         TEXT NOT NULL DEFAULT 'pending',
     last_run_at    TEXT,
@@ -91,8 +91,25 @@ class SqliteMemoryStore:
         self._db = await aiosqlite.connect(self._db_path)
         await self._db.execute("PRAGMA journal_mode=WAL")
         await self._db.executescript(CREATE_TABLES)
+        await self._migrate()
         await self._db.commit()
         logger.info("MemoryStore initialized at %s", self._db_path)
+
+    async def _migrate(self) -> None:
+        """Run schema migrations for existing databases."""
+        if self._db is None:
+            return
+        # Rename pipeline_name → tool_name in memory_schedules
+        async with self._db.execute(
+            "PRAGMA table_info(memory_schedules)"
+        ) as cursor:
+            cols = [row[1] for row in await cursor.fetchall()]
+        if "pipeline_name" in cols and "tool_name" not in cols:
+            await self._db.execute(
+                "ALTER TABLE memory_schedules "
+                "RENAME COLUMN pipeline_name TO tool_name"
+            )
+            logger.info("Migrated memory_schedules: pipeline_name → tool_name")
 
     async def close(self) -> None:
         if self._db:

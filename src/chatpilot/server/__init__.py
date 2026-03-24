@@ -168,6 +168,7 @@ def _register_tools(
     chatbot_manager: ChatbotManager,
     response_injector=None,
     r2_storage: Any = None,
+    get_available_tools: Any = None,
 ) -> None:
     from chatpilot.tools.builtin.add_reminder import create_add_reminder_tool
     from chatpilot.tools.builtin.browse_task import create_browse_task_tool
@@ -227,7 +228,9 @@ def _register_tools(
 
     # Reminder + schedule tools
     tool_factory.register(create_add_reminder_tool(memory_store))
-    tool_factory.register(create_schedule_task_cron_tool(memory_store))
+    tool_factory.register(
+        create_schedule_task_cron_tool(memory_store, get_available_tools)
+    )
     tool_factory.register(create_list_schedules_tool(memory_store))
     tool_factory.register(create_cancel_schedule_tool(memory_store))
 
@@ -295,6 +298,10 @@ async def lifespan(app: FastAPI):
     pipeline_executor.register(EchoPipeline())
     pipeline_executor.register(BrowserPipeline())
 
+    from chatpilot.pipeline.samples.general_agent import GeneralAgentPipeline
+
+    pipeline_executor.register(GeneralAgentPipeline(sdk_client))
+
     runner_pool = RunnerPool(
         max_workers=config.scheduler.concurrent_runners,
         pipeline_executor=pipeline_executor,
@@ -308,7 +315,11 @@ async def lifespan(app: FastAPI):
     from chatpilot.cron.scheduler import CronScheduler
 
     cron_scheduler = CronScheduler(
-        memory_store=memory_store, hub=hub, task_scheduler=scheduler
+        memory_store=memory_store,
+        hub=hub,
+        task_scheduler=scheduler,
+        tick_interval=config.cron_scheduler.tick_interval,
+        available_tools=config.cron_scheduler.available_tools,
     )
     await cron_scheduler.start()
 
@@ -318,9 +329,13 @@ async def lifespan(app: FastAPI):
     r2_storage = R2Storage()
 
     # Tools
+    def get_available_tools() -> list[str]:
+        return config.cron_scheduler.available_tools
+
     _register_tools(
         tool_factory, scheduler, adapters, memory_store,
         chatbot_manager, response_injector, r2_storage,
+        get_available_tools,
     )
     app.state.scheduler = scheduler
 

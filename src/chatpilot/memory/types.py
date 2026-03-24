@@ -52,7 +52,7 @@ class Schedule(BaseModel):
     id: str = Field(default_factory=_uuid)
     route_id: str = ""
     cron_expr: str = ""
-    pipeline_name: str = ""
+    tool_name: str = ""
     input_data: dict = Field(default_factory=dict)
     status: MemoryStatus = MemoryStatus.pending
     last_run_at: datetime | None = None

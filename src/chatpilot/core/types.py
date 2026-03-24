@@ -122,6 +122,7 @@ class ChatbotConfig(BaseModel):
     task_history: bool = False
     context_window: int = 20
     timeout: int = 300
+    workdir: str | None = None
 
 
 class AgentConfig(BaseModel):
@@ -139,6 +140,13 @@ class SchedulerConfig(BaseModel):
     concurrent_runners: int = 2
     max_queue_size: int = 100
     task_timeout: int = 300
+
+
+class CronSchedulerConfig(BaseModel):
+    """Cron scheduler settings."""
+
+    tick_interval: int = 60
+    available_tools: list[str] = Field(default_factory=list)
 
 
 # ── Task ──────────────────────────────────────────────────────────────
@@ -160,6 +168,7 @@ class TaskInfo(BaseModel):
     output_full: dict[str, Any] | None = None
     chat_route_id: str
     error: str | None = None
+    reply_mode: Literal["direct", "via_chatbot"] = "direct"
 
 
 # ── Context Buffer ────────────────────────────────────────────────────

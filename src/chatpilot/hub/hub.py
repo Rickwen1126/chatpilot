@@ -25,6 +25,9 @@ OnProceedCallback = Callable[
 OnCommandCallback = Callable[
     [str, str, Message, ChannelAdapter], Coroutine[Any, Any, None]
 ]
+OnPipelineResultCallback = Callable[
+    [str, str], Coroutine[Any, Any, None]
+]
 
 
 class InMemoryMessageHub:
@@ -36,12 +39,15 @@ class InMemoryMessageHub:
         adapters: dict[str, ChannelAdapter],
         on_proceed: OnProceedCallback | None = None,
         on_command: OnCommandCallback | None = None,
+        on_pipeline_result: OnPipelineResultCallback | None = None,
     ) -> None:
         self._context_buffer = context_buffer
         self._adapters = adapters
         self._busy: dict[str, bool] = {}
         self._on_proceed = on_proceed
         self._on_command = on_command
+        self._on_pipeline_result = on_pipeline_result
+        self._pipeline_result_queue: dict[str, list[str]] = {}
         self._background_tasks: set[asyncio.Task] = set()
 
     def set_on_proceed(self, callback: OnProceedCallback) -> None:
@@ -49,6 +55,9 @@ class InMemoryMessageHub:
 
     def set_on_command(self, callback: OnCommandCallback) -> None:
         self._on_command = callback
+
+    def set_on_pipeline_result(self, callback: OnPipelineResultCallback) -> None:
+        self._on_pipeline_result = callback
 
     async def receive(self, message: Message, adapter: ChannelAdapter) -> None:
         """Process inbound message through mention filter + busy/idle gate."""
@@ -137,6 +146,31 @@ class InMemoryMessageHub:
         except Exception:
             logger.exception("Push failed for %s", route_id)
 
+    async def receive_pipeline_result(
+        self, route_id: str, result: str, reply_mode: str = "direct"
+    ) -> None:
+        """Pipeline result entry — never discarded."""
+        if reply_mode == "direct" or self._on_pipeline_result is None:
+            await self.push(route_id, Response(text=result))
+            return
+        # via_chatbot: busy → queue; idle → process through chatbot
+        if self.get_status(route_id) == "busy":
+            self._pipeline_result_queue.setdefault(route_id, []).append(result)
+            logger.info(
+                "Queued pipeline result for %s (queue=%d)",
+                route_id, len(self._pipeline_result_queue[route_id]),
+            )
+            return
+        self.set_busy(route_id)
+        try:
+            await self._on_pipeline_result(route_id, result)
+        except Exception:
+            logger.exception("Pipeline result processing failed for %s", route_id)
+            # Fallback: push raw result
+            await self.push(route_id, Response(text=result))
+        finally:
+            self.set_idle(route_id)
+
     def get_status(self, route_id: str) -> Literal["idle", "busy"]:
         return "busy" if self._busy.get(route_id, False) else "idle"
 
@@ -145,3 +179,30 @@ class InMemoryMessageHub:
 
     def set_idle(self, route_id: str) -> None:
         self._busy[route_id] = False
+        # Drain queued pipeline results
+        queue = self._pipeline_result_queue.get(route_id, [])
+        if queue and self._on_pipeline_result is not None:
+            task = asyncio.create_task(self._drain_pipeline_results(route_id))
+            self._background_tasks.add(task)
+            task.add_done_callback(self._background_tasks.discard)
+
+    async def _drain_pipeline_results(self, route_id: str) -> None:
+        """Process queued pipeline results sequentially."""
+        while True:
+            queue = self._pipeline_result_queue.get(route_id, [])
+            if not queue:
+                break
+            result = queue.pop(0)
+            self._busy[route_id] = True
+            try:
+                await self._on_pipeline_result(route_id, result)
+            except Exception:
+                logger.exception(
+                    "Drain pipeline result failed for %s", route_id
+                )
+                try:
+                    await self.push(route_id, Response(text=result))
+                except Exception:
+                    logger.exception("Fallback push also failed for %s", route_id)
+            finally:
+                self._busy[route_id] = False

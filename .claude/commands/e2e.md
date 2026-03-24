@@ -61,11 +61,29 @@ Each item maps to a test scenario. All must pass before release.
 
 **Reminder + Schedule**
 - [ ] add_reminder → stored with due_at
-- [ ] CronScheduler tick → due reminder pushed
-- [ ] schedule_task_cron → stored with next_run_at
-- [ ] CronScheduler tick → due schedule triggers pipeline
-- [ ] list_schedules → shows pending reminders + schedules
+- [ ] CronScheduler tick → due reminder enqueues general-agent task
+- [ ] Reminder general-agent task → completed + push result
+- [ ] schedule_task_cron → stored with tool_name + next_run_at
+- [ ] schedule_task_cron invalid tool_name → rejected with available tools list
+- [ ] CronScheduler tick → due schedule triggers pipeline via tool_name
+- [ ] list_schedules → shows pending reminders + schedules (tool_name)
 - [ ] cancel_schedule by index → deletes correct item
+
+**General Agent Pipeline**
+- [ ] general-agent pipeline registered at startup
+- [ ] Schedule with general-agent → CronScheduler → RunnerPool → SDK session → push
+- [ ] hub.receive_pipeline_result(direct) → push to user
+- [ ] CronSchedulerConfig.available_tools from routes.yaml
+
+**Pipeline Result Routing (Hub)**
+- [ ] receive_pipeline_result(direct) → immediate push (no busy gate)
+- [ ] Pipeline result queue + drain infrastructure exists (Phase 2: via_chatbot)
+
+**Workspace**
+- [ ] Chatbot session → 自動建 data/workspace/{session_id}/ 目錄
+- [ ] Pipeline session → 自動建 data/workspace/pipeline-agent-xxx/ 目錄
+- [ ] SDK working_directory 生效 → LLM 建檔落在 workspace 而非 server cwd
+- [ ] Config workdir 覆蓋 → chatbot 設定 workdir 後用指定路徑
 
 **Session**
 - [ ] Server restart → resume_session preserves conversation history
@@ -81,6 +99,8 @@ Each item maps to a test scenario. All must pass before release.
 - [ ] browse_task pipeline (Playwright headless)
 - [ ] Broken session rebuild (needs short timeout test)
 - [ ] document_edit full flow via LINE（上傳檔案 → 編輯 → R2 → 回傳連結）
+- [ ] receive_pipeline_result(via_chatbot) → queue if busy → drain on idle → chatbot processes → push (Phase 2)
+- [ ] Pipeline result queue drain under concurrent user messages
 
 ### After Running
 

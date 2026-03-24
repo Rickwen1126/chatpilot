@@ -40,7 +40,7 @@ assert_status() {
 CLI_TIMEOUT=30
 
 cli_chat() {
-    timeout "$CLI_TIMEOUT" uv run chatpilot-cli chat "$1" --user "$USER" --url "$BASE_URL" 2>/dev/null
+    timeout "$CLI_TIMEOUT" uv run chatpilot-cli --url "$BASE_URL" chat "$1" --user "$USER" 2>/dev/null
 }
 
 mock_webhook() {
