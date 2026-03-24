@@ -145,7 +145,9 @@ async def _action_search(args: dict, response_injector: Any, session_id: str) ->
 
 async def _action_get_items(args: dict) -> str:
     uid = args.get("unit_id", "")
-    layer = args.get("layer", "all")
+    if not uid:
+        return "需要提供 unit_id（如 K1, A2）"
+    layer = args.get("layer", "floor")
     items = await asyncio.to_thread(_get, f"/units/{uid}/layers/{layer}/items")
     if not items:
         return f"位置 {uid}/{layer} 沒有物品"
@@ -186,6 +188,8 @@ async def _action_search_materials(args: dict) -> str:
 
 async def _action_add_item(args: dict) -> str:
     uid = args.get("unit_id", "")
+    if not uid:
+        return "需要提供 unit_id"
     layer = args.get("layer", "floor")
     item = {
         "name": args.get("name", ""),
@@ -201,6 +205,8 @@ async def _action_add_item(args: dict) -> str:
 
 async def _action_update_item(args: dict) -> str:
     item_id = args.get("item_id", "")
+    if not item_id:
+        return "需要提供 item_id"
     updates = {}
     for key in ("name", "description", "quantity", "unit_of_measure", "material_id", "image_paths"):
         if key in args:
@@ -211,12 +217,16 @@ async def _action_update_item(args: dict) -> str:
 
 async def _action_delete_item(args: dict) -> str:
     item_id = args.get("item_id", "")
+    if not item_id:
+        return "需要提供 item_id"
     await asyncio.to_thread(_delete, f"/items/{item_id}")
     return f"已刪除 item {item_id}"
 
 
 async def _action_move_item(args: dict) -> str:
     item_id = args.get("item_id", "")
+    if not item_id:
+        return "需要提供 item_id"
     body = {
         "target_unit_id": args.get("target_unit_id", ""),
         "target_layer_key": args.get("target_layer_key", "floor"),
@@ -227,6 +237,8 @@ async def _action_move_item(args: dict) -> str:
 
 async def _action_replace_layer(args: dict) -> str:
     uid = args.get("unit_id", "")
+    if not uid:
+        return "需要提供 unit_id"
     layer = args.get("layer", "floor")
     items = args.get("items", [])
     result = await asyncio.to_thread(_put, f"/units/{uid}/layers/{layer}/items", items)
@@ -243,12 +255,16 @@ async def _action_batch_items(args: dict) -> str:
 
 async def _action_lock(args: dict) -> str:
     uid = args.get("unit_id", "")
+    if not uid:
+        return "需要提供 unit_id（如 K1, A2）"
     await asyncio.to_thread(_put, f"/units/{uid}/lock")
     return f"已鎖倉 {uid}（搜尋將排除此區域）"
 
 
 async def _action_unlock(args: dict) -> str:
     uid = args.get("unit_id", "")
+    if not uid:
+        return "需要提供 unit_id（如 K1, A2）"
     await asyncio.to_thread(_put, f"/units/{uid}/unlock")
     return f"已解鎖 {uid}"
 
