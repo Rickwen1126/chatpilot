@@ -13,7 +13,7 @@ from chatpilot.tools.factory import ToolFactory
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_MODEL = "gpt-5-mini"  # gpt-5.4-mini 不支援 binaryResultsForLlm，gpt-5-mini OK
+DEFAULT_MODEL = "gpt-5.2"  # SDK 可用最強 vision model，binary tool result OK
 DEFAULT_SYSTEM_MESSAGE = (
     "你是一個倉庫物料視覺辨識助手。"
     "你會收到多張照片的 ref，請用 download_media 工具逐張下載查看。"
