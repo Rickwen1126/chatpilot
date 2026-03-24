@@ -19,6 +19,16 @@ from chatpilot.hub.mention_filter import is_mention
 
 logger = logging.getLogger(__name__)
 
+# Pattern: message text is ONLY media refs (image/audio/file), no other content
+_MEDIA_REF_PATTERN = re.compile(
+    r"^(\[(圖片|音檔|檔案|影片)\s+ref:[^\]]+\]\s*)+$"
+)
+
+
+def _is_media_only(text: str) -> bool:
+    """Check if message text contains only media refs with no other content."""
+    return bool(_MEDIA_REF_PATTERN.match(text.strip()))
+
 OnProceedCallback = Callable[
     [Message, str | None, ChannelAdapter], Coroutine[Any, Any, None]
 ]
@@ -78,6 +88,22 @@ class InMemoryMessageHub:
             args = cmd_parts[1] if len(cmd_parts) > 1 else ""
             if self._on_command:
                 await self._on_command(command, args, message, adapter)
+            return
+
+        # Media-only message (image/audio/file ref without other text):
+        # buffer silently, even in private chat — user will follow up with text
+        if mentioned and _is_media_only(message.text):
+            self._context_buffer.append(
+                route_id,
+                ContextMessage(
+                    user_id=message.user_id,
+                    user_name=message.user_name or message.user_id,
+                    text=message.text,
+                    timestamp=message.timestamp,
+                    message_type=ContextMessageType.background,
+                ),
+            )
+            logger.debug("Media-only message buffered for %s", route_id)
             return
 
         if not mentioned:

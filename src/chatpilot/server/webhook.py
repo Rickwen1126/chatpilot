@@ -110,6 +110,65 @@ async def cli_chat(request: Request) -> JSONResponse:
     return JSONResponse(content={"response": captured["text"]})
 
 
+@router.get("/cli/routes")
+async def cli_routes(request: Request) -> JSONResponse:
+    """List all known routes with chatbot binding info."""
+    from pathlib import Path
+
+    chatbot_manager = request.app.state.chatbot_manager
+    binding_router = request.app.state.binding_router
+
+    # Collect route_ids from SDK session state
+    session_dir = Path.home() / ".copilot" / "session-state"
+    known_routes: dict[str, dict] = {}
+
+    if session_dir.exists():
+        for entry in session_dir.iterdir():
+            name = entry.name
+            # Our session IDs: {platform}-{conversation_id}__{chatbot}
+            if "__" not in name:
+                continue
+            route_part, chatbot = name.rsplit("__", 1)
+            # Reconstruct route_id: first - → :
+            route_id = route_part.replace("-", ":", 1)
+            if route_id not in known_routes:
+                known_routes[route_id] = {
+                    "route_id": route_id,
+                    "platform": route_id.split(":")[0],
+                    "conversation_id": route_id.split(":", 1)[1],
+                    "sessions": [],
+                }
+            known_routes[route_id]["sessions"].append(chatbot)
+
+    # Enrich with current state
+    routes = []
+    for route_id, info in sorted(known_routes.items()):
+        override = chatbot_manager.get_current_chatbot(route_id)
+        # Find default binding
+        default_binding = None
+        for b in binding_router._bindings:
+            match = b.match
+            if not match:
+                default_binding = b.chatbot
+            elif match.get("platform") == info["platform"]:
+                default_binding = b.chatbot
+            if match.get("group_id") == info["conversation_id"]:
+                default_binding = b.chatbot
+                break
+
+        routes.append({
+            "route_id": route_id,
+            "platform": info["platform"],
+            "conversation_id": info["conversation_id"],
+            "current_chatbot": override or default_binding or "unknown",
+            "override": override,
+            "default_binding": default_binding,
+            "sessions": sorted(set(info["sessions"])),
+        })
+
+    return JSONResponse(content={"routes": routes, "total": len(routes)})
+
+
 @router.post("/cli/reload")
 async def cli_reload(request: Request) -> JSONResponse:
     """Force reload config from routes.yaml."""

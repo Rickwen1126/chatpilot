@@ -289,6 +289,8 @@ async def lifespan(app: FastAPI):
         ContextBuffer(), adapters, binding_router, chatbot_manager, response_injector
     )
     app.state.hub = hub
+    app.state.chatbot_manager = chatbot_manager
+    app.state.binding_router = binding_router
 
     # Task scheduler + pipeline
     task_store = SqliteTaskStore()
