@@ -150,46 +150,17 @@ async def _action_get_items(args: dict) -> str:
     layer = args.get("layer", "")
 
     if layer:
-        # Specific layer
-        try:
-            items = await asyncio.to_thread(
-                _get, f"/units/{uid}/layers/{layer}/items"
-            )
-        except Exception:
-            items = []
+        items = await asyncio.to_thread(
+            _get, f"/units/{uid}/layers/{layer}/items"
+        )
     else:
-        items = []
-
-    # No layer specified or layer failed → get all layers from inventory
-    if not items and not layer:
-        try:
-            data = await asyncio.to_thread(_get, "/inventory", timeout=15)
-            unit_data = data.get("inventory", {}).get(uid, {})
-            items = []
-            for lk, layer_items in unit_data.items():
-                items.extend(layer_items)
-        except Exception:
-            pass
-
-    # Layer specified but failed → tell user valid layers
-    if not items and layer:
-        try:
-            data = await asyncio.to_thread(_get, "/inventory", timeout=15)
-            unit_data = data.get("inventory", {}).get(uid, {})
-            valid = list(unit_data.keys())
-            if valid:
-                return (
-                    f"位置 {uid} 沒有 '{layer}' 層。"
-                    f"有效層：{', '.join(valid)}"
-                )
-        except Exception:
-            pass
-        return f"位置 {uid}/{layer} 沒有物品"
+        items = await asyncio.to_thread(_get, f"/units/{uid}/items")
 
     if not items:
-        return f"位置 {uid} 沒有物品"
+        label = f"{uid}/{layer}" if layer else uid
+        return f"位置 {label} 沒有物品"
 
-    lines = [f"位置 {uid} 的物品："]
+    lines = [f"位置 {uid}{f'/{layer}' if layer else ''} 的物品："]
     for item in items:
         name = item.get("name", "") or item.get("description", "")
         lk = item.get("layer_display", item.get("layer_key", ""))
