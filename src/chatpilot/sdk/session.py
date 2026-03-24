@@ -16,6 +16,51 @@ class SdkSession:
     def __init__(self, session: Any, session_id: str):
         self._session = session
         self.session_id = session_id
+        self._attach_event_logger()
+
+    def _attach_event_logger(self) -> None:
+        """Attach event listener for debug logging. Non-blocking."""
+        try:
+            sid = self.session_id
+
+            def _on_event(event: Any) -> None:
+                etype = getattr(event, "type", "?")
+                data = getattr(event, "data", None)
+                # Tool calls
+                if etype == "assistant.message" and data:
+                    tool_reqs = getattr(data, "toolRequests", None) or (
+                        data.get("toolRequests") if isinstance(data, dict) else None
+                    )
+                    if tool_reqs:
+                        for t in tool_reqs:
+                            _d = isinstance(t, dict)
+                            name = t.get("name", "?") if _d else getattr(t, "name", "?")
+                            args = t.get("arguments", {}) if _d else getattr(t, "arguments", {})
+                            logger.info("[event] %s tool_call: %s(%s)", sid, name, args)
+                        return
+                    _d = isinstance(data, dict)
+                    content = data.get("content", "") if _d else getattr(data, "content", "")
+                    if content:
+                        preview = content[:80].replace("\n", " ")
+                        logger.info("[event] %s assistant: %s...", sid, preview)
+                        return
+                # Tool results
+                if etype == "tool.execution_complete" and data:
+                    _d = isinstance(data, dict)
+                    name = data.get("toolName", "?") if _d else getattr(data, "toolName", "?")
+                    success = data.get("success", "?") if _d else getattr(data, "success", "?")
+                    logger.info("[event] %s tool_result: %s ok=%s", sid, name, success)
+                    return
+                # Errors
+                if "error" in str(etype).lower():
+                    logger.warning("[event] %s %s: %s", sid, etype, data)
+                    return
+                # Other events (debug level to avoid noise)
+                logger.debug("[event] %s %s", sid, etype)
+
+            self._session.on(_on_event)
+        except Exception:
+            logger.debug("Event logger not attached for %s", self.session_id)
 
     async def send_and_wait(self, message: str, timeout: float = 60.0) -> str:
         """Send message and wait for assistant response.
