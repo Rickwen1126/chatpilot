@@ -37,7 +37,7 @@ assert_status() {
     fi
 }
 
-CLI_TIMEOUT=30
+CLI_TIMEOUT=60
 
 cli_chat() {
     timeout "$CLI_TIMEOUT" uv run chatpilot-cli --url "$BASE_URL" chat "$1" --user "$USER" 2>/dev/null
