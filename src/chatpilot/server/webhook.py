@@ -151,17 +151,22 @@ async def cli_routes(request: Request) -> JSONResponse:
     routes = []
     for route_id, info in sorted(known_routes.items()):
         override = chatbot_manager.get_current_chatbot(route_id)
-        # Find default binding
+        # Find default binding (check all match dimensions)
         default_binding = None
         for b in binding_router._bindings:
             match = b.match
             if not match:
-                default_binding = b.chatbot
-            elif match.get("platform") == info["platform"]:
-                default_binding = b.chatbot
-            if match.get("group_id") == info["conversation_id"]:
+                default_binding = default_binding or b.chatbot
+                continue
+            cid = info["conversation_id"]
+            if match.get("group_id") == cid:
                 default_binding = b.chatbot
                 break
+            if match.get("user_id") == cid:
+                default_binding = b.chatbot
+                break
+            if match.get("platform") == info["platform"] and not default_binding:
+                default_binding = b.chatbot
 
         routes.append({
             "route_id": route_id,
