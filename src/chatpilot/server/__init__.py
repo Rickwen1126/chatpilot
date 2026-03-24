@@ -203,9 +203,9 @@ def _register_tools(
         return chatbot_manager.get_session(route_id)
 
     # Warehouse + quote tools
-    from chatpilot.tools.builtin.warehouse_query import create_warehouse_query_tool
+    from chatpilot.tools.builtin.warehouse import create_warehouse_tool
 
-    tool_factory.register(create_warehouse_query_tool(response_injector))
+    tool_factory.register(create_warehouse_tool(response_injector))
     tool_factory.register(create_quote_search_tool())
 
     # Task tools
