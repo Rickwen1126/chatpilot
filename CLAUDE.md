@@ -77,6 +77,42 @@ Python 3.11+: Pydantic v2 models, Protocol for interfaces, async/await, ruff for
 4. 在 `server/__init__.py` 的 lifespan 中 `pipeline_executor.register()`
 5. 建立對應的 `AGENT_TEAM_TRIGGER` tool 讓 chatbot 可觸發
 
+## Admin API
+
+管理群組/對話 binding 和標籤的 API：
+
+```bash
+# 列出所有已知 routes（含標籤、chatbot binding、sessions）
+GET /cli/routes
+
+# 從 LINE API 同步群組名稱+人數到標籤
+POST /cli/routes/sync
+
+# 手動設定/移除標籤
+POST /cli/routes/label
+  {"route_id": "line:Cxxx", "label": "群組名稱"}
+  # label 空字串 = 移除
+
+# 重新載入 config
+POST /cli/reload
+```
+
+標籤存在 `data/route_labels.json`，重啟不會遺失。
+
+## Copilot SDK Model 限制
+
+- `list_models()` 不一定列出所有可用 model，可直接用 model ID 字串嘗試
+- SDK 0.2.0 model list 不含 `gpt-5.4-mini`（CLI/VS Code 有）
+- **Claude 全系列在 SDK 中不支援 `binaryResultsForLlm`**（tool 回傳圖片 binary data 會 timeout）
+- Binary tool result 可用 model：gpt-4.1, gpt-5-mini, gpt-5.1, gpt-5.2, gpt-5.3-codex, gemini-3-pro-preview
+- Binary tool result 不可用：claude-haiku-4.5, claude-sonnet-4.6, gpt-5.2-codex
+
+## Hub 媒體處理
+
+- 純媒體訊息（只有 `[圖片/音檔/檔案/影片 ref:...]`，沒有其他文字）→ 進 context buffer，不觸發 chatbot
+- 使用者下一則文字訊息會 drain context buffer，chatbot 同時看到媒體 ref + 文字
+- 這解決 LINE 私訊無法同時傳圖片+文字的問題
+
 <!-- MANUAL ADDITIONS START -->
 <!-- MANUAL ADDITIONS END -->
 

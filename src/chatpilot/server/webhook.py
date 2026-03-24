@@ -207,6 +207,76 @@ async def cli_route_label(request: Request) -> JSONResponse:
     return JSONResponse(content={"route_id": route_id, "label": label or None})
 
 
+@router.post("/cli/routes/sync")
+async def cli_routes_sync(request: Request) -> JSONResponse:
+    """Sync route labels from platform APIs (LINE group names, etc.)."""
+    from pathlib import Path
+
+    adapters: dict = request.app.state.adapters
+    synced: list[dict] = []
+
+    # LINE: query group summary for group conversations
+    line_adapter = adapters.get("line")
+    if line_adapter:
+        try:
+            from linebot.v3.messaging import MessagingApi
+
+            api: MessagingApi = line_adapter._api
+            session_dir = Path.home() / ".copilot" / "session-state"
+            seen: set[str] = set()
+
+            if session_dir.exists():
+                for entry in session_dir.iterdir():
+                    name = entry.name
+                    if not name.startswith("line-C"):
+                        continue
+                    # Extract group_id from session name
+                    prefix = name.replace("line-", "", 1)
+                    if "__" in prefix:
+                        gid = prefix.split("__")[0]
+                    else:
+                        gid = prefix
+                    # Skip invalid IDs (old format with -chatbot suffix)
+                    if not gid.startswith("C") or len(gid) < 30:
+                        continue
+                    if gid in seen:
+                        continue
+                    seen.add(gid)
+
+                    try:
+                        summary = api.get_group_summary(gid)
+                        count_resp = api.get_group_member_count(gid)
+                        count = getattr(count_resp, "count", count_resp)
+                        label = f"{summary.group_name}（{count}人）"
+                        route_id = f"line:{gid}"
+                        synced.append({
+                            "route_id": route_id,
+                            "label": label,
+                        })
+                    except Exception:
+                        pass
+        except Exception as e:
+            logger.warning("LINE sync failed: %s", e)
+
+    # Write labels
+    if synced:
+        import json as _json
+
+        labels_path = Path("data/route_labels.json")
+        labels_path.parent.mkdir(parents=True, exist_ok=True)
+        labels: dict = {}
+        if labels_path.exists():
+            labels = _json.loads(labels_path.read_text(encoding="utf-8"))
+        for item in synced:
+            labels[item["route_id"]] = item["label"]
+        labels_path.write_text(
+            _json.dumps(labels, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+
+    return JSONResponse(content={"synced": synced, "total": len(synced)})
+
+
 @router.post("/cli/reload")
 async def cli_reload(request: Request) -> JSONResponse:
     """Force reload config from routes.yaml."""
