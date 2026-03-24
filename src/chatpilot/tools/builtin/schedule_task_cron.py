@@ -73,8 +73,9 @@ def create_schedule_task_cron_tool(memory_store: Any) -> ToolDefinition:
         name="schedule_task_cron",
         description=(
             "建立週期性排程任務。提供 cron 表達式（如 'daily 08:00'、"
-            "'weekly mon 09:00'、'interval 30m'）和要執行的 pipeline 名稱，"
-            "系統會依照排程自動執行。"
+            "'weekly mon 09:00'、'interval 30m'）和 pipeline 名稱。"
+            "可用的 pipeline：'echo'（回聲測試）、'browser-search'（瀏覽器搜尋）。"
+            "只能使用這些已註冊的 pipeline 名稱，不可自創。"
         ),
         parameters={
             "type": "object",
