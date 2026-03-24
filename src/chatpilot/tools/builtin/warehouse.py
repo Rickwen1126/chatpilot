@@ -269,6 +269,39 @@ async def _action_unlock(args: dict) -> str:
     return f"已解鎖 {uid}"
 
 
+async def _action_lock_all() -> str:
+    """Lock all units at once."""
+    data = await asyncio.to_thread(_get, "/inventory", timeout=15)
+    units = list(data.get("inventory", {}).keys())
+    locked = []
+    failed = []
+    for uid in units:
+        try:
+            await asyncio.to_thread(_put, f"/units/{uid}/lock")
+            locked.append(uid)
+        except Exception:
+            failed.append(uid)
+    result = f"已鎖倉 {len(locked)} 個區域"
+    if failed:
+        result += f"，{len(failed)} 個失敗：{', '.join(failed)}"
+    return result
+
+
+async def _action_unlock_all() -> str:
+    """Unlock all units at once."""
+    data = await asyncio.to_thread(_get, "/units/locked")
+    units = data if isinstance(data, list) else []
+    unlocked = []
+    for item in units:
+        uid = item.get("unit_id", item) if isinstance(item, dict) else item
+        try:
+            await asyncio.to_thread(_put, f"/units/{uid}/unlock")
+            unlocked.append(uid)
+        except Exception:
+            pass
+    return f"已解鎖 {len(unlocked)} 個區域"
+
+
 async def _action_list_locked() -> str:
     result = await asyncio.to_thread(_get, "/units/locked")
     locked = result if isinstance(result, list) else result.get("locked_units", [])
@@ -376,6 +409,8 @@ ACTION_DISPATCH = {
     "batch_items": _action_batch_items,
     "lock": _action_lock,
     "unlock": _action_unlock,
+    "lock_all": _action_lock_all,
+    "unlock_all": _action_unlock_all,
     "list_locked": _action_list_locked,
     "upload_image": _action_upload_image,
     "update_alias": _action_update_alias,
@@ -426,7 +461,8 @@ def create_warehouse_tool(response_injector=None) -> ToolDefinition:
             "get_inventory（庫存快照）、search_materials（物料目錄）\n"
             "寫入：add_item（新增）、update_item（更新）、delete_item（刪除）、"
             "move_item（移動）、replace_layer（替換整層，盤點用）、batch_items（批次建立）\n"
-            "盤點：lock（鎖倉）、unlock（解鎖）、list_locked（列鎖倉中）\n"
+            "盤點：lock（鎖單一區域）、unlock（解鎖單一）、"
+            "lock_all（全部鎖倉）、unlock_all（全部解鎖）、list_locked（列鎖倉中）\n"
             "其他：upload_image（上傳照片）、update_alias（更新別名）"
         ),
         parameters={
