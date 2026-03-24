@@ -447,6 +447,7 @@ def create_warehouse_tool(response_injector=None) -> ToolDefinition:
                 },
                 "items": {
                     "type": "array",
+                    "items": {"type": "object"},
                     "description": "items 列表（replace_layer/batch）",
                 },
                 "target_unit_id": {
