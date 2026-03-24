@@ -270,36 +270,15 @@ async def _action_unlock(args: dict) -> str:
 
 
 async def _action_lock_all() -> str:
-    """Lock all units at once."""
-    data = await asyncio.to_thread(_get, "/inventory", timeout=15)
-    units = list(data.get("inventory", {}).keys())
-    locked = []
-    failed = []
-    for uid in units:
-        try:
-            await asyncio.to_thread(_put, f"/units/{uid}/lock")
-            locked.append(uid)
-        except Exception:
-            failed.append(uid)
-    result = f"已鎖倉 {len(locked)} 個區域"
-    if failed:
-        result += f"，{len(failed)} 個失敗：{', '.join(failed)}"
-    return result
+    result = await asyncio.to_thread(_put, "/units/lock-all")
+    affected = result.get("affected", "?") if isinstance(result, dict) else "?"
+    return f"已鎖倉全部 {affected} 個區域"
 
 
 async def _action_unlock_all() -> str:
-    """Unlock all units at once."""
-    data = await asyncio.to_thread(_get, "/units/locked")
-    units = data if isinstance(data, list) else []
-    unlocked = []
-    for item in units:
-        uid = item.get("unit_id", item) if isinstance(item, dict) else item
-        try:
-            await asyncio.to_thread(_put, f"/units/{uid}/unlock")
-            unlocked.append(uid)
-        except Exception:
-            pass
-    return f"已解鎖 {len(unlocked)} 個區域"
+    result = await asyncio.to_thread(_put, "/units/unlock-all")
+    affected = result.get("affected", "?") if isinstance(result, dict) else "?"
+    return f"已解鎖全部 {affected} 個區域"
 
 
 async def _action_list_locked() -> str:
