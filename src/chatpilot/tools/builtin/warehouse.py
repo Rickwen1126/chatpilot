@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import urllib.parse
 import urllib.request
 from typing import Any
@@ -15,8 +16,8 @@ from chatpilot.core.types import AccessLevel, ToolDefinition
 
 logger = logging.getLogger(__name__)
 
-WAREHOUSE_API = "http://localhost:8000/api/v1"
-WAREHOUSE_WEB = "https://warehouse.shinyipaint.com.tw"
+WAREHOUSE_API = os.environ.get("WAREHOUSE_API_URL", "http://localhost:8000/api/v1")
+WAREHOUSE_WEB = os.environ.get("WAREHOUSE_WEB_URL", "https://warehouse.shinyipaint.com.tw")
 R2_ZONE_BASE = "https://pub-fcc500f8fb48414aba2084e196f653eb.r2.dev/zone"
 
 ZONE_IMAGES = {
