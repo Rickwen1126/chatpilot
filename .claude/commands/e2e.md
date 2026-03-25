@@ -43,13 +43,17 @@ Each item maps to a test scenario. All must pass before release.
 - [ ] Group "bot 你好" keyword trigger → chatbot responds (trigger_keywords)
 - [ ] Group "bot /chatbot list" → keyword + slash command works
 - [ ] Group @Bot /chatbot list → slash command works
-- [ ] Busy gate: second mention while processing → "處理中" reply
+- [ ] Busy gate (group): second mention while processing → "處理中" reply
+- [ ] Busy gate (private): busy 中的訊息進 context buffer 不丟棄，idle 後 drain
 
 **Adapters**
 - [ ] LINE private chat → chatbot responds
 - [ ] LINE group @bot → chatbot responds
 - [ ] LINE reply token expired → fallback to push
-- [ ] LINE image → [圖片 ref:line:{id}] in context buffer
+- [ ] LINE image → [圖片 ref:line:{id}] in context buffer (不觸發 chatbot)
+- [ ] LINE audio → [音檔 ref:line:{id}] in context buffer (不觸發 chatbot)
+- [ ] LINE file → [檔案 ref:line:{id}:{filename}] in context buffer (不觸發 chatbot)
+- [ ] LINE image + 文字 follow-up → chatbot 同時看到圖片 ref + 文字（context drain）
 - [ ] LINE @bot "剛那張圖是什麼" → LLM calls download_media
 
 **Memory Store**
@@ -62,7 +66,7 @@ Each item maps to a test scenario. All must pass before release.
 **Reminder + Schedule**
 - [ ] add_reminder → stored with due_at
 - [ ] CronScheduler tick → due reminder enqueues general-agent task
-- [ ] Reminder general-agent task → completed + push result
+- [ ] Reminder general-agent task → completed + push 人話結果（非 raw dict）
 - [ ] schedule_task_cron → stored with tool_name + next_run_at
 - [ ] schedule_task_cron invalid tool_name → rejected with available tools list
 - [ ] CronScheduler tick → due schedule triggers pipeline via tool_name
@@ -70,10 +74,19 @@ Each item maps to a test scenario. All must pass before release.
 - [ ] cancel_schedule by index → deletes correct item
 
 **General Agent Pipeline**
-- [ ] general-agent pipeline registered at startup
+- [ ] general-agent pipeline registered at startup with web_search tool
+- [ ] general-agent 排程任務能用 web_search 搜尋（非回覆「無法查詢」）
 - [ ] Schedule with general-agent → CronScheduler → RunnerPool → SDK session → push
 - [ ] hub.receive_pipeline_result(direct) → push to user
 - [ ] CronSchedulerConfig.available_tools from routes.yaml
+- [ ] Pipeline 結果 push 格式化為人話（_format_result 不回 raw dict）
+
+**Batch Image Vision Pipeline**
+- [ ] batch_image_analyze tool enqueue → batch-image-vision pipeline 執行
+- [ ] Pipeline SDK session 用 gpt-5.2 + download_media tool 看圖
+- [ ] ≤5 張照片 chatbot 自己 download_media 看（不觸發 batch tool）
+- [ ] >5 張照片 chatbot 呼叫 batch_image_analyze（不自己重複 download）
+- [ ] Pipeline 結果 push 格式化分析文字（非 raw dict）
 
 **Pipeline Result Routing (Hub)**
 - [ ] receive_pipeline_result(direct) → immediate push (no busy gate)
@@ -85,6 +98,39 @@ Each item maps to a test scenario. All must pass before release.
 - [ ] SDK working_directory 生效 → LLM 建檔落在 workspace 而非 server cwd
 - [ ] Config workdir 覆蓋 → chatbot 設定 workdir 後用指定路徑
 
+**Warehouse Tool (unified)**
+- [ ] action=search → 搜尋物料名稱/品牌/色號，回傳位置+數量+zone 圖
+- [ ] action=get_items 無 layer → GET /units/{uid}/items 全層
+- [ ] action=get_items 有 layer → GET /units/{uid}/layers/{layer}/items
+- [ ] action=get_inventory → 回傳庫存快照摘要
+- [ ] action=search_materials → 搜尋物料目錄
+- [ ] action=lock → 鎖定單一區域（需 unit_id 驗證）
+- [ ] action=unlock → 解鎖單一區域（需 unit_id 驗證）
+- [ ] action=lock_all → PUT /units/lock-all 一次鎖全部
+- [ ] action=unlock_all → PUT /units/unlock-all 一次解鎖全部
+- [ ] action=list_locked → 列出鎖倉中的區域
+- [ ] action=add_item → 新增 item（需 unit_id 驗證）
+- [ ] action=update_item → 更新 item（需 item_id 驗證）
+- [ ] action=delete_item → 刪除 item（需 item_id 驗證）
+- [ ] action=move_item → 移動 item（需 item_id 驗證）
+- [ ] action=replace_layer → PUT 替換整層 items（盤點寫入）
+- [ ] action=batch_items → POST 批次建立 items（傳 array）
+- [ ] action=upload_image → 上傳照片到倉庫 API
+- [ ] 缺少必要參數時回傳清楚錯誤訊息（不送空 ID 給 API）
+- [ ] JSON Schema array type 有 items 定義（否則 Copilot API 400 reject）
+
+**Admin API**
+- [ ] GET /cli/routes → 列出所有已知 route + label + chatbot binding
+- [ ] POST /cli/routes/sync → LINE API 自動同步群組名稱+人數
+- [ ] POST /cli/routes/label → 設定/移除 route 標籤
+- [ ] route binding 正確：user_id match > group_id match > platform match > default
+
+**SDK Model 限制（已知，需持續驗證）**
+- [ ] gpt-5.4-mini 不在 SDK model list（fallback 到 claude-sonnet-4.6，靜默）
+- [ ] Claude models (haiku-4.5, sonnet-4.6) 不支援 binaryResultsForLlm（timeout）
+- [ ] gpt-5.2-codex 不支援 binaryResultsForLlm
+- [ ] Binary image OK: gpt-4.1, gpt-5-mini, gpt-5.1, gpt-5.2, gpt-5.3-codex, gemini-3-pro-preview
+
 **Session**
 - [ ] Server restart → resume_session preserves conversation history
 - [ ] Broken session (timeout) → next message creates new session
@@ -95,16 +141,29 @@ Each item maps to a test scenario. All must pass before release.
 - [ ] document_edit xlsx round-trip → 建立 xlsx → append rows → 驗證內容
 - [ ] document_edit docx round-trip → 建立 docx → append paragraph → 驗證內容
 
+**Shinyipaint 盤點流程（互動式 E2E — 待 empty DB）**
+- [ ] 「開始盤點 K1」→ chatbot 呼叫 warehouse lock + get_items
+- [ ] 傳 1-3 張照片 + 文字描述 → chatbot 用 download_media 看圖 + 理解語義
+- [ ] 傳 >5 張照片 → chatbot 呼叫 batch_image_analyze（不自己重複下載）
+- [ ] chatbot 比對 DB 現有資料 → 產出差異表
+- [ ] chatbot 跟使用者確認 → 正確後呼叫 replace_layer 寫入
+- [ ] chatbot 呼叫 unlock 解鎖
+- [ ] 整個流程不雞婆（不推銷下一步、不假設功能）
+- [ ] Tool description 夠清楚（LLM 不會用錯 tool 或傳錯參數）
+- [ ] System prompt 有盤點 SOP workflow 引導
+
 **Pending (not yet automated)**
 - [ ] browse_task pipeline (Playwright headless)
 - [ ] Broken session rebuild (needs short timeout test)
 - [ ] document_edit full flow via LINE（上傳檔案 → 編輯 → R2 → 回傳連結）
 - [ ] receive_pipeline_result(via_chatbot) → queue if busy → drain on idle → chatbot processes → push (Phase 2)
 - [ ] Pipeline result queue drain under concurrent user messages
+- [ ] stt_transcribe tool（Whisper API — 語音轉文字）
 
 ### After Running
 
 - Report pass/fail count
-- If failures: check server logs for details
+- If failures: check server logs for details (`grep "[event]\|ERROR" /tmp/chatpilot.log`)
 - Reminder test needs ~60s for CronScheduler tick
 - Some tests require LINE (marked in checklist)
+- Shinyipaint 盤點 E2E 需要 empty DB server
