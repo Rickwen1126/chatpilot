@@ -120,12 +120,30 @@ class InMemoryMessageHub:
             )
             return
 
-        # Mentioned or private chat, but bot is busy — reject, don't buffer
+        # Mentioned but bot is busy
         if self.get_status(route_id) == "busy":
-            try:
-                await adapter.send_reply(message, Response(text="處理中，請稍候…"))
-            except Exception:
-                logger.warning("Failed to send busy reply for %s", route_id)
+            is_private = message.group_id is None
+            if is_private:
+                # Private chat: buffer the message, will be drained when idle
+                self._context_buffer.append(
+                    route_id,
+                    ContextMessage(
+                        user_id=message.user_id,
+                        user_name=message.user_name or message.user_id,
+                        text=message.text,
+                        timestamp=message.timestamp,
+                        message_type=ContextMessageType.background,
+                    ),
+                )
+                logger.debug("Private busy message buffered for %s", route_id)
+            else:
+                # Group: reject with busy reply
+                try:
+                    await adapter.send_reply(
+                        message, Response(text="處理中，請稍候…")
+                    )
+                except Exception:
+                    logger.warning("Failed to send busy reply for %s", route_id)
             return
 
         # Idle + mentioned: drain context buffer and proceed
