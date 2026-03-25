@@ -117,7 +117,7 @@ def _post_file(path: str, file_bytes: bytes, filename: str, timeout: int = 15) -
 # ── Action handlers ──────────────────────────────────────────────
 
 
-async def _action_search(args: dict, response_injector: Any, session_id: str) -> str:
+async def _action_search(args: dict) -> str:
     query = args.get("query", "")
     include_locked = args.get("include_locked", False)
 
@@ -125,7 +125,7 @@ async def _action_search(args: dict, response_injector: Any, session_id: str) ->
         _get, "/items/search", {"q": query, "include_locked": str(include_locked).lower()}
     )
     if items:
-        return _format_search_results(items, query, response_injector, session_id)
+        return _format_search_results(items, query)
 
     # Fallback: materials search
     materials = await asyncio.to_thread(_get, "/materials", {"search": query})
@@ -137,7 +137,7 @@ async def _action_search(args: dict, response_injector: Any, session_id: str) ->
                 found = await asyncio.to_thread(_get, "/items/search", {"q": name})
                 all_items.extend(found)
         if all_items:
-            return _format_search_results(all_items, query, response_injector, session_id)
+            return _format_search_results(all_items, query)
         names = [m.get("name", "") for m in materials[:5]]
         return "找到相關物料但目前無庫存：\n" + "\n".join(f"  {n}" for n in names)
 
@@ -322,9 +322,7 @@ async def _action_update_alias(args: dict) -> str:
 # ── Formatting ───────────────────────────────────────────────────
 
 
-def _format_search_results(
-    items: list, query: str, response_injector: Any, session_id: str
-) -> str:
+def _format_search_results(items: list, query: str) -> str:
     if not items:
         return f"找不到「{query}」相關的庫存"
 
@@ -337,7 +335,6 @@ def _format_search_results(
 
     lines = []
     total_qty = 0
-    zones_seen: set[str] = set()
 
     for name, group_items in groups.items():
         lines.append(f"\n{name}：")
@@ -349,32 +346,8 @@ def _format_search_results(
             lines.append(f"  📍 {loc} — {qty}")
             if isinstance(qty, (int, float)):
                 total_qty += qty
-            zone = UNIT_TO_ZONE.get(unit_id)
-            if zone:
-                zones_seen.add(zone)
 
     lines.append(f"\n共 {total_qty} 件")
-
-    deep_link = _make_deep_link(query)
-    lines.append(f"\n👉 {deep_link}")
-
-    # Zone image injection
-    if response_injector and session_id:
-        import re as _re
-
-        if len(zones_seen) == 1:
-            img_url = ZONE_IMAGES.get(zones_seen.pop())
-            if img_url:
-                response_injector.add(session_id, "image", img_url)
-        elif len(zones_seen) > 1:
-            img_url = ZONE_IMAGES.get("overview")
-            if img_url:
-                response_injector.add(session_id, "image", img_url)
-
-        link_match = _re.search(r"(https://warehouse\.\S+)", "\n".join(lines))
-        if link_match:
-            response_injector.add(session_id, "link", link_match.group(1))
-
     return "\n".join(lines)
 
 
@@ -406,13 +379,12 @@ ACTION_DISPATCH = {
 }
 
 
-def create_warehouse_tool(response_injector=None) -> ToolDefinition:
+def create_warehouse_tool() -> ToolDefinition:
     """Create unified warehouse management tool."""
 
     async def handler(invocation: ToolInvocation) -> ToolResult:
         args = invocation.get("arguments") or {}
         action = args.get("action", "search")
-        session_id = invocation.get("session_id", "")
 
         fn = ACTION_DISPATCH.get(action)
         if fn is None:
@@ -427,9 +399,7 @@ def create_warehouse_tool(response_injector=None) -> ToolDefinition:
             sig = inspect.signature(fn)
             params = list(sig.parameters.keys())
 
-            if "response_injector" in params:
-                result = await fn(args, response_injector, session_id)
-            elif "args" in params or len(params) > 0:
+            if params:
                 result = await fn(args)
             else:
                 result = await fn()

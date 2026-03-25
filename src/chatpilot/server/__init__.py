@@ -205,7 +205,7 @@ def _register_tools(
     # Warehouse + quote tools
     from chatpilot.tools.builtin.warehouse import create_warehouse_tool
 
-    tool_factory.register(create_warehouse_tool(response_injector))
+    tool_factory.register(create_warehouse_tool())
     tool_factory.register(create_quote_search_tool())
 
     # Task tools
