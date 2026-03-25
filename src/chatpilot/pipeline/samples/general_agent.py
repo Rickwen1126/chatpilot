@@ -10,6 +10,7 @@ from chatpilot.core.types import NodeOutput
 from chatpilot.pipeline.executor import PipelineDefinition
 from chatpilot.pipeline.node import PipelineNode
 from chatpilot.sdk.session import SdkClient
+from chatpilot.tools.factory import ToolFactory
 
 logger = logging.getLogger(__name__)
 
@@ -26,11 +27,13 @@ class GeneralAgentNode:
     def __init__(
         self,
         sdk_client: SdkClient,
+        tool_factory: ToolFactory | None = None,
         model: str = "gpt-4.1",
         system_message: str = DEFAULT_SYSTEM_MESSAGE,
         workdir: str | None = None,
     ) -> None:
         self._sdk_client = sdk_client
+        self._tool_factory = tool_factory
         self._model = model
         self._system_message = system_message
         self._config_workdir = workdir
@@ -58,11 +61,22 @@ class GeneralAgentNode:
             "如果需要暫存或輸出檔案，請放在這個目錄下。"
         )
 
+        # Get tools for pipeline (web_search etc.)
+        tools = None
+        if self._tool_factory:
+            try:
+                tools = self._tool_factory.get_tools_for_pipeline(
+                    ["web_search"]
+                )
+            except Exception:
+                pass
+
         try:
             session = await self._sdk_client.create_session(
                 session_id,
                 model=self._model,
                 system_message=system_msg,
+                tools=tools or None,
                 working_directory=workdir,
             )
             try:
@@ -83,8 +97,13 @@ class GeneralAgentPipeline(PipelineDefinition):
 
     name = "general-agent"
 
-    def __init__(self, sdk_client: SdkClient, **kwargs) -> None:
+    def __init__(
+        self,
+        sdk_client: SdkClient,
+        tool_factory: ToolFactory | None = None,
+        **kwargs,
+    ) -> None:
         self.nodes: list[PipelineNode] = [
-            GeneralAgentNode(sdk_client, **kwargs)
+            GeneralAgentNode(sdk_client, tool_factory, **kwargs)
         ]
         self.max_iterations = 1

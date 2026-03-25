@@ -304,10 +304,6 @@ async def lifespan(app: FastAPI):
     pipeline_executor.register(EchoPipeline())
     pipeline_executor.register(BrowserPipeline())
 
-    from chatpilot.pipeline.samples.general_agent import GeneralAgentPipeline
-
-    pipeline_executor.register(GeneralAgentPipeline(sdk_client))
-
     runner_pool = RunnerPool(
         max_workers=config.scheduler.concurrent_runners,
         pipeline_executor=pipeline_executor,
@@ -345,7 +341,13 @@ async def lifespan(app: FastAPI):
     )
     app.state.scheduler = scheduler
 
-    # Batch vision pipeline (after tools registered — needs download_media)
+    # Pipelines that need tools (registered after _register_tools)
+    from chatpilot.pipeline.samples.general_agent import GeneralAgentPipeline
+
+    pipeline_executor.register(
+        GeneralAgentPipeline(sdk_client, tool_factory)
+    )
+
     from chatpilot.pipeline.samples.batch_vision import BatchImageVisionPipeline
 
     pipeline_executor.register(

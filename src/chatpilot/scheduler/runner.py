@@ -138,6 +138,33 @@ class RunnerPool:
 def _format_result(task: TaskInfo) -> str:
     """Format task result for push notification."""
     short_id = task.id[:8]
-    if task.status == TaskStatus.completed:
-        return f"任務完成 (ID: {short_id})\n{task.output_summary}"
-    return f"任務失敗 (ID: {short_id})\n{task.error}"
+    if task.status != TaskStatus.completed:
+        return f"任務失敗 (ID: {short_id})\n{task.error}"
+
+    # Extract human-readable content from output
+    full = task.output_full or {}
+    if isinstance(full, dict):
+        # general-agent: {"result": "...", "prompt": "..."}
+        if "result" in full:
+            text = full["result"]
+            if text:
+                return text
+        # batch-image-vision: {"analysis": "...", "total": N}
+        if "analysis" in full:
+            return full["analysis"]
+        # browser-search: {"results": [...], "query": "..."}
+        if "results" in full:
+            results = full["results"]
+            query = full.get("query", "")
+            if not results:
+                return f"搜尋「{query}」沒有找到結果"
+            lines = [f"搜尋「{query}」結果："]
+            for r in results[:5]:
+                title = r.get("title", "")
+                snippet = r.get("snippet", "")
+                lines.append(f"• {title}\n  {snippet}")
+            return "\n".join(lines)
+
+    # Fallback
+    summary = task.output_summary or ""
+    return f"任務完成 (ID: {short_id})\n{summary}" if summary else f"任務完成 (ID: {short_id})"
