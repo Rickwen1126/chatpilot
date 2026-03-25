@@ -62,10 +62,11 @@ def create_batch_image_analyze_tool(scheduler: Any) -> ToolDefinition:
     return ToolDefinition(
         name="batch_image_analyze",
         description=(
-            "批次分析多張照片。當使用者一次上傳超過 5 張照片需要辨識時使用。"
+            "批次分析多張照片（>5 張時使用）。"
             "提供圖片的 ref 列表（如 ['line:msg_1', 'line:msg_2']）。"
+            "注意：提交後分析在背景執行，結果會自動推送給使用者。"
+            "提交後不要自己再用 download_media 下載同一批照片，避免重複。"
             "少於 5 張時請用 download_media 逐張查看，不需要此工具。"
-            "分析結果會在完成後自動推送。"
         ),
         parameters={
             "type": "object",

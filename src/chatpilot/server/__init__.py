@@ -218,9 +218,14 @@ def _register_tools(
     tool_factory.register(create_web_search_tool())
     tool_factory.register(create_download_media_tool(adapters))
 
-    # Document edit
+    # Document edit + show image
     if r2_storage is not None:
         tool_factory.register(create_document_edit_tool(adapters, r2_storage))
+        from chatpilot.tools.builtin.show_image import create_show_image_tool
+
+        tool_factory.register(
+            create_show_image_tool(adapters, r2_storage, response_injector)
+        )
 
     # Memory tools
     tool_factory.register(create_save_memo_tool(memory_store))
