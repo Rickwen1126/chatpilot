@@ -372,24 +372,40 @@ async def lifespan(app: FastAPI):
         import uuid
         from datetime import datetime, timezone
 
-        now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M")
+        now_utc = datetime.now(timezone.utc)
+        # Taiwan time (UTC+8)
+        from datetime import timedelta
+
+        now_tw = now_utc + timedelta(hours=8)
+        now_str = now_tw.strftime("%Y-%m-%d %H:%M")
+        weekday_map = ["週一", "週二", "週三", "週四", "週五", "週六", "週日"]
+        weekday = weekday_map[now_tw.weekday()]
         cat_hint = ", ".join(categories) if categories else "自動分類"
         prompt = (
-            f"現在時間：{now} UTC\n"
+            f"現在時間：{now_str}（台北時間，{weekday}）\n"
             f"整理以下群組對話，按分類（{cat_hint}）提取重點。\n"
             "回傳 JSON array，每筆格式：\n"
-            '{"category":"分類","who":"誰","content":"摘要",'
-            '"date":"推算的實際日期 YYYY-MM-DD",'
-            '"timestamp":"訊息時間"}\n\n'
-            "重要：\n"
-            "- 請假類：必須推算實際請假日期。"
-            "「明天請假」→ date 填明天日期。"
-            "「下週三請假」→ date 填下週三日期。"
-            "不確定就標 [?]。\n"
-            "- 出料/入庫類：推算實際日期，"
-            "「明天出」→ date 填明天。\n"
-            "- 閒聊不需要記錄就跳過。\n"
-            "- 只回傳 JSON，不要其他文字。\n\n"
+            "{\n"
+            '  "category": "分類",\n'
+            '  "who": "說話的人（用 user_name）",\n'
+            '  "content": "原始訊息摘要",\n'
+            '  "record_date": "訊息發生日期 YYYY-MM-DD",\n'
+            '  "event_date": "事件實際日期 YYYY-MM-DD",\n'
+            '  "event_date_note": "推算說明"\n'
+            "}\n\n"
+            "日期推算規則（極重要）：\n"
+            f"- 今天是 {now_str} {weekday}\n"
+            "- record_date：訊息是哪天說的（看 timestamp）\n"
+            "- event_date：事件實際發生的日期\n"
+            "  「明天請假」→ 今天 +1 天的日期\n"
+            "  「後天請假」→ 今天 +2 天的日期\n"
+            "  「下週三」→ 算出下週三的精確日期\n"
+            "  「這週五」→ 算出本週五的精確日期\n"
+            "  「請假到週五」→ event_date 填週五日期，"
+            "note 寫「請假期間 X 到 Y」\n"
+            "  不確定就 event_date 填 null，note 寫原因\n"
+            "- 閒聊（天氣、吃飯等）跳過不記錄\n"
+            "- 只回傳 JSON array，不要其他文字\n\n"
             f"{formatted}"
         )
         logger.info(
@@ -406,7 +422,7 @@ async def lifespan(app: FastAPI):
             try:
                 logger.info("[observer] %s LLM session=%s", route_id, sid)
                 result = await sdk_session.send_and_wait(
-                    prompt, timeout=60.0
+                    prompt, timeout=120.0
                 )
                 logger.info(
                     "[observer] %s LLM result: %d chars",
