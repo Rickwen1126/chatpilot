@@ -1,43 +1,70 @@
-## 2026-03-24 20:47 — General Agent Pipeline + CronScheduler Config + Workspace + 盤點設計討論
+## 2026-03-26 00:18 — 倉庫價值最大化方向 + 部署分離規劃
 
-**Goal**: 實作 plan（general-agent pipeline、cron config、pipeline result routing、workspace），接著討論倉庫盤點功能設計
+**Goal**: 從盤點轉向倉庫系統整體價值提升，規劃主動推播 + 部署架構
 
 **Done**:
-- GeneralAgentPipeline — SDK session-based LLM pipeline (`pipeline/samples/general_agent.py`)
-- CronSchedulerConfig — `available_tools` validation in routes.yaml
-- Schedule.pipeline_name → tool_name — DB migration (ALTER COLUMN)
-- Hub.receive_pipeline_result() — queue + idle drain infrastructure (Phase 2: via_chatbot ready)
-- Reminder → enqueue general-agent (instead of direct hub.push)
-- schedule_task_cron — validates tool_name against available_tools, dynamic description
-- TaskInfo.reply_mode + TaskStore migration (input_data, reply_mode columns)
-- SDK session working_directory — per-session workspace auto-created at `data/workspace/{session_id}/`
-- ChatbotConfig.workdir for config override, system_message auto-injects `[工作目錄]`
-- Fix E2E script CLI arg order (`--url` before subcommand)
-- E2E checklist updated with new test scenarios (workspace, pipeline, schedule)
-- All 21 E2E tests passing, 70 unit tests passing
-- Commit `0d89686`
+- show_image tool（download ref → R2 → ResponseInjector → 使用者看到圖片）
+- shinyipaint system prompt 加完整盤點 SOP workflow
+- batch_image_analyze description 加「提交後不要重複 download」
+- general-agent pipeline 加 web_search tool（排程任務可搜尋）
+- _format_result 格式化 pipeline 結果為人話（不再 push raw dict）
+- warehouse API URL 改 env var 可配置（WAREHOUSE_API_URL / WAREHOUSE_WEB_URL）
+- shinyipaint model 升 gpt-5.2（信益商業用，用最好的）
+- E2E checklist 全面更新（warehouse 17 actions + admin API + 盤點 E2E）
+- Commits: `90cbbf6` ~ `9b36589`
 
 **Decisions**:
-- Hub pipeline result queue 跟 context buffer 對稱設計：context buffer = 使用者閒聊(mention drain)；pipeline result queue = 系統結果(idle drain)
-- Phase 1: reply_mode="direct" only；Phase 2: via_chatbot 需接 ChatbotManager callback
-- Workspace 預設 `data/workspace/{session_id}/`，config 可覆蓋，chatbot + pipeline 一律適用
-- 倉庫盤點不需要 Hub 收集模式 — 互動式對話，chatbot + 強 model + 對的工具就夠
-- STT delay — 先做看圖片 + warehouse 新工具
-- batch_image_analyze: ≤5 張 chatbot 自己看，>5 張走 agent team pipeline
-- download_media 已回傳 `binaryResultsForLlm` → chatbot 本身就有視覺能力
+- 盤點先 hold，優先做倉庫系統最大價值功能
+- 信益相關 chatbot 用 gpt-5.2（最強），其他維持 gpt-4.1/gpt-5-mini
+- 不確定的照片用 show_image 回傳給使用者確認（不用檔名 reference）
+- 部署要分 staging / production（見 User Notes）
 
-**State**: Branch `main`, commit `0d89686`. Server running port 2999. Plan file at `.claude/plans/wondrous-percolating-quasar.md`.
+**State**: Branch `main`, commit `9b36589`. Server running port 2999.
 
 **Next**:
-- [ ] batch_image_analyze tool (agent team trigger → vision pipeline)
-- [ ] warehouse_inventory_lock tool (倉庫 API)
-- [ ] warehouse_inventory_write tool (倉庫 API)
-- [ ] stt_transcribe tool (Whisper API, deferred)
-- [ ] Phase 2: via_chatbot pipeline result routing (Hub callback → ChatbotManager)
+- [ ] 主動推播：每日庫存摘要 → CronScheduler + general-agent + warehouse tool
+- [ ] 出貨追蹤：後端出貨單 API → 比對新料 vs 舊料 → 推播提醒
+- [ ] 餘料閒置警告：追蹤入庫時間 → 超過 N 天沒動 → 推播
+- [ ] 常用料低庫存 threshold → 低於時推播
+- [ ] 部署分離：Windows WSL2 production 環境建置
+- [ ] 盤點 E2E 訓練（等 empty DB，hold）
 
 **User Notes**:
-- 盤點是互動對話不是 data pipeline — 每則訊息帶語義（「這兩張同一個」「代表照片，下一張是整體」）
-- 不需要 timestamp 關聯語音↔照片 — chatbot 直接問就好
-- shinyipaint bot 就夠，不需要專用盤點 bot（tool 多了再拆）
-- 歸檔路徑: `/Users/rickwen/code/shinyipaint-proj-1/warehouse/`
-- Plan doc: `docs/plans/2026-03-24-inventory-collect-via-line.md`（原始版，部分設計已被對話推翻）
+- 業主老闆今天親自進倉庫看常用料庫存叫料 → 如果系統主動推播餘料狀況，可省掉這步
+- 餘料回倉庫後被涼在一邊沒用（拿新料不用找、一定能用）→ 追蹤出貨單，發現一直拿新料不拿舊料就提醒
+- 部署分離想法：
+  - Staging: 個人 LINE bot → cloudflare tunnel → Mac（現在這樣）
+  - Production: 另辦信益官方 LINE bot → cloudflare tunnel → Windows WSL2（幾乎不關機）
+  - 穩定後才上雲端
+  - LINE 一個帳號可建多個 Messaging API channel（每個 channel = 一個 bot）
+  - chatpilot 支援多環境 — .env 換 LINE channel token 就好
+- 信益商業用要給最好的 model → shinyipaint 用 gpt-5.2，不省成本
+
+---
+
+## 2026-03-25 09:41 — Warehouse tool + LINE bindings + SDK model 調查 + 盤點訓練準備
+
+**Goal**: 統一 warehouse tool、設定 LINE 群組 chatbot binding、調查 SDK model 限制、準備 shinyipaint 盤點能力訓練
+
+**Done**:
+- Unified `warehouse` tool 取代 `warehouse_query`（15 actions）
+- BatchImageVisionPipeline + batch_image_analyze tool
+- SDK session event logger
+- Hub 媒體處理 + 私訊 busy buffer
+- LINE route binding 設定 + admin API
+- rick-assistant / family-helper chatbot
+- SDK 0.2.0 升級
+- E2E CLI_TIMEOUT 60s
+
+**Decisions**:
+- warehouse tool action dispatch 一個 tool 包全部 API
+- Claude models 在 SDK 不支援 binaryResultsForLlm
+- gpt-5.4-mini 不在 SDK model list
+- 盤點用互動對話模式
+
+**State**: Superseded by 2026-03-26 entry.
+
+**User Notes**:
+- SDK binary支援表/model限制 → 見 CLAUDE.md
+- JSON Schema array 必須有 items 定義
+- 訓練計畫：用 empty DB + E2E 模擬盤點

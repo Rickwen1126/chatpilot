@@ -77,9 +77,13 @@ Each item maps to a test scenario. All must pass before release.
 - [ ] general-agent pipeline registered at startup with web_search tool
 - [ ] general-agent 排程任務能用 web_search 搜尋（非回覆「無法查詢」）
 - [ ] Schedule with general-agent → CronScheduler → RunnerPool → SDK session → push
+- [ ] general-agent timeout 300s（複雜任務需多次 web_search + 綜合分析）
+- [ ] 排程 prompt 簡潔聚焦（避免一次要求太多導致 timeout）
 - [ ] hub.receive_pipeline_result(direct) → push to user
 - [ ] CronSchedulerConfig.available_tools from routes.yaml
 - [ ] Pipeline 結果 push 格式化為人話（_format_result 不回 raw dict）
+- [ ] browser-search pipeline 用真實 Chrome CDP（非 headless Playwright）
+- [ ] browser-search Google 搜尋回傳結果（selector: a:has(h3)）
 
 **Batch Image Vision Pipeline**
 - [ ] batch_image_analyze tool enqueue → batch-image-vision pipeline 執行
