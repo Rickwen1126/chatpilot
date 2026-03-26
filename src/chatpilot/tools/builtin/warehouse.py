@@ -124,8 +124,26 @@ async def _action_search(args: dict) -> str:
     items = await asyncio.to_thread(
         _get, "/items/search", {"q": query, "include_locked": str(include_locked).lower()}
     )
+
+    # Check if any units are locked (for context)
+    locked_note = ""
+    if not include_locked:
+        try:
+            locked = await asyncio.to_thread(_get, "/units/locked")
+            locked_ids = [
+                u.get("unit_id", u) if isinstance(u, dict) else u
+                for u in (locked if isinstance(locked, list) else [])
+            ]
+            if locked_ids:
+                locked_note = (
+                    f"\n（目前 {', '.join(locked_ids)} 盤點中，"
+                    "該區域物料未列入搜尋結果）"
+                )
+        except Exception:
+            pass
+
     if items:
-        return _format_search_results(items, query)
+        return _format_search_results(items, query) + locked_note
 
     # Fallback: materials search
     materials = await asyncio.to_thread(_get, "/materials", {"search": query})
@@ -137,11 +155,15 @@ async def _action_search(args: dict) -> str:
                 found = await asyncio.to_thread(_get, "/items/search", {"q": name})
                 all_items.extend(found)
         if all_items:
-            return _format_search_results(all_items, query)
+            return _format_search_results(all_items, query) + locked_note
         names = [m.get("name", "") for m in materials[:5]]
-        return "找到相關物料但目前無庫存：\n" + "\n".join(f"  {n}" for n in names)
+        return (
+            "找到相關物料但目前無庫存：\n"
+            + "\n".join(f"  {n}" for n in names)
+            + locked_note
+        )
 
-    return f"找不到「{query}」相關的物料或庫存"
+    return f"找不到「{query}」相關的物料或庫存" + locked_note
 
 
 async def _action_get_items(args: dict) -> str:
