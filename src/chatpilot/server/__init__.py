@@ -69,6 +69,7 @@ def _init_hub(
     hub = InMemoryMessageHub(
         context_buffer=context_buffer,
         adapters=adapters,
+        resolve_binding=binding_router.resolve,
     )
 
     async def on_proceed(
@@ -295,10 +296,16 @@ async def lifespan(app: FastAPI):
 
     response_injector = ResponseInjector()
 
-    # Trigger keywords
+    # Trigger keywords + auto-trigger
     from chatpilot.hub.mention_filter import configure as configure_keywords
+    from chatpilot.hub.mention_filter import configure_auto_triggers
 
     configure_keywords(config.trigger_keywords)
+    configure_auto_triggers({
+        name: cfg.auto_trigger_keywords
+        for name, cfg in config.chatbots.items()
+        if cfg.auto_trigger_keywords
+    })
 
     # Hub
     hub = _init_hub(

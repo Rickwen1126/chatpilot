@@ -15,7 +15,7 @@ from chatpilot.core.types import (
     Response,
 )
 from chatpilot.hub.context_buffer import ContextBuffer
-from chatpilot.hub.mention_filter import is_mention
+from chatpilot.hub.mention_filter import is_mention, match_auto_trigger
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +38,8 @@ OnCommandCallback = Callable[
 OnPipelineResultCallback = Callable[
     [str, str], Coroutine[Any, Any, None]
 ]
+# Returns bound chatbot name for a route_id, or None
+ResolveBindingCallback = Callable[[Message], str | None]
 
 
 class InMemoryMessageHub:
@@ -50,6 +52,7 @@ class InMemoryMessageHub:
         on_proceed: OnProceedCallback | None = None,
         on_command: OnCommandCallback | None = None,
         on_pipeline_result: OnPipelineResultCallback | None = None,
+        resolve_binding: ResolveBindingCallback | None = None,
     ) -> None:
         self._context_buffer = context_buffer
         self._adapters = adapters
@@ -57,6 +60,7 @@ class InMemoryMessageHub:
         self._on_proceed = on_proceed
         self._on_command = on_command
         self._on_pipeline_result = on_pipeline_result
+        self._resolve_binding = resolve_binding
         self._pipeline_result_queue: dict[str, list[str]] = {}
         self._background_tasks: set[asyncio.Task] = set()
 
@@ -107,18 +111,33 @@ class InMemoryMessageHub:
             return
 
         if not mentioned:
-            # Group non-mention: store in context buffer silently
-            self._context_buffer.append(
-                route_id,
-                ContextMessage(
-                    user_id=message.user_id,
-                    user_name=message.user_name or message.user_id,
-                    text=message.text,
-                    timestamp=message.timestamp,
-                    message_type=ContextMessageType.background,
-                ),
-            )
-            return
+            # Check auto-trigger keywords for bound chatbot
+            bound_chatbot = None
+            if self._resolve_binding:
+                route = self._resolve_binding(message)
+                bound_chatbot = (
+                    route.chatbot_name if route else None
+                )
+            if match_auto_trigger(message, bound_chatbot):
+                # Auto-triggered: treat as mention
+                mentioned = True
+                logger.info(
+                    "Auto-trigger matched for %s (chatbot=%s)",
+                    route_id, bound_chatbot,
+                )
+            else:
+                # Group non-mention: store in context buffer silently
+                self._context_buffer.append(
+                    route_id,
+                    ContextMessage(
+                        user_id=message.user_id,
+                        user_name=message.user_name or message.user_id,
+                        text=message.text,
+                        timestamp=message.timestamp,
+                        message_type=ContextMessageType.background,
+                    ),
+                )
+                return
 
         # Mentioned but bot is busy
         if self.get_status(route_id) == "busy":

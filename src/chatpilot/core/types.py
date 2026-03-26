@@ -123,6 +123,7 @@ class ChatbotConfig(BaseModel):
     context_window: int = 20
     timeout: int = 300
     workdir: str | None = None
+    auto_trigger_keywords: list[str] = Field(default_factory=list)
 
 
 class AgentConfig(BaseModel):
