@@ -7,7 +7,6 @@ import hashlib
 import hmac
 import logging
 import os
-from datetime import datetime, timezone
 
 from fastapi import Request
 from linebot.v3 import WebhookParser
@@ -24,6 +23,7 @@ from linebot.v3.messaging import (
 
 from chatpilot.adapters.line.parser import parse_line_events
 from chatpilot.core.errors import AdapterError
+from chatpilot.core.time_service import TimeService
 from chatpilot.core.types import Message, Response
 
 logger = logging.getLogger(__name__)
@@ -128,7 +128,14 @@ class LineAdapter:
         route_id = f"line:{message.conversation_id}"
 
         # If expired or too many messages, use push
-        elapsed = (datetime.now(timezone.utc) - message.timestamp).total_seconds()
+        # Use received_at (webhook arrival time) not message.timestamp (LINE event time)
+        ts = TimeService.get()
+        received_at_str = message.platform_context.get("received_at")
+        if received_at_str:
+            received_at = ts.from_iso(received_at_str)
+        else:
+            received_at = message.timestamp
+        elapsed = ts.elapsed_seconds(received_at)
         if elapsed > REPLY_TOKEN_TTL_SECONDS or len(msgs) > LINE_MAX_MESSAGES_PER_CALL:
             if elapsed > REPLY_TOKEN_TTL_SECONDS:
                 logger.info("Reply token expired (%.0fs), using push", elapsed)

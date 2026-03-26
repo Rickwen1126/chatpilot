@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
 
 import aiosqlite
@@ -145,7 +145,9 @@ class SqliteMemoryStore:
             data["id"] = str(uuid.uuid4())
         data["route_id"] = route_id
         if "created_at" not in data:
-            data["created_at"] = datetime.now(timezone.utc).isoformat()
+            from chatpilot.core.time_service import TimeService
+
+            data["created_at"] = TimeService.get().utc_now().isoformat()
 
         obj = model_cls.model_validate(data)
         row = obj.model_dump(mode="json")
@@ -260,8 +262,10 @@ class SqliteMemoryStore:
             raise RuntimeError("MemoryStore not initialized")
         from datetime import timedelta
 
+        from chatpilot.core.time_service import TimeService
+
         since = (
-            datetime.now(timezone.utc) - timedelta(days=days)
+            TimeService.get().utc_now() - timedelta(days=days)
         ).isoformat()
         async with self._db.execute(
             "SELECT * FROM memory_observations "

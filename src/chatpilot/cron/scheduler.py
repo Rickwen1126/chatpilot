@@ -6,6 +6,7 @@ import asyncio
 import logging
 from datetime import datetime, timezone
 
+from chatpilot.core.time_service import TimeService
 from chatpilot.cron.parser import calculate_next_run
 from chatpilot.memory.types import MemoryStatus
 
@@ -59,7 +60,7 @@ class CronScheduler:
             await asyncio.sleep(self._tick_interval)
 
     async def _tick(self) -> None:
-        now = datetime.now(timezone.utc)
+        now = TimeService.get().utc_now()
 
         # Scan due reminders
         due_reminders = await self._memory_store.query_due_before(
@@ -98,7 +99,7 @@ class CronScheduler:
 
             task = TaskInfo(
                 id=str(uuid.uuid4()),
-                created_at=datetime.now(timezone.utc),
+                created_at=TimeService.get().utc_now(),
                 pipeline_name="general-agent",
                 input_summary=f"提醒：{text}",
                 input_data={"description": f"提醒使用者：{text}"},
@@ -149,7 +150,7 @@ class CronScheduler:
 
             task = TaskInfo(
                 id=str(uuid.uuid4()),
-                created_at=datetime.now(timezone.utc),
+                created_at=TimeService.get().utc_now(),
                 pipeline_name=tool_name,
                 input_summary=f"Cron: {cron_expr}",
                 input_data=schedule.get("input_data", {}),
@@ -163,7 +164,7 @@ class CronScheduler:
                 route_id, "schedule", sid,
                 {
                     "status": MemoryStatus.pending.value,
-                    "last_run_at": datetime.now(timezone.utc).isoformat(),
+                    "last_run_at": TimeService.get().utc_now().isoformat(),
                     "next_run_at": next_run.isoformat(),
                 },
             )

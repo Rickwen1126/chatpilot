@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime
 from enum import Enum
 from uuid import uuid4
 
@@ -8,7 +8,9 @@ from pydantic import BaseModel, Field
 
 
 def _utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+    from chatpilot.core.time_service import TimeService
+
+    return TimeService.get().utc_now()
 
 
 def _uuid() -> str:

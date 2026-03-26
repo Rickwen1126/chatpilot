@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
+
+from chatpilot.core.time_service import TimeService
 
 _WEEKDAYS = {
     "mon": 0,
@@ -30,7 +32,7 @@ def calculate_next_run(expr: str, after: datetime | None = None) -> datetime:
     Raises ``ValueError`` for unrecognised or malformed expressions.
     """
     if after is None:
-        after = datetime.now(timezone.utc)
+        after = TimeService.get().utc_now()
 
     parts = expr.strip().split()
     if not parts:

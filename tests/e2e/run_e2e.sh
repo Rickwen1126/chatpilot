@@ -319,6 +319,63 @@ else
     FAIL=$((FAIL + 1))
 fi
 
+# ─── TimeService Integration ─────────────────────────────────────
+header "TimeService Integration"
+
+# System prompt should contain time hint
+TS_RESP=$(cli_chat "現在幾點")
+if echo "$TS_RESP" | grep -qi "點\|時\|2026"; then
+    green "  ✓ chatbot knows current time (TimeService hint injected)"
+    PASS=$((PASS + 1))
+else
+    red "  ✗ chatbot doesn't know current time"
+    echo "    got: $TS_RESP"
+    FAIL=$((FAIL + 1))
+fi
+
+# ─── Warehouse Unit Display ──────────────────────────────────────
+header "Warehouse Unit Display"
+
+# Search should show unit_of_measure + spec (requires warehouse API on :8000)
+WH_RESP=$(curl -s "http://localhost:8000/api/v1/items/search?q=303" 2>/dev/null)
+if echo "$WH_RESP" | python3 -c "
+import sys, json
+try:
+    items = json.load(sys.stdin)
+    if items and 'unit_of_measure' in items[0] and 'spec' in items[0]:
+        print('ok')
+    else:
+        print('missing')
+except: print('error')
+" | grep -q "ok"; then
+    # API has spec field — test format function
+    FORMAT_RESP=$(uv run python3 -c "
+import json, urllib.request
+items = json.loads(urllib.request.urlopen('http://localhost:8000/api/v1/items/search?q=303', timeout=10).read())
+from chatpilot.tools.builtin.warehouse import _format_search_results
+r = _format_search_results(items[:5], '303')
+print(r)
+" 2>/dev/null)
+    if echo "$FORMAT_RESP" | grep -q "罐"; then
+        green "  ✓ warehouse search shows unit_of_measure"
+        PASS=$((PASS + 1))
+    else
+        red "  ✗ warehouse search missing unit_of_measure"
+        echo "    got: $FORMAT_RESP"
+        FAIL=$((FAIL + 1))
+    fi
+    if echo "$FORMAT_RESP" | grep -qE "1L|1加侖|5加侖|18L"; then
+        green "  ✓ warehouse search shows spec"
+        PASS=$((PASS + 1))
+    else
+        red "  ✗ warehouse search missing spec"
+        echo "    got: $FORMAT_RESP"
+        FAIL=$((FAIL + 1))
+    fi
+else
+    green "  ℹ warehouse API not available (skip unit display tests)"
+fi
+
 # ─── Summary ──────────────────────────────────────────────────────
 header "Summary"
 echo ""

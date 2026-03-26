@@ -12,6 +12,7 @@ from linebot.v3.webhooks import (
     UserMentionee,
 )
 
+from chatpilot.core.time_service import TimeService
 from chatpilot.core.types import Message
 
 logger = logging.getLogger(__name__)
@@ -24,6 +25,9 @@ def parse_line_events(events: list) -> list[Message]:
     Images are represented as text with ref: [圖片 ref:line:{message_id}]
     """
     messages: list[Message] = []
+    ts = TimeService.get()
+    received_at = ts.utc_now()
+
     for event in events:
         if not isinstance(event, MessageEvent):
             continue
@@ -37,6 +41,9 @@ def parse_line_events(events: list) -> list[Message]:
 
         user_id = source.user_id if hasattr(source, "user_id") else ""
         conversation_id = group_id or user_id
+
+        # LINE event.timestamp = epoch ms (UTC) — 訊息真實時間
+        event_ts = ts.from_epoch_ms(event.timestamp) if event.timestamp else received_at
 
         # Detect @bot mention (only on text messages)
         is_mention = False
@@ -62,9 +69,11 @@ def parse_line_events(events: list) -> list[Message]:
                 group_id=group_id,
                 conversation_id=conversation_id,
                 is_mention=is_mention,
+                timestamp=event_ts,
                 platform_context={
                     "reply_token": event.reply_token,
                     "message_id": event.message.id,
+                    "received_at": received_at.isoformat(),
                 },
             )
             messages.append(msg)
@@ -77,10 +86,12 @@ def parse_line_events(events: list) -> list[Message]:
                 platform="line",
                 group_id=group_id,
                 conversation_id=conversation_id,
-                is_mention=False,  # image alone is never a mention
+                is_mention=False,
+                timestamp=event_ts,
                 platform_context={
                     "reply_token": event.reply_token,
                     "message_id": event.message.id,
+                    "received_at": received_at.isoformat(),
                 },
             )
             messages.append(msg)
@@ -99,9 +110,11 @@ def parse_line_events(events: list) -> list[Message]:
                 group_id=group_id,
                 conversation_id=conversation_id,
                 is_mention=False,
+                timestamp=event_ts,
                 platform_context={
                     "reply_token": event.reply_token,
                     "message_id": event.message.id,
+                    "received_at": received_at.isoformat(),
                 },
             )
             messages.append(msg)

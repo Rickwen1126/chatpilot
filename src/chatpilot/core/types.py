@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime
 from enum import Enum, IntEnum
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator
+
+from chatpilot.core.time_service import TimeService
 
 # ── Enums ─────────────────────────────────────────────────────────────
 
@@ -43,7 +45,9 @@ class Message(BaseModel):
     conversation_id: str
     is_mention: bool = False
     platform_context: dict[str, Any] = Field(default_factory=dict)
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    timestamp: datetime = Field(
+        default_factory=lambda: TimeService.get().utc_now()
+    )
 
     @field_validator("text")
     @classmethod
@@ -128,6 +132,7 @@ class ChatbotConfig(BaseModel):
     observer_batch_size: int = 10
     observer_categories: list[str] = Field(default_factory=list)
     observer_allowed_consumers: list[str] = Field(default_factory=list)
+    inject_timestamp: bool = False
 
 
 class AgentConfig(BaseModel):

@@ -137,7 +137,12 @@ class ChatbotManager:
     async def _build_system_message(
         self, base: str, route_id: str, workdir: str | None = None
     ) -> str:
+        from chatpilot.core.time_service import TimeService
+
         parts = [base]
+
+        # Time hint (dynamic from config timezone)
+        parts.append(f"\n{TimeService.get().system_prompt_hint()}")
 
         # Workspace info
         if workdir:

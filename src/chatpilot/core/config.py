@@ -24,6 +24,7 @@ logger = logging.getLogger(__name__)
 
 
 class GatewayConfig(BaseModel):
+    timezone: str = "Asia/Taipei"
     match_weights: MatchWeights = MatchWeights()
     bindings: list[Binding] = []
     chatbots: dict[str, ChatbotConfig] = {}

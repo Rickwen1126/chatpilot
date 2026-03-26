@@ -288,6 +288,12 @@ async def lifespan(app: FastAPI):
     app.state.config_path = config_path
     config = _load_gateway_config(config_path)
 
+    # TimeService — must be first, everything depends on it
+    from chatpilot.core.time_service import TimeService
+
+    TimeService.init(config.timezone)
+    logger.info("TimeService initialized: %s", config.timezone)
+
     # Core services
     sdk_client = SdkClient()
     await sdk_client.start()
@@ -373,10 +379,9 @@ async def lifespan(app: FastAPI):
     ) -> None:
         """Process observer batch: LLM summarize → store observation."""
         import uuid
-        from datetime import datetime, timedelta, timezone
 
-        now_tw = datetime.now(timezone.utc) + timedelta(hours=8)
-        record_date = now_tw.strftime("%Y-%m-%d")
+        ts = TimeService.get()
+        record_date = ts.today()
         cat_hint = ", ".join(categories) if categories else "自動分類"
         prompt = (
             f"今天日期：{record_date}\n"

@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import logging
 import uuid
-from datetime import datetime, timezone
 from typing import Any
 
 from copilot.types import ToolInvocation, ToolResult
 
+from chatpilot.core.time_service import TimeService
 from chatpilot.core.types import AccessLevel, TaskInfo, ToolDefinition
 
 logger = logging.getLogger(__name__)
@@ -40,7 +40,7 @@ def create_batch_image_analyze_tool(scheduler: Any) -> ToolDefinition:
 
         task = TaskInfo(
             id=str(uuid.uuid4()),
-            created_at=datetime.now(timezone.utc),
+            created_at=TimeService.get().utc_now(),
             pipeline_name="batch-image-vision",
             input_summary=f"分析 {len(refs)} 張照片",
             input_data={

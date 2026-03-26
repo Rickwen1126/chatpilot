@@ -124,7 +124,9 @@ class InMemoryMessageHub:
             )
             if count >= batch_size and self._on_observer_batch:
                 messages = self._context_buffer.drain(route_id)
-                formatted = self._context_buffer.format_context(messages)
+                formatted = self._context_buffer.format_context(
+                    messages, inject_timestamp=True
+                )
                 categories = obs_config["categories"]
                 logger.info(
                     "[observer] %s batch triggered! draining %d msgs, "
@@ -263,6 +265,13 @@ class InMemoryMessageHub:
 
     async def push(self, route_id: str, response: Response) -> None:
         """Push async result back to the originating conversation."""
+        # CRITICAL: never push to observer routes — they must stay invisible
+        if route_id in self._observer_configs:
+            logger.warning(
+                "[observer] BLOCKED push to observer route %s: %s",
+                route_id, response.text[:80],
+            )
+            return
         platform = route_id.split(":")[0]
         adapter = self._adapters.get(platform)
         if adapter is None:
@@ -277,6 +286,13 @@ class InMemoryMessageHub:
         self, route_id: str, result: str, reply_mode: str = "direct"
     ) -> None:
         """Pipeline result entry — never discarded."""
+        # CRITICAL: never push pipeline results to observer routes
+        if route_id in self._observer_configs:
+            logger.warning(
+                "[observer] BLOCKED pipeline result to observer route %s",
+                route_id,
+            )
+            return
         if reply_mode == "direct" or self._on_pipeline_result is None:
             await self.push(route_id, Response(text=result))
             return

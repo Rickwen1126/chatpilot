@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
 
 from copilot.types import ToolInvocation, ToolResult
 
+from chatpilot.core.time_service import TimeService
 from chatpilot.core.types import AccessLevel, TaskInfo, ToolDefinition
 
 
@@ -24,7 +24,7 @@ def create_submit_task_tool(scheduler, pipeline_name: str = "echo") -> ToolDefin
         task_id = str(uuid.uuid4())
         task = TaskInfo(
             id=task_id,
-            created_at=datetime.now(timezone.utc),
+            created_at=TimeService.get().utc_now(),
             pipeline_name=args.get("pipeline", pipeline_name),
             input_summary=task_description[:200],
             input_data={"description": task_description},

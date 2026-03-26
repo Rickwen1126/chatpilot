@@ -49,22 +49,32 @@ class ContextBuffer:
         """View buffer contents without clearing."""
         return list(self._buffers.get(route_id, []))
 
-    def format_context(self, messages: list[ContextMessage]) -> str:
+    def format_context(
+        self, messages: list[ContextMessage], inject_timestamp: bool = False
+    ) -> str:
         """Format buffer messages into structured context prefix.
 
         Format per research.md R-008:
         [群組近期對話]
-        [背景] UserA (14:30): text
-        [busy 期間] UserB (14:31): text
+        [背景] UserA (14:30): text    ← inject_timestamp=True (observer)
+        [背景] UserA: text            ← inject_timestamp=False (chatbot)
         ---
         [以下是直接對你說的訊息]
         """
         if not messages:
             return ""
+        from chatpilot.core.time_service import TimeService
+
+        ts = TimeService.get()
         lines = ["[群組近期對話]"]
         for msg in messages:
-            ts = msg.timestamp.strftime("%H:%M")
-            lines.append(f"[背景] {msg.user_name} ({ts}): {msg.text}")
+            if inject_timestamp:
+                time_str = ts.format_time(msg.timestamp)
+                lines.append(
+                    f"[背景] {msg.user_name} ({time_str}): {msg.text}"
+                )
+            else:
+                lines.append(f"[背景] {msg.user_name}: {msg.text}")
         lines.append("---")
         lines.append("[以下是直接對你說的訊息]")
         return "\n".join(lines)

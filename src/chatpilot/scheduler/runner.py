@@ -5,8 +5,8 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from datetime import datetime, timezone
 
+from chatpilot.core.time_service import TimeService
 from chatpilot.core.types import NodeOutput, TaskInfo, TaskStatus
 from chatpilot.hub.hub import InMemoryMessageHub
 from chatpilot.pipeline.executor import PipelineExecutor
@@ -81,7 +81,7 @@ class RunnerPool:
     async def _run(self, task: TaskInfo) -> None:
         """Execute a single task."""
         task.status = TaskStatus.running
-        task.started_at = datetime.now(timezone.utc)
+        task.started_at = TimeService.get().utc_now()
         await self._store.save(task)
 
         start = time.monotonic()
@@ -103,13 +103,13 @@ class RunnerPool:
                 task.error = result.error or "Pipeline returned error"
 
             task.duration_ms = duration_ms
-            task.completed_at = datetime.now(timezone.utc)
+            task.completed_at = TimeService.get().utc_now()
 
         except Exception as e:
             task.status = TaskStatus.failed
             task.error = str(e)
             task.duration_ms = int((time.monotonic() - start) * 1000)
-            task.completed_at = datetime.now(timezone.utc)
+            task.completed_at = TimeService.get().utc_now()
             logger.exception(
                 "Task %s failed [%s: %s] pipeline=%s duration=%dms",
                 task.id[:8],

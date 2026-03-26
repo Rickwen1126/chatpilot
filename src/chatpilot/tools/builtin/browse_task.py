@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
 
 from copilot.types import ToolInvocation, ToolResult
 
+from chatpilot.core.time_service import TimeService
 from chatpilot.core.types import AccessLevel, TaskInfo, ToolDefinition
 
 
@@ -31,7 +31,7 @@ def create_browse_task_tool(scheduler) -> ToolDefinition:
         task_id = str(uuid.uuid4())
         task = TaskInfo(
             id=task_id,
-            created_at=datetime.now(timezone.utc),
+            created_at=TimeService.get().utc_now(),
             pipeline_name="browser-search",
             input_summary=f"瀏覽器搜尋: {query[:100]}",
             input_data={"query": query},

@@ -188,8 +188,13 @@ async def _action_get_items(args: dict) -> str:
         name = item.get("name", "") or item.get("description", "")
         lk = item.get("layer_display", item.get("layer_key", ""))
         qty = item.get("quantity", "?")
+        uom = item.get("unit_of_measure", "")
+        spec = item.get("spec", "")
         iid = item.get("id", "?")
-        lines.append(f"  {lk}: {name} — {qty}（ID:{iid}）")
+        qty_str = f"{qty}{uom}" if uom else str(qty)
+        if spec:
+            qty_str += f" ({spec})"
+        lines.append(f"  {lk}: {name} — {qty_str}（ID:{iid}）")
 
     # Mention floor plan image availability
     img_url = get_unit_image_url(uid)
@@ -362,7 +367,8 @@ def _format_search_results(items: list, query: str) -> str:
         groups[name].append(item)
 
     lines = []
-    total_qty = 0
+    # Track totals by spec (e.g. "1L", "1加侖") for grouped summary
+    spec_totals: dict[str, int] = {}
     units_seen: set[str] = set()
 
     for name, group_items in groups.items():
@@ -371,13 +377,25 @@ def _format_search_results(items: list, query: str) -> str:
             unit_id = item.get("unit_id", "?")
             layer = item.get("layer_display", item.get("layer_key", ""))
             qty = item.get("quantity", "?")
+            uom = item.get("unit_of_measure", "")
+            spec = item.get("spec", "")
             loc = item.get("location_display", f"{unit_id} {layer}")
-            lines.append(f"  📍 {loc} — {qty}")
+            # Show: 📍 D4 第2層 — 8罐 (1L)
+            qty_str = f"{qty}{uom}" if uom else str(qty)
+            if spec:
+                qty_str += f" ({spec})"
+            lines.append(f"  📍 {loc} — {qty_str}")
             if isinstance(qty, (int, float)):
-                total_qty += qty
+                key = f"{uom} {spec}".strip() if (uom or spec) else "件"
+                spec_totals[key] = spec_totals.get(key, 0) + qty
             units_seen.add(unit_id)
 
-    lines.append(f"\n共 {total_qty} 件")
+    # Format total: 共 8罐 1L、16罐 1加侖
+    if spec_totals:
+        parts = [f"{v}{k}" for k, v in spec_totals.items()]
+        lines.append(f"\n共 {'、'.join(parts)}")
+    else:
+        lines.append("\n共 0 件")
 
     # List available floor plan images for mentioned units
     img_units = [u for u in units_seen if get_unit_image_url(u)]
