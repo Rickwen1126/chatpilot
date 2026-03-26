@@ -218,6 +218,17 @@ def _register_tools(
     tool_factory.register(create_web_search_tool())
     tool_factory.register(create_download_media_tool(adapters))
 
+    # Browser tools (Chrome CDP)
+    from chatpilot.tools.builtin.browser_tools import (
+        create_browser_eval_tool,
+        create_browser_navigate_tool,
+        create_browser_tabs_tool,
+    )
+
+    tool_factory.register(create_browser_navigate_tool())
+    tool_factory.register(create_browser_eval_tool())
+    tool_factory.register(create_browser_tabs_tool())
+
     # Document edit + show image
     if r2_storage is not None:
         tool_factory.register(create_document_edit_tool(adapters, r2_storage))
