@@ -19,23 +19,36 @@ def create_show_image_tool(
 ) -> ToolDefinition:
     """Create show_image tool.
 
-    Downloads media from platform ref, uploads to R2 for persistent URL,
-    injects into response via ResponseInjector so user sees the image.
+    Two modes:
+    - url: directly inject an existing image URL (floor plans, R2 images)
+    - ref: download from platform (LINE), upload to R2, then inject
     """
 
     async def handler(invocation: ToolInvocation) -> ToolResult:
         args = invocation.get("arguments") or {}
         session_id = invocation.get("session_id", "")
+        url = args.get("url", "")
         ref = args.get("ref", "")
         caption = args.get("caption", "")
 
-        if not ref:
+        if not url and not ref:
             return ToolResult(
-                textResultForLlm="需要提供圖片 ref（如 line:msg_123）",
+                textResultForLlm="需要提供 url 或 ref",
                 resultType="failure",
             )
 
-        # Parse ref
+        # Mode 1: direct URL (floor plans, existing R2 images)
+        if url:
+            if response_injector:
+                response_injector.add(session_id, "image", url)
+            result = "已準備回傳圖片給使用者"
+            if caption:
+                result += f"（{caption}）"
+            return ToolResult(
+                textResultForLlm=result, resultType="success"
+            )
+
+        # Mode 2: download from platform ref → upload R2 → inject
         parts = ref.split(":")
         if len(parts) < 2:
             return ToolResult(
@@ -51,7 +64,6 @@ def create_show_image_tool(
                 resultType="failure",
             )
 
-        # Download
         data = await adapter.download_media(media_id)
         if data is None:
             return ToolResult(
@@ -59,7 +71,6 @@ def create_show_image_tool(
                 resultType="failure",
             )
 
-        # Upload to R2 for persistent URL
         if r2_storage is None:
             return ToolResult(
                 textResultForLlm="R2 storage 未設定，無法回傳圖片",
@@ -67,7 +78,7 @@ def create_show_image_tool(
             )
 
         try:
-            url = await r2_storage.upload(data, "image/jpeg", "jpg")
+            img_url = await r2_storage.upload(data, "image/jpeg", "jpg")
         except Exception as e:
             logger.error("R2 upload failed: %s", e)
             return ToolResult(
@@ -75,42 +86,46 @@ def create_show_image_tool(
                 resultType="failure",
             )
 
-        if not url:
+        if not img_url:
             return ToolResult(
                 textResultForLlm="圖片上傳失敗（無 URL）",
                 resultType="failure",
             )
 
-        # Inject image into response
         if response_injector:
-            response_injector.add(session_id, "image", url)
+            response_injector.add(session_id, "image", img_url)
 
         result = "已準備回傳圖片給使用者"
         if caption:
             result += f"（{caption}）"
-        return ToolResult(textResultForLlm=result, resultType="success")
+        return ToolResult(
+            textResultForLlm=result, resultType="success"
+        )
 
     return ToolDefinition(
         name="show_image",
         description=(
-            "回傳一張圖片給使用者。"
-            "當你需要讓使用者看到某張照片時使用（例如：確認不清楚的物料）。"
-            "提供圖片的 ref（如 line:msg_123），系統會下載並回傳。"
-            "可附帶 caption 說明（會顯示在文字訊息中，圖片另外發送）。"
+            "回傳一張圖片給使用者。兩種用法：\n"
+            "1. url: 已有圖片網址（如位置圖 URL）→ 直接回傳\n"
+            "2. ref: 平台媒體（如 line:msg_123）→ 下載後回傳\n"
+            "提供 url 或 ref 其中一個即可。"
         ),
         parameters={
             "type": "object",
             "properties": {
+                "url": {
+                    "type": "string",
+                    "description": "圖片網址（直接回傳）",
+                },
                 "ref": {
                     "type": "string",
-                    "description": "圖片 ref（如 line:msg_123）",
+                    "description": "平台媒體 ref（如 line:msg_123）",
                 },
                 "caption": {
                     "type": "string",
                     "description": "圖片說明（選填）",
                 },
             },
-            "required": ["ref"],
         },
         handler=handler,
         access_level=AccessLevel.GLOBAL,
