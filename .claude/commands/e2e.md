@@ -182,6 +182,22 @@ Each item maps to a test scenario. All must pass before release.
 - [ ] Tool description 夠清楚（LLM 不會用錯 tool 或傳錯參數）
 - [ ] System prompt 有盤點 SOP workflow 引導
 
+**Observer Mode**
+- [ ] Observer route 訊息 → 不回話（無 chatbot response）
+- [ ] Observer route @mention → 還是不回話（observer 優先）
+- [ ] 訊息進 context_buffer（count 遞增，log: [observer] buffered N/batch）
+- [ ] context_window = max(context_window, observer_batch_size)
+- [ ] 累積未達 batch_size → 不觸發
+- [ ] 累積達 batch_size → 觸發 LLM 整理（log: batch triggered, draining, buffer now=0）
+- [ ] LLM 回傳 JSON entries（category/who/content/timestamp）
+- [ ] 閒聊被跳過（不出現在 entries）
+- [ ] 整理結果存入 memory_observations table
+- [ ] Drain 後 buffer 清空 → 重新累積第二批
+- [ ] query_observations(source, category) → 回傳觀察紀錄
+- [ ] query_observations(category="請假") → 只回該分類
+- [ ] Cross-chat query：buddy chatbot 查 observer 群組資料 → 成功
+- [ ] observer_mode=false 的 chatbot → 正常回話不受影響
+
 **Pending (not yet automated)**
 - [ ] browse_task pipeline (Playwright headless)
 - [ ] Broken session rebuild (needs short timeout test)
