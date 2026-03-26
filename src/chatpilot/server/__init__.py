@@ -216,7 +216,10 @@ def _register_tools(
     tool_factory.register(create_browse_task_tool(scheduler))
     tool_factory.register(create_batch_image_analyze_tool(scheduler))
 
-    # Search + media
+    # Calendar + search + media
+    from chatpilot.tools.builtin.calendar_tool import create_calendar_tool
+
+    tool_factory.register(create_calendar_tool())
     tool_factory.register(create_web_search_tool())
     tool_factory.register(create_download_media_tool(adapters))
 
