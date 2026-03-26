@@ -271,6 +271,54 @@ else
     FAIL=$((FAIL + 1))
 fi
 
+# ─── Observer Mode ────────────────────────────────────────────────
+header "Observer Mode"
+
+# Use LINE-format IDs to match production
+OBS_ROUTE="Ufc68d77c84b42995d970dc6639da4316"
+
+# Test 1: Silent collect — observer route should NOT trigger chatbot
+OBS_BEFORE=$(curl -s "$BASE_URL/health" | python3 -c "import sys,json; print(json.load(sys.stdin)['uptime_seconds'])")
+for i in $(seq 1 10); do
+    mock_webhook "{\"text\": \"observer test msg $i\", \"user_id\": \"$OBS_ROUTE\", \"user_name\": \"TestUser$i\", \"platform\": \"line\", \"is_mention\": false}" > /dev/null
+    sleep 0.2
+done
+sleep 15
+
+# Check batch triggered via log
+if grep -q "\[observer\].*line:$OBS_ROUTE.*batch triggered" /tmp/chatpilot.log 2>/dev/null; then
+    green "  ✓ observer batch triggered (10 msgs)"
+    PASS=$((PASS + 1))
+else
+    red "  ✗ observer batch not triggered"
+    FAIL=$((FAIL + 1))
+fi
+
+# Check no chatbot response for observer route
+if grep -q "\[Chatbot\].*$OBS_ROUTE" /tmp/chatpilot.log 2>/dev/null; then
+    red "  ✗ observer route should be silent (chatbot responded)"
+    FAIL=$((FAIL + 1))
+else
+    green "  ✓ observer route silent (no chatbot response)"
+    PASS=$((PASS + 1))
+fi
+
+# Test 2: Query from allowed consumer
+QUERY_RESP=$(cli_chat "用 query_observations 查 Rick 私訊 的全部紀錄")
+if echo "$QUERY_RESP" | grep -qi "觀察\|紀錄\|請假\|出料\|無權限"; then
+    if echo "$QUERY_RESP" | grep -qi "無權限"; then
+        red "  ✗ query_observations denied (should be allowed)"
+        FAIL=$((FAIL + 1))
+    else
+        green "  ✓ query_observations returned results"
+        PASS=$((PASS + 1))
+    fi
+else
+    red "  ✗ query_observations no response"
+    echo "    got: $QUERY_RESP"
+    FAIL=$((FAIL + 1))
+fi
+
 # ─── Summary ──────────────────────────────────────────────────────
 header "Summary"
 echo ""

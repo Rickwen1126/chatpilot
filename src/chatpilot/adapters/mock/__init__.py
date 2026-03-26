@@ -27,12 +27,13 @@ class MockAdapter:
 
     async def parse_messages(self, request: Request) -> list[Message]:
         body = await request.json()
+        platform = body.get("platform", "mock")
         return [
             Message(
                 text=body["text"],
                 user_id=body.get("user_id", "mock-user"),
                 user_name=body.get("user_name", "MockUser"),
-                platform="mock",
+                platform=platform,
                 group_id=body.get("group_id"),
                 conversation_id=body.get("group_id", body.get("user_id", "mock-user")),
                 is_mention=body.get("is_mention", True),
