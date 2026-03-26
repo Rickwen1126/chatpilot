@@ -356,7 +356,6 @@ def _format_search_results(items: list, query: str) -> str:
             units_seen.add(unit_id)
 
     lines.append(f"\n共 {total_qty} 件")
-    lines.append(f"\n👉 {_make_deep_link(query)}")
 
     # List available floor plan images for mentioned units
     img_units = [u for u in units_seen if get_unit_image_url(u)]
@@ -425,14 +424,10 @@ def create_warehouse_tool(response_injector=None) -> ToolDefinition:
 
             # Inject deep link for search actions
             if action == "search" and response_injector and session_id:
-                import re as _re
-
-                link_match = _re.search(
-                    r"(https://warehouse\.\S+)", result
-                )
-                if link_match:
+                query = args.get("query", "")
+                if query:
                     response_injector.add(
-                        session_id, "link", link_match.group(1)
+                        session_id, "link", _make_deep_link(query)
                     )
 
             return ToolResult(textResultForLlm=result, resultType="success")
