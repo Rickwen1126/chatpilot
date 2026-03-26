@@ -80,7 +80,7 @@ class GeneralAgentNode:
                 working_directory=workdir,
             )
             try:
-                result = await session.send_and_wait(prompt, timeout=120.0)
+                result = await session.send_and_wait(prompt, timeout=300.0)
                 return NodeOutput(
                     status="success",
                     data={"result": result, "prompt": prompt},
