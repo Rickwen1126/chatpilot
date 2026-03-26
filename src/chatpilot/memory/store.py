@@ -14,6 +14,7 @@ from chatpilot.memory.types import (
     CustomPrompt,
     Memo,
     MemoryStatus,
+    Observation,
     Reminder,
     Schedule,
 )
@@ -26,6 +27,7 @@ TYPE_REGISTRY: dict[str, tuple[type, str, str | None]] = {
     "custom_prompt": (CustomPrompt, "memory_custom_prompts", None),
     "reminder": (Reminder, "memory_reminders", "due_at"),
     "schedule": (Schedule, "memory_schedules", "next_run_at"),
+    "observation": (Observation, "memory_observations", None),
 }
 
 CREATE_TABLES = """
@@ -76,6 +78,20 @@ CREATE TABLE IF NOT EXISTS memory_schedules (
 CREATE INDEX IF NOT EXISTS idx_schedules_route ON memory_schedules(route_id);
 CREATE INDEX IF NOT EXISTS idx_schedules_status_next
     ON memory_schedules(status, next_run_at);
+
+CREATE TABLE IF NOT EXISTS memory_observations (
+    id             TEXT PRIMARY KEY,
+    route_id       TEXT NOT NULL,
+    batch_time     TEXT NOT NULL,
+    message_count  INTEGER DEFAULT 0,
+    entries        TEXT DEFAULT '[]',
+    summary        TEXT DEFAULT '',
+    created_at     TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_observations_route
+    ON memory_observations(route_id);
+CREATE INDEX IF NOT EXISTS idx_observations_time
+    ON memory_observations(route_id, batch_time);
 """
 
 
@@ -233,6 +249,42 @@ class SqliteMemoryStore:
                 _deserialize_row(dict(zip(cols, r))) for r in rows
             ]
 
+    async def query_observations(
+        self,
+        route_id: str,
+        days: int = 7,
+        category: str = "",
+    ) -> list[dict]:
+        """Query observations for a route, optionally filtered by category."""
+        if self._db is None:
+            raise RuntimeError("MemoryStore not initialized")
+        from datetime import timedelta
+
+        since = (
+            datetime.now(timezone.utc) - timedelta(days=days)
+        ).isoformat()
+        async with self._db.execute(
+            "SELECT * FROM memory_observations "
+            "WHERE route_id = ? AND batch_time >= ? "
+            "ORDER BY batch_time DESC",
+            (route_id, since),
+        ) as cursor:
+            rows = await cursor.fetchall()
+            cols = [d[0] for d in cursor.description]
+            results = [
+                _deserialize_row(dict(zip(cols, r))) for r in rows
+            ]
+
+        if category:
+            for obs in results:
+                obs["entries"] = [
+                    e for e in obs.get("entries", [])
+                    if e.get("category", "") == category
+                ]
+            results = [r for r in results if r["entries"]]
+
+        return results
+
 
 def _serialize_json_fields(data: dict) -> None:
     """Convert list/dict fields to JSON strings for SQLite."""
@@ -241,6 +293,10 @@ def _serialize_json_fields(data: dict) -> None:
     if "input_data" in data and isinstance(data["input_data"], dict):
         data["input_data"] = json.dumps(
             data["input_data"], ensure_ascii=False
+        )
+    if "entries" in data and isinstance(data["entries"], list):
+        data["entries"] = json.dumps(
+            data["entries"], ensure_ascii=False
         )
 
 
@@ -256,4 +312,9 @@ def _deserialize_row(row: dict) -> dict:
             row["input_data"] = json.loads(row["input_data"])
         except (json.JSONDecodeError, TypeError):
             row["input_data"] = {}
+    if "entries" in row and isinstance(row["entries"], str):
+        try:
+            row["entries"] = json.loads(row["entries"])
+        except (json.JSONDecodeError, TypeError):
+            row["entries"] = []
     return row

@@ -124,6 +124,9 @@ class ChatbotConfig(BaseModel):
     timeout: int = 300
     workdir: str | None = None
     auto_trigger_keywords: list[str] = Field(default_factory=list)
+    observer_mode: bool = False
+    observer_batch_size: int = 10
+    observer_categories: list[str] = Field(default_factory=list)
 
 
 class AgentConfig(BaseModel):

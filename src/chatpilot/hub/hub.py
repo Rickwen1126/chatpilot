@@ -40,6 +40,10 @@ OnPipelineResultCallback = Callable[
 ]
 # Returns bound chatbot name for a route_id, or None
 ResolveBindingCallback = Callable[[Message], str | None]
+# Observer batch callback: (route_id, formatted_messages, categories) -> None
+OnObserverBatchCallback = Callable[
+    [str, str, list[str]], Coroutine[Any, Any, None]
+]
 
 
 class InMemoryMessageHub:
@@ -53,6 +57,7 @@ class InMemoryMessageHub:
         on_command: OnCommandCallback | None = None,
         on_pipeline_result: OnPipelineResultCallback | None = None,
         resolve_binding: ResolveBindingCallback | None = None,
+        on_observer_batch: OnObserverBatchCallback | None = None,
     ) -> None:
         self._context_buffer = context_buffer
         self._adapters = adapters
@@ -61,6 +66,8 @@ class InMemoryMessageHub:
         self._on_command = on_command
         self._on_pipeline_result = on_pipeline_result
         self._resolve_binding = resolve_binding
+        self._on_observer_batch = on_observer_batch
+        self._observer_configs: dict[str, dict] = {}  # route_id → config
         self._pipeline_result_queue: dict[str, list[str]] = {}
         self._background_tasks: set[asyncio.Task] = set()
 
@@ -73,9 +80,58 @@ class InMemoryMessageHub:
     def set_on_pipeline_result(self, callback: OnPipelineResultCallback) -> None:
         self._on_pipeline_result = callback
 
+    def register_observer(
+        self, route_id: str, batch_size: int, categories: list[str]
+    ) -> None:
+        """Register a route as observer mode."""
+        self._observer_configs[route_id] = {
+            "batch_size": batch_size,
+            "categories": categories,
+        }
+        # Ensure context_window >= batch_size
+        current = self._context_buffer._get_window(route_id)
+        if current < batch_size:
+            self._context_buffer.set_window_size(route_id, batch_size)
+        logger.info(
+            "Observer registered: %s (batch=%d)",
+            route_id, batch_size,
+        )
+
     async def receive(self, message: Message, adapter: ChannelAdapter) -> None:
         """Process inbound message through mention filter + busy/idle gate."""
         route_id = f"{message.platform}:{message.conversation_id}"
+
+        # Observer mode: silent collect + batch trigger
+        obs_config = self._observer_configs.get(route_id)
+        if obs_config is not None:
+            self._context_buffer.append(
+                route_id,
+                ContextMessage(
+                    user_id=message.user_id,
+                    user_name=message.user_name or message.user_id,
+                    text=message.text,
+                    timestamp=message.timestamp,
+                    message_type=ContextMessageType.background,
+                ),
+            )
+            count = self._context_buffer.count(route_id)
+            batch_size = obs_config["batch_size"]
+            if count >= batch_size and self._on_observer_batch:
+                messages = self._context_buffer.drain(route_id)
+                formatted = self._context_buffer.format_context(messages)
+                categories = obs_config["categories"]
+                task = asyncio.create_task(
+                    self._on_observer_batch(
+                        route_id, formatted, categories
+                    )
+                )
+                self._background_tasks.add(task)
+                task.add_done_callback(self._background_tasks.discard)
+                logger.info(
+                    "Observer batch triggered: %s (%d msgs)",
+                    route_id, len(messages),
+                )
+            return
 
         mentioned = is_mention(message)
 

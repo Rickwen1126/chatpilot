@@ -40,6 +40,10 @@ class ContextBuffer:
         messages = self._buffers.pop(route_id, [])
         return messages
 
+    def count(self, route_id: str) -> int:
+        """Return number of messages in buffer."""
+        return len(self._buffers.get(route_id, []))
+
     def peek(self, route_id: str) -> list[ContextMessage]:
         """View buffer contents without clearing."""
         return list(self._buffers.get(route_id, []))
