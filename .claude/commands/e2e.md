@@ -92,6 +92,18 @@ Each item maps to a test scenario. All must pass before release.
 - [ ] receive_pipeline_result(direct) → immediate push (no busy gate)
 - [ ] Pipeline result queue + drain infrastructure exists (Phase 2: via_chatbot)
 
+**Browser Tools (Chrome CDP)**
+- [ ] browser_navigate → 開啟 URL，回傳頁面 title 確認
+- [ ] browser_navigate 空 URL → 回失敗訊息
+- [ ] browser_eval → 執行 JS 提取頁面資料（如搜尋結果標題）
+- [ ] browser_eval 壞 JS → 回 failure（不 crash）
+- [ ] browser_eval retry 不同 selector → agent 可自行探索頁面結構
+- [ ] browser_tabs → 列出分頁（* 標示目前）
+- [ ] browser_tabs focus → 切換到指定分頁
+- [ ] Chrome 自動啟動 → 沒有 running instance 時 start.js 自動起
+- [ ] Chrome port 動態讀取 → 從 registry.json 讀，不寫死
+- [ ] Google 搜尋不被擋 → 真實 Chrome profile，非 headless
+
 **Workspace**
 - [ ] Chatbot session → 自動建 data/workspace/{session_id}/ 目錄
 - [ ] Pipeline session → 自動建 data/workspace/pipeline-agent-xxx/ 目錄
