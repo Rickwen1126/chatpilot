@@ -44,6 +44,10 @@ Each item maps to a test scenario. All must pass before release.
 - [ ] Group "bot /chatbot list" → keyword + slash command works
 - [ ] Group @Bot /chatbot list → slash command works
 - [ ] Busy gate (group): second mention while processing → "處理中" reply
+- [ ] Auto-trigger: 群組訊息含 chatbot auto_trigger_keywords → 自動觸發（不需 @bot）
+- [ ] Auto-trigger 只對 binding 到該群組的 chatbot keywords 生效（不跨 bot）
+- [ ] Auto-trigger + 通用 trigger_keywords 並存（prefix vs anywhere）
+- [ ] 群組訊息不含任何 trigger → context buffer（靜默）
 - [ ] Busy gate (private): busy 中的訊息進 context buffer 不丟棄，idle 後 drain
 
 **Adapters**
