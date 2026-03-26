@@ -361,6 +361,7 @@ async def lifespan(app: FastAPI):
                     "all_route_ids": [
                         f"{p}:{cid}" for p in adapters
                     ],
+                    "allowed_consumers": cfg.observer_allowed_consumers,
                 }
     app.state.observer_sources = observer_sources
 

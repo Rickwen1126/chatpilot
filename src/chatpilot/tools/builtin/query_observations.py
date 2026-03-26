@@ -61,13 +61,22 @@ def create_query_observations_tool(
                 resultType="failure",
             )
 
-        # Permission check
+        # Permission check (match by conversation_id, ignore platform)
         allowed = src.get("allowed_consumers", [])
-        if allowed and caller_route not in allowed:
-            return ToolResult(
-                textResultForLlm="無權限查詢此來源的觀察資料",
-                resultType="failure",
-            )
+        if allowed:
+            caller_cid = caller_route.split(":", 1)[1] if ":" in caller_route else caller_route
+            allowed_cids = [
+                a.split(":", 1)[1] if ":" in a else a for a in allowed
+            ]
+            if caller_cid not in allowed_cids:
+                logger.info(
+                    "[query_obs] denied: caller=%s not in %s",
+                    caller_route, allowed,
+                )
+                return ToolResult(
+                    textResultForLlm="無權限查詢此來源的觀察資料",
+                    resultType="failure",
+                )
 
         # Query all route_ids for this source
         all_routes = src.get("all_route_ids", [src["route_id"]])
