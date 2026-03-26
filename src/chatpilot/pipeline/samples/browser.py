@@ -1,10 +1,12 @@
-"""Browser pipeline — web browsing via headless Chromium."""
+"""Browser pipeline — web browsing via iso-browser Chrome CDP."""
 
 from __future__ import annotations
 
+import asyncio
+import json
 import logging
-
-from playwright.async_api import async_playwright
+import os
+import urllib.parse
 
 from chatpilot.core.types import NodeOutput
 from chatpilot.pipeline.executor import PipelineDefinition
@@ -12,9 +14,15 @@ from chatpilot.pipeline.node import PipelineNode
 
 logger = logging.getLogger(__name__)
 
+ISO_BROWSER_DIR = os.environ.get(
+    "ISO_BROWSER_DIR",
+    os.path.expanduser("~/.claude/skills/iso-browser"),
+)
+REGISTRY_PATH = os.path.expanduser("~/.iso-browser-chrome/registry.json")
+
 
 class BrowserSearchNode:
-    """Searches Google and extracts results using headless browser."""
+    """Searches Google via real Chrome (iso-browser CDP)."""
 
     @property
     def name(self) -> str:
@@ -26,43 +34,100 @@ class BrowserSearchNode:
             return NodeOutput(status="error", data={}, error="No query provided")
 
         try:
-            results = await self._search(query)
-            return NodeOutput(status="success", data={"results": results, "query": query})
+            port = await self._get_port()
+
+            # Navigate to Google search
+            encoded = urllib.parse.quote(query)
+            url = f"https://www.google.com/search?q={encoded}&hl=zh-TW"
+            await self._run_script(port, "nav.js", url, "--new")
+
+            # Wait for page load
+            await asyncio.sleep(2)
+
+            # Extract results via eval
+            js = """(() => {
+                const results = [];
+                document.querySelectorAll('div.g').forEach((el, i) => {
+                    if (i >= 7) return;
+                    const titleEl = el.querySelector('h3');
+                    const snippetEl = el.querySelector('[data-sncf], .VwiC3b');
+                    const linkEl = el.querySelector('a');
+                    if (titleEl) {
+                        results.push({
+                            title: titleEl.innerText || '',
+                            snippet: snippetEl ? snippetEl.innerText : '',
+                            url: linkEl ? linkEl.href : ''
+                        });
+                    }
+                });
+                return JSON.stringify(results);
+            })()"""
+
+            output = await self._run_script(port, "eval.js", js)
+            results = json.loads(output.strip()) if output.strip() else []
+
+            return NodeOutput(
+                status="success",
+                data={"results": results, "query": query},
+            )
         except Exception as e:
             logger.exception("Browser search failed")
             return NodeOutput(status="error", data={}, error=str(e))
 
-    async def _search(self, query: str) -> list[dict]:
-        async with async_playwright() as p:
-            browser = await p.chromium.launch(headless=True)
+    async def _get_port(self) -> str:
+        """Get CDP port: read registry for existing, or start new Chrome."""
+        # Check registry for running instance
+        if os.path.exists(REGISTRY_PATH):
             try:
-                page = await browser.new_page(
-                    user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
-                )
-                await page.goto(
-                    f"https://www.google.com/search?q={query}&hl=zh-TW",
-                    wait_until="domcontentloaded",
-                    timeout=15000,
-                )
-                # Extract search results
-                results = []
-                items = await page.query_selector_all("div.g")
-                for item in items[:5]:
-                    title_el = await item.query_selector("h3")
-                    snippet_el = await item.query_selector("[data-sncf], .VwiC3b")
-                    link_el = await item.query_selector("a")
-                    title = await title_el.inner_text() if title_el else ""
-                    snippet = await snippet_el.inner_text() if snippet_el else ""
-                    href = await link_el.get_attribute("href") if link_el else ""
-                    if title:
-                        results.append({"title": title, "snippet": snippet, "url": href})
-                return results
-            finally:
-                await browser.close()
+                with open(REGISTRY_PATH) as f:
+                    registry = json.load(f)
+                ports = registry.get("ports", {})
+                for port, info in ports.items():
+                    pid = info.get("pid")
+                    if pid and self._is_pid_alive(pid):
+                        logger.info("Found running Chrome on port %s", port)
+                        return str(port)
+            except Exception:
+                pass
+
+        # No running instance — start one (auto-assign port)
+        start_script = os.path.join(ISO_BROWSER_DIR, "scripts", "start.js")
+        proc = await asyncio.create_subprocess_exec(
+            "node", start_script,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, _ = await proc.communicate()
+        port = stdout.decode().strip().split("\n")[0]
+        logger.info("Started Chrome on port %s", port)
+        return port
+
+    @staticmethod
+    def _is_pid_alive(pid: int) -> bool:
+        try:
+            os.kill(pid, 0)
+            return True
+        except (OSError, TypeError):
+            return False
+
+    async def _run_script(self, port: str, script: str, *args: str) -> str:
+        """Run an iso-browser script and return stdout."""
+        script_path = os.path.join(ISO_BROWSER_DIR, "scripts", script)
+        cmd = ["node", script_path, "--port", port, *args]
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await proc.communicate()
+        if proc.returncode != 0:
+            err = stderr.decode().strip()
+            logger.warning("Script %s failed: %s", script, err)
+        return stdout.decode()
 
 
 class BrowserPipeline(PipelineDefinition):
-    """Browser search pipeline for agent team async tasks."""
+    """Browser search pipeline via real Chrome."""
 
     name = "browser-search"
 
