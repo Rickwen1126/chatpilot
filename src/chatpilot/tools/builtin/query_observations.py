@@ -69,11 +69,15 @@ def create_query_observations_tool(
                 resultType="failure",
             )
 
-        source_route = src["route_id"]
+        # Query all route_ids for this source
+        all_routes = src.get("all_route_ids", [src["route_id"]])
         try:
-            observations = await memory_store.query_observations(
-                source_route, days=days, category=category
-            )
+            observations = []
+            for sr in all_routes:
+                obs = await memory_store.query_observations(
+                    sr, days=days, category=category
+                )
+                observations.extend(obs)
         except Exception as e:
             return ToolResult(
                 textResultForLlm=f"查詢失敗: {e}",

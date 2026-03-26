@@ -334,14 +334,15 @@ async def lifespan(app: FastAPI):
         if cfg and cfg.observer_mode:
             gid = binding.match.get("group_id", "")
             if gid:
-                route_id = f"line:{gid}"
-                hub.register_observer(
-                    route_id,
-                    batch_size=cfg.observer_batch_size,
-                    categories=cfg.observer_categories,
-                )
+                # Register for all adapters
+                for platform in adapters:
+                    rid = f"{platform}:{gid}"
+                    hub.register_observer(
+                        rid,
+                        batch_size=cfg.observer_batch_size,
+                        categories=cfg.observer_categories,
+                    )
                 # Build observer_sources for query tool
-                # Label from route_labels.json if available
                 import json as _json
                 from pathlib import Path as _Path
 
@@ -349,8 +350,16 @@ async def lifespan(app: FastAPI):
                 lp = _Path("data/route_labels.json")
                 if lp.exists():
                     labels = _json.loads(lp.read_text("utf-8"))
-                label = labels.get(route_id, chatbot_name)
-                observer_sources[label] = {"route_id": route_id}
+                # Use line route_id as canonical
+                canonical = f"line:{gid}"
+                label = labels.get(canonical, chatbot_name)
+                # Allow query from any platform
+                observer_sources[label] = {
+                    "route_id": canonical,
+                    "all_route_ids": [
+                        f"{p}:{gid}" for p in adapters
+                    ],
+                }
     app.state.observer_sources = observer_sources
 
     async def on_observer_batch(
@@ -367,15 +376,25 @@ async def lifespan(app: FastAPI):
             "如果是閒聊不需要記錄就跳過。只回傳 JSON，不要其他文字。\n\n"
             f"{formatted}"
         )
+        logger.info(
+            "[observer] %s processing batch, categories=%s",
+            route_id, categories,
+        )
         try:
+            sid = f"observer-{uuid.uuid4().hex[:8]}"
             sdk_session = await sdk_client.create_session(
-                f"observer-{uuid.uuid4().hex[:8]}",
+                sid,
                 model="gpt-4.1",
                 system_message="你是資訊整理助手。只回傳 JSON array。",
             )
             try:
+                logger.info("[observer] %s LLM session=%s", route_id, sid)
                 result = await sdk_session.send_and_wait(
                     prompt, timeout=60.0
+                )
+                logger.info(
+                    "[observer] %s LLM result: %d chars",
+                    route_id, len(result),
                 )
                 import json as _json
 
@@ -384,13 +403,16 @@ async def lifespan(app: FastAPI):
                 try:
                     entries = _json.loads(result)
                 except (_json.JSONDecodeError, TypeError):
-                    # Try to extract JSON from response
                     import re
 
                     match = re.search(r"\[.*\]", result, re.DOTALL)
                     if match:
                         entries = _json.loads(match.group())
 
+                logger.info(
+                    "[observer] %s parsed %d entries from LLM",
+                    route_id, len(entries),
+                )
                 if entries:
                     await memory_store.save(route_id, "observation", {
                         "message_count": len(formatted.split("\n")),
@@ -398,13 +420,18 @@ async def lifespan(app: FastAPI):
                         "summary": f"{len(entries)} 筆紀錄",
                     })
                     logger.info(
-                        "Observer saved %d entries for %s",
-                        len(entries), route_id,
+                        "[observer] %s saved to DB: %d entries",
+                        route_id, len(entries),
+                    )
+                else:
+                    logger.info(
+                        "[observer] %s no entries to save (all chat?)",
+                        route_id,
                     )
             finally:
                 await sdk_session.destroy()
         except Exception:
-            logger.exception("Observer batch failed for %s", route_id)
+            logger.exception("[observer] batch failed for %s", route_id)
 
     hub._on_observer_batch = on_observer_batch
 

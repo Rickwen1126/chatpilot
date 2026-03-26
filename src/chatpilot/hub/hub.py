@@ -116,10 +116,22 @@ class InMemoryMessageHub:
             )
             count = self._context_buffer.count(route_id)
             batch_size = obs_config["batch_size"]
+            logger.info(
+                "[observer] %s buffered (%d/%d) from=%s: %s",
+                route_id, count, batch_size,
+                message.user_name or message.user_id,
+                message.text[:50],
+            )
             if count >= batch_size and self._on_observer_batch:
                 messages = self._context_buffer.drain(route_id)
                 formatted = self._context_buffer.format_context(messages)
                 categories = obs_config["categories"]
+                logger.info(
+                    "[observer] %s batch triggered! draining %d msgs, "
+                    "buffer now=%d",
+                    route_id, len(messages),
+                    self._context_buffer.count(route_id),
+                )
                 task = asyncio.create_task(
                     self._on_observer_batch(
                         route_id, formatted, categories
@@ -127,10 +139,6 @@ class InMemoryMessageHub:
                 )
                 self._background_tasks.add(task)
                 task.add_done_callback(self._background_tasks.discard)
-                logger.info(
-                    "Observer batch triggered: %s (%d msgs)",
-                    route_id, len(messages),
-                )
             return
 
         mentioned = is_mention(message)
