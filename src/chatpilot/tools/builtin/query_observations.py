@@ -71,12 +71,17 @@ def create_query_observations_tool(
 
         # Query all route_ids for this source
         all_routes = src.get("all_route_ids", [src["route_id"]])
+        logger.info(
+            "[query_obs] source=%s caller=%s routes=%s cat=%s days=%s",
+            source_name, caller_route, all_routes, category, days,
+        )
         try:
             observations = []
             for sr in all_routes:
                 obs = await memory_store.query_observations(
                     sr, days=days, category=category
                 )
+                logger.info("[query_obs] %s → %d batches", sr, len(obs))
                 observations.extend(obs)
         except Exception as e:
             return ToolResult(

@@ -359,7 +359,7 @@ async def lifespan(app: FastAPI):
                 observer_sources[label] = {
                     "route_id": canonical,
                     "all_route_ids": [
-                        f"{p}:{gid}" for p in adapters
+                        f"{p}:{cid}" for p in adapters
                     ],
                 }
     app.state.observer_sources = observer_sources
