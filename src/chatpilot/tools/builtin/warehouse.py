@@ -356,6 +356,7 @@ def _format_search_results(items: list, query: str) -> str:
             units_seen.add(unit_id)
 
     lines.append(f"\n共 {total_qty} 件")
+    lines.append(f"\n👉 {_make_deep_link(query)}")
 
     # List available floor plan images for mentioned units
     img_units = [u for u in units_seen if get_unit_image_url(u)]
@@ -396,12 +397,13 @@ ACTION_DISPATCH = {
 }
 
 
-def create_warehouse_tool() -> ToolDefinition:
+def create_warehouse_tool(response_injector=None) -> ToolDefinition:
     """Create unified warehouse management tool."""
 
     async def handler(invocation: ToolInvocation) -> ToolResult:
         args = invocation.get("arguments") or {}
         action = args.get("action", "search")
+        session_id = invocation.get("session_id", "")
 
         fn = ACTION_DISPATCH.get(action)
         if fn is None:
@@ -420,6 +422,18 @@ def create_warehouse_tool() -> ToolDefinition:
                 result = await fn(args)
             else:
                 result = await fn()
+
+            # Inject deep link for search actions
+            if action == "search" and response_injector and session_id:
+                import re as _re
+
+                link_match = _re.search(
+                    r"(https://warehouse\.\S+)", result
+                )
+                if link_match:
+                    response_injector.add(
+                        session_id, "link", link_match.group(1)
+                    )
 
             return ToolResult(textResultForLlm=result, resultType="success")
         except Exception as e:
