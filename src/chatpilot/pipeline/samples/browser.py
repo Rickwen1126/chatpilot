@@ -47,18 +47,20 @@ class BrowserSearchNode:
             # Extract results via eval
             js = """(() => {
                 const results = [];
-                document.querySelectorAll('div.g').forEach((el, i) => {
+                document.querySelectorAll('a:has(h3)').forEach((a, i) => {
                     if (i >= 7) return;
-                    const titleEl = el.querySelector('h3');
-                    const snippetEl = el.querySelector('[data-sncf], .VwiC3b');
-                    const linkEl = el.querySelector('a');
-                    if (titleEl) {
-                        results.push({
-                            title: titleEl.innerText || '',
-                            snippet: snippetEl ? snippetEl.innerText : '',
-                            url: linkEl ? linkEl.href : ''
-                        });
+                    const h3 = a.querySelector('h3');
+                    const parent = a.closest('[data-hveid]');
+                    let snippet = '';
+                    if (parent) {
+                        const spans = parent.querySelectorAll('span:not(:has(*))');
+                        for (const s of spans) {
+                            if (s.innerText.length > 30) {
+                                snippet = s.innerText.substring(0, 200); break;
+                            }
+                        }
                     }
+                    results.push({ title: h3.innerText, url: a.href, snippet: snippet });
                 });
                 return JSON.stringify(results);
             })()"""
