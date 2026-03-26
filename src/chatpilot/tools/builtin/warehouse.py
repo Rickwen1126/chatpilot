@@ -522,7 +522,7 @@ def create_warehouse_tool(response_injector=None) -> ToolDefinition:
                 },
                 "include_locked": {
                     "type": "boolean",
-                    "description": "搜尋含鎖倉區域",
+                    "description": "搜尋含鎖倉區域（預設 false，盤點比對時才設 true）",
                 },
                 "primary_name": {
                     "type": "string", "description": "別名主名稱",
