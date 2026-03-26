@@ -115,9 +115,11 @@ Each item maps to a test scenario. All must pass before release.
 - [ ] Config workdir 覆蓋 → chatbot 設定 workdir 後用指定路徑
 
 **Warehouse Tool (unified)**
-- [ ] action=search → 搜尋物料名稱/品牌/色號，回傳位置+數量+zone 圖
+- [ ] action=search → 搜尋物料名稱/品牌/色號，回傳位置+數量（不自動附圖）
+- [ ] action=search 結果包含 [位置圖可用: unit: URL] 供 chatbot 判斷
 - [ ] action=get_items 無 layer → GET /units/{uid}/items 全層
 - [ ] action=get_items 有 layer → GET /units/{uid}/layers/{layer}/items
+- [ ] action=get_items 結果包含 [位置圖 URL] 供 chatbot 判斷
 - [ ] action=get_inventory → 回傳庫存快照摘要
 - [ ] action=search_materials → 搜尋物料目錄
 - [ ] action=lock → 鎖定單一區域（需 unit_id 驗證）
@@ -134,6 +136,14 @@ Each item maps to a test scenario. All must pass before release.
 - [ ] action=upload_image → 上傳照片到倉庫 API
 - [ ] 缺少必要參數時回傳清楚錯誤訊息（不送空 ID 給 API）
 - [ ] JSON Schema array type 有 items 定義（否則 Copilot API 400 reject）
+
+**Show Image Tool**
+- [ ] show_image(url=...) → 直接注入已有圖片 URL（位置圖）→ 使用者收到圖片
+- [ ] show_image(ref=line:xxx) → download → R2 upload → 注入 → 使用者收到圖片
+- [ ] show_image 空參數 → 回失敗訊息
+- [ ] 使用者問「K1 在哪裡」→ chatbot 呼叫 warehouse get_items → 看到位置圖 URL → show_image(url) 回傳
+- [ ] 純查數量時不附圖（chatbot 判斷，不自動注入）
+- [ ] per-unit 位置圖 41 張（data/unit_images.json → R2 URL mapping）
 
 **Admin API**
 - [ ] GET /cli/routes → 列出所有已知 route + label + chatbot binding
