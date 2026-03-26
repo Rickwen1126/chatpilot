@@ -18,34 +18,34 @@ logger = logging.getLogger(__name__)
 
 WAREHOUSE_API = os.environ.get("WAREHOUSE_API_URL", "http://localhost:8000/api/v1")
 WAREHOUSE_WEB = os.environ.get("WAREHOUSE_WEB_URL", "https://warehouse.shinyipaint.com.tw")
-R2_ZONE_BASE = "https://pub-fcc500f8fb48414aba2084e196f653eb.r2.dev/zone"
 
-ZONE_IMAGES = {
-    "zone_AB": f"{R2_ZONE_BASE}/floor_plan_zone_AB.png",
-    "zone_CD": f"{R2_ZONE_BASE}/floor_plan_zone_CD.png",
-    "zone_H": f"{R2_ZONE_BASE}/floor_plan_zone_H.png",
-    "zone_E": f"{R2_ZONE_BASE}/floor_plan_zone_E.png",
-    "zone_J": f"{R2_ZONE_BASE}/floor_plan_zone_J.png",
-    "zone_flat": f"{R2_ZONE_BASE}/floor_plan_zone_flat.png",
-    "zone_1F": f"{R2_ZONE_BASE}/floor_plan_zone_1F.png",
-    "overview": f"{R2_ZONE_BASE}/floor_plan_overview.png",
-}
+# Per-unit floor plan images (loaded from data/unit_images.json)
+_UNIT_IMAGES: dict[str, str] = {}
 
-UNIT_TO_ZONE = {
-    "A1": "zone_AB", "A2": "zone_AB", "A3": "zone_AB", "A4": "zone_AB",
-    "B1": "zone_AB", "B2": "zone_AB", "B3": "zone_AB", "B4": "zone_AB",
-    "C1": "zone_CD", "C2": "zone_CD", "C3": "zone_CD", "C4": "zone_CD",
-    "D1": "zone_CD", "D2": "zone_CD", "D3": "zone_CD", "D4": "zone_CD",
-    "H1": "zone_H", "H2": "zone_H", "H3": "zone_H", "H4": "zone_H",
-    "H5": "zone_H",
-    "E1": "zone_E", "E2": "zone_E", "E3": "zone_E", "E4": "zone_E",
-    "E5": "zone_E", "E6": "zone_E", "E7": "zone_E",
-    "J1": "zone_J", "J2": "zone_J", "J3": "zone_J",
-    "I": "zone_flat", "G": "zone_flat", "F1": "zone_flat",
-    "F2": "zone_flat", "K1": "zone_flat", "K2": "zone_flat",
-    "K3": "zone_flat", "L": "zone_flat",
-    "M": "zone_1F", "N": "zone_1F",
-}
+
+def _load_unit_images() -> dict[str, str]:
+    """Load unit → R2 URL mapping from JSON file."""
+    global _UNIT_IMAGES
+    if _UNIT_IMAGES:
+        return _UNIT_IMAGES
+    img_path = os.path.join(
+        os.path.dirname(__file__), "..", "..", "..", "..", "data", "unit_images.json"
+    )
+    # Also try relative to cwd
+    for path in [img_path, "data/unit_images.json"]:
+        try:
+            with open(path) as f:
+                _UNIT_IMAGES = json.load(f)
+                return _UNIT_IMAGES
+        except FileNotFoundError:
+            continue
+    return _UNIT_IMAGES
+
+
+def get_unit_image_url(unit_id: str) -> str | None:
+    """Get R2 image URL for a unit."""
+    images = _load_unit_images()
+    return images.get(unit_id)
 
 
 # ── HTTP helpers ─────────────────────────────────────────────────
@@ -168,6 +168,12 @@ async def _action_get_items(args: dict) -> str:
         qty = item.get("quantity", "?")
         iid = item.get("id", "?")
         lines.append(f"  {lk}: {name} — {qty}（ID:{iid}）")
+
+    # Mention floor plan image availability
+    img_url = get_unit_image_url(uid)
+    if img_url:
+        lines.append(f"\n[位置圖 URL: {img_url}]")
+
     return "\n".join(lines)
 
 
@@ -335,6 +341,7 @@ def _format_search_results(items: list, query: str) -> str:
 
     lines = []
     total_qty = 0
+    units_seen: set[str] = set()
 
     for name, group_items in groups.items():
         lines.append(f"\n{name}：")
@@ -346,8 +353,18 @@ def _format_search_results(items: list, query: str) -> str:
             lines.append(f"  📍 {loc} — {qty}")
             if isinstance(qty, (int, float)):
                 total_qty += qty
+            units_seen.add(unit_id)
 
     lines.append(f"\n共 {total_qty} 件")
+
+    # List available floor plan images for mentioned units
+    img_units = [u for u in units_seen if get_unit_image_url(u)]
+    if img_units:
+        urls = ", ".join(
+            f"{u}: {get_unit_image_url(u)}" for u in sorted(img_units)
+        )
+        lines.append(f"\n[位置圖可用: {urls}]")
+
     return "\n".join(lines)
 
 
