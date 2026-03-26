@@ -113,12 +113,14 @@ def create_query_observations_tool(
             resultType="success",
         )
 
+    available = "、".join(f"「{s}」" for s in sources) if sources else "無"
+
     return ToolDefinition(
         name="query_observations",
         description=(
             "查詢觀察者收集的群組資訊。"
             "可查詢請假、進料、出料、工程進度等分類。"
-            "source: 來源名稱（如「信益大群組」）。"
+            f"可用來源：{available}。"
             "category: 分類過濾（選填）。"
             "days: 往回看幾天（預設 7）。"
         ),

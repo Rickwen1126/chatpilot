@@ -333,10 +333,12 @@ async def lifespan(app: FastAPI):
         cfg = config.chatbots.get(chatbot_name)
         if cfg and cfg.observer_mode:
             gid = binding.match.get("group_id", "")
-            if gid:
+            uid = binding.match.get("user_id", "")
+            cid = gid or uid
+            if cid:
                 # Register for all adapters
                 for platform in adapters:
-                    rid = f"{platform}:{gid}"
+                    rid = f"{platform}:{cid}"
                     hub.register_observer(
                         rid,
                         batch_size=cfg.observer_batch_size,
@@ -351,7 +353,7 @@ async def lifespan(app: FastAPI):
                 if lp.exists():
                     labels = _json.loads(lp.read_text("utf-8"))
                 # Use line route_id as canonical
-                canonical = f"line:{gid}"
+                canonical = f"line:{cid}"
                 label = labels.get(canonical, chatbot_name)
                 # Allow query from any platform
                 observer_sources[label] = {
@@ -367,13 +369,26 @@ async def lifespan(app: FastAPI):
     ) -> None:
         """Process observer batch: LLM summarize → store observation."""
         import uuid
+        from datetime import datetime, timezone
 
+        now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M")
         cat_hint = ", ".join(categories) if categories else "自動分類"
         prompt = (
+            f"現在時間：{now} UTC\n"
             f"整理以下群組對話，按分類（{cat_hint}）提取重點。\n"
-            "回傳 JSON array，每筆格式："
-            '{"category":"分類","who":"誰","content":"摘要","timestamp":"時間"}\n'
-            "如果是閒聊不需要記錄就跳過。只回傳 JSON，不要其他文字。\n\n"
+            "回傳 JSON array，每筆格式：\n"
+            '{"category":"分類","who":"誰","content":"摘要",'
+            '"date":"推算的實際日期 YYYY-MM-DD",'
+            '"timestamp":"訊息時間"}\n\n'
+            "重要：\n"
+            "- 請假類：必須推算實際請假日期。"
+            "「明天請假」→ date 填明天日期。"
+            "「下週三請假」→ date 填下週三日期。"
+            "不確定就標 [?]。\n"
+            "- 出料/入庫類：推算實際日期，"
+            "「明天出」→ date 填明天。\n"
+            "- 閒聊不需要記錄就跳過。\n"
+            "- 只回傳 JSON，不要其他文字。\n\n"
             f"{formatted}"
         )
         logger.info(
