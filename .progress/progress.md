@@ -1,70 +1,72 @@
+## 2026-03-26 11:25 — Browser tools + 位置圖 + Auto-trigger + 搜尋修正
+
+**Goal**: 瀏覽器能力、位置圖整合、群組自動觸發、warehouse 搜尋行為修正
+
+**Done**:
+- shinyipaint auto_trigger 加「阿信」alias
+- 倉庫容量欄位建議文件 `docs/plans/warehouse-capacity-field.md`（待後端處理）
+- Observer + cross-chat 架構設計討論完成
+- browser_navigate / browser_eval / browser_tabs tools — 真實 Chrome CDP 操作
+- browser-search pipeline 改用 iso-browser Chrome（非 Playwright headless）
+- Google search selector 更新（div.g → a:has(h3)），Chrome 動態 port
+- show_image 支援 url + ref 雙模式
+- 41 張 per-unit 位置圖上傳 R2（data/unit_images.json mapping）
+- warehouse search/get_items 結果帶位置圖 URL，chatbot 問位置時用 show_image 回傳
+- ResponseInjector 恢復 deep link 注入（搜尋結果不帶文字 URL，由 injector 附加）
+- 搜尋預設排除鎖倉區域 + 附帶鎖倉提示
+- include_locked description 明確說預設 false
+- per-chatbot auto_trigger_keywords（群組訊息任意位置 match → 觸發 bound chatbot）
+- buddy + shinyipaint 加 browser tools
+- shinyipaint auto_trigger: 龍泰/303/立邦/得利/虹牌/查詢/庫存/倉庫/入庫/出庫/幾桶/幾罐/有沒有/在哪/報價/盤點/水泥漆/乳膠漆/油漆
+- general-agent pipeline timeout 120s → 300s
+- 高小子排程改 general-agent + prompt 簡化
+- 清除所有測試排程
+- 21/21 E2E 全過
+- Commits: `9b36589` ~ `f8c2966`
+
+**Decisions**:
+- Browser tools 給 agent 自行探索能力（navigate + eval + tabs），壞了能 retry 不同 selector
+- iso-browser Chrome 動態 port（從 registry.json 讀，不寫死）
+- auto_trigger 只對 binding 到該群組的 chatbot keywords 生效
+- 搜尋不自動附圖，只有問位置才 show_image
+- Observer 是 chatbot 的 mode 設定（不是新元件），任何 chatbot 都能開啟
+- Observer + keyword auto_trigger 並存：keyword = 快速 filter，Observer = 智慧補漏
+- 容量應是獨立欄位（capacity + capacity_ml），不塞 description
+
+**State**: Branch `main`, commit `f8c2966`. Server running port 2999.
+
+**Next**:
+- [ ] Observer mode — chatbot config 加 mode: observer（靜默收集 + batch 整理 + 結構化存 DB）
+- [ ] Cross-chat query — query_observations tool（跨群組查觀察資料，config 控權限）
+- [ ] 主動推播：每日庫存摘要 / 低庫存警告 / 餘料閒置
+- [ ] 出貨追蹤：後端出貨單 API → 新料 vs 舊料比對
+- [ ] 後端 capacity 欄位（等後端改）→ chatpilot warehouse tool 接上
+- [ ] 盤點 E2E 訓練（等 empty DB）
+- [ ] 部署分離：staging / production
+
+**User Notes**:
+- Observer 完整 user story：信益大群組（幾十人）→ bot 進去只觀察不發言 → 每 N 則整理一次存 DB（分類：請假/進料/出料/工程進度）→ 管理群組或 Rick 私訊可用 query_observations 查「員工請假狀況」「進出料狀況」
+- Observer 是 chatbot 的 mode 設定，不是新元件。以後任何 chatbot 都可以邊回話邊觀察（但目前沒想到具體需求，先做 silent observer）
+- Cross-chat 權限：config 設定 source_group + allowed_consumers
+- 「阿信」是 shinyipaint 的 alias，加在 auto_trigger_keywords
+- 容量欄位建議文件在 `docs/plans/warehouse-capacity-field.md`，待後端處理
+- Cloudflare tunnel 需要手動確認存活，多次斷線未察覺
+
+---
+
 ## 2026-03-26 00:18 — 倉庫價值最大化方向 + 部署分離規劃
 
 **Goal**: 從盤點轉向倉庫系統整體價值提升，規劃主動推播 + 部署架構
 
 **Done**:
-- show_image tool（download ref → R2 → ResponseInjector → 使用者看到圖片）
-- shinyipaint system prompt 加完整盤點 SOP workflow
-- batch_image_analyze description 加「提交後不要重複 download」
-- general-agent pipeline 加 web_search tool（排程任務可搜尋）
-- _format_result 格式化 pipeline 結果為人話（不再 push raw dict）
-- warehouse API URL 改 env var 可配置（WAREHOUSE_API_URL / WAREHOUSE_WEB_URL）
-- shinyipaint model 升 gpt-5.2（信益商業用，用最好的）
-- E2E checklist 全面更新（warehouse 17 actions + admin API + 盤點 E2E）
-- Commits: `90cbbf6` ~ `9b36589`
+- show_image tool, shinyipaint SOP prompt, batch_image_analyze description
+- general-agent + web_search, _format_result 人話格式化
+- warehouse API URL env var, shinyipaint model gpt-5.2
+- E2E checklist 全面更新
 
-**Decisions**:
-- 盤點先 hold，優先做倉庫系統最大價值功能
-- 信益相關 chatbot 用 gpt-5.2（最強），其他維持 gpt-4.1/gpt-5-mini
-- 不確定的照片用 show_image 回傳給使用者確認（不用檔名 reference）
-- 部署要分 staging / production（見 User Notes）
-
-**State**: Branch `main`, commit `9b36589`. Server running port 2999.
-
-**Next**:
-- [ ] 主動推播：每日庫存摘要 → CronScheduler + general-agent + warehouse tool
-- [ ] 出貨追蹤：後端出貨單 API → 比對新料 vs 舊料 → 推播提醒
-- [ ] 餘料閒置警告：追蹤入庫時間 → 超過 N 天沒動 → 推播
-- [ ] 常用料低庫存 threshold → 低於時推播
-- [ ] 部署分離：Windows WSL2 production 環境建置
-- [ ] 盤點 E2E 訓練（等 empty DB，hold）
+**State**: Superseded by 2026-03-26 11:25 entry.
 
 **User Notes**:
-- 業主老闆今天親自進倉庫看常用料庫存叫料 → 如果系統主動推播餘料狀況，可省掉這步
-- 餘料回倉庫後被涼在一邊沒用（拿新料不用找、一定能用）→ 追蹤出貨單，發現一直拿新料不拿舊料就提醒
-- 部署分離想法：
-  - Staging: 個人 LINE bot → cloudflare tunnel → Mac（現在這樣）
-  - Production: 另辦信益官方 LINE bot → cloudflare tunnel → Windows WSL2（幾乎不關機）
-  - 穩定後才上雲端
-  - LINE 一個帳號可建多個 Messaging API channel（每個 channel = 一個 bot）
-  - chatpilot 支援多環境 — .env 換 LINE channel token 就好
-- 信益商業用要給最好的 model → shinyipaint 用 gpt-5.2，不省成本
-
----
-
-## 2026-03-25 09:41 — Warehouse tool + LINE bindings + SDK model 調查 + 盤點訓練準備
-
-**Goal**: 統一 warehouse tool、設定 LINE 群組 chatbot binding、調查 SDK model 限制、準備 shinyipaint 盤點能力訓練
-
-**Done**:
-- Unified `warehouse` tool 取代 `warehouse_query`（15 actions）
-- BatchImageVisionPipeline + batch_image_analyze tool
-- SDK session event logger
-- Hub 媒體處理 + 私訊 busy buffer
-- LINE route binding 設定 + admin API
-- rick-assistant / family-helper chatbot
-- SDK 0.2.0 升級
-- E2E CLI_TIMEOUT 60s
-
-**Decisions**:
-- warehouse tool action dispatch 一個 tool 包全部 API
-- Claude models 在 SDK 不支援 binaryResultsForLlm
-- gpt-5.4-mini 不在 SDK model list
-- 盤點用互動對話模式
-
-**State**: Superseded by 2026-03-26 entry.
-
-**User Notes**:
-- SDK binary支援表/model限制 → 見 CLAUDE.md
-- JSON Schema array 必須有 items 定義
-- 訓練計畫：用 empty DB + E2E 模擬盤點
+- 業主老闆親自進倉庫看料 → 主動推播能省掉這步
+- 餘料追蹤：出貨單比對新料 vs 舊料
+- 部署分離：staging Mac / production Windows WSL2
