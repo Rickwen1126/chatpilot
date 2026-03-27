@@ -261,6 +261,14 @@ class InMemoryMessageHub:
     async def send_reply(
         self, message: Message, response: Response, adapter: ChannelAdapter
     ) -> None:
+        # CRITICAL: never reply to observer routes
+        route_id = f"{message.platform}:{message.conversation_id}"
+        if route_id in self._observer_configs:
+            logger.warning(
+                "[observer] BLOCKED send_reply to observer route %s",
+                route_id,
+            )
+            return
         await adapter.send_reply(message, response)
 
     async def push(self, route_id: str, response: Response) -> None:

@@ -132,7 +132,6 @@ class ChatbotConfig(BaseModel):
     observer_batch_size: int = 10
     observer_categories: list[str] = Field(default_factory=list)
     observer_allowed_consumers: list[str] = Field(default_factory=list)
-    inject_timestamp: bool = False
 
 
 class AgentConfig(BaseModel):

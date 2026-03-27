@@ -386,7 +386,7 @@ def _format_search_results(items: list, query: str) -> str:
                 qty_str += f" ({spec})"
             lines.append(f"  📍 {loc} — {qty_str}")
             if isinstance(qty, (int, float)):
-                key = f"{uom} {spec}".strip() if (uom or spec) else "件"
+                key = f"{uom}({spec})" if (uom and spec) else (uom or spec or "件")
                 spec_totals[key] = spec_totals.get(key, 0) + qty
             units_seen.add(unit_id)
 

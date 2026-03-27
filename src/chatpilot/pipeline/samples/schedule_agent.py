@@ -70,19 +70,32 @@ class ScheduleAgentNode:
             "如果需要暫存或輸出檔案，請放在這個目錄下。"
         )
 
-        # Use chatbot's tools from input_data (injected by CronScheduler)
+        # Use chatbot's tools from input_data (injected by CronScheduler).
+        # Filter out AGENT_TEAM_TRIGGER / CHATBOT_ONLY tools — pipeline
+        # cannot use those (recursion guard). They are silently skipped.
         tools = None
         if self._tool_factory:
             chatbot_tools = input.get("chatbot_tools", [])
             chatbot_name = input.get("chatbot_name", "")
             try:
                 if chatbot_tools:
+                    # Filter to pipeline-safe tools only (GLOBAL + AGENT_TEAM_ONLY)
+                    from chatpilot.core.types import AccessLevel
+
+                    safe_tools = []
+                    for t in chatbot_tools:
+                        reg = self._tool_factory._registry
+                        defn = reg.get(t) if reg.has(t) else None
+                        if defn and defn.access_level in (
+                            AccessLevel.GLOBAL, AccessLevel.AGENT_TEAM_ONLY
+                        ):
+                            safe_tools.append(t)
                     tools = self._tool_factory.get_tools_for_pipeline(
-                        chatbot_tools
-                    )
+                        safe_tools
+                    ) if safe_tools else None
                     logger.info(
-                        "[schedule-agent] chatbot=%s tools=%s",
-                        chatbot_name, chatbot_tools,
+                        "[schedule-agent] chatbot=%s tools=%s (from %s)",
+                        chatbot_name, safe_tools, chatbot_tools,
                     )
                 else:
                     # Fallback: no chatbot tools → web_search only

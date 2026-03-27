@@ -152,6 +152,15 @@ async def test_observer_busy_no_reply():
 # ── Defense-in-depth: push() and receive_pipeline_result() ───────
 
 
+async def test_send_reply_blocked_for_observer():
+    """hub.send_reply() to observer route → blocked."""
+    hub, adapter, _ = _make_hub()
+    msg = _msg("test", is_mention=True)
+    await hub.send_reply(msg, Response(text="should not send"), adapter)
+
+    adapter.send_reply.assert_not_called()
+
+
 async def test_push_blocked_for_observer():
     """hub.push() to observer route → blocked, not delivered."""
     hub, adapter, _ = _make_hub()
