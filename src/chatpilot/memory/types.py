@@ -65,6 +65,7 @@ class Schedule(BaseModel):
     route_id: str = ""
     cron_expr: str = ""
     tool_name: str = ""
+    chatbot_name: str = ""
     input_data: dict = Field(default_factory=dict)
     status: MemoryStatus = MemoryStatus.pending
     last_run_at: datetime | None = None

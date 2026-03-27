@@ -41,6 +41,8 @@ def create_schedule_task_cron_tool(
         args = invocation.get("arguments") or {}
         session_id = invocation.get("session_id", "")
         route_id = session_id.split("__")[0].replace("-", ":", 1)
+        # Auto-detect chatbot name from session: "route__chatbot_name"
+        chatbot_name = session_id.split("__")[1] if "__" in session_id else ""
 
         cron_expr = args.get("cron_expr", "").strip()
         tool_name = args.get("tool_name", "").strip()
@@ -80,6 +82,7 @@ def create_schedule_task_cron_tool(
                 {
                     "cron_expr": cron_expr,
                     "tool_name": tool_name,
+                    "chatbot_name": chatbot_name,
                     "input_data": {"description": description} if description else {},
                     "next_run_at": next_run_at.isoformat(),
                 },

@@ -23,12 +23,14 @@ class CronScheduler:
         task_scheduler=None,
         tick_interval: int = 60,
         available_tools: list[str] | None = None,
+        chatbot_configs: dict | None = None,
     ) -> None:
         self._memory_store = memory_store
         self._hub = hub
         self._task_scheduler = task_scheduler
         self._tick_interval = tick_interval
         self._available_tools = available_tools or []
+        self._chatbot_configs = chatbot_configs or {}
         self._running = False
         self._task: asyncio.Task | None = None
 
@@ -133,6 +135,7 @@ class CronScheduler:
         route_id = schedule["route_id"]
         tool_name = schedule.get("tool_name", "")
         cron_expr = schedule.get("cron_expr", "")
+        chatbot_name = schedule.get("chatbot_name", "")
 
         # Mark running
         await self._memory_store.update(
@@ -148,12 +151,21 @@ class CronScheduler:
 
             from chatpilot.core.types import TaskInfo
 
+            # Resolve chatbot_name → tool list at trigger time
+            input_data = dict(schedule.get("input_data", {}))
+            if chatbot_name:
+                cfg = self._chatbot_configs.get(chatbot_name)
+                if cfg:
+                    tools = cfg.tools if hasattr(cfg, "tools") else []
+                    input_data["chatbot_tools"] = tools
+                    input_data["chatbot_name"] = chatbot_name
+
             task = TaskInfo(
                 id=str(uuid.uuid4()),
                 created_at=TimeService.get().utc_now(),
                 pipeline_name=tool_name,
                 input_summary=f"Cron: {cron_expr}",
-                input_data=schedule.get("input_data", {}),
+                input_data=input_data,
                 chat_route_id=route_id,
             )
             await self._task_scheduler.enqueue(task)

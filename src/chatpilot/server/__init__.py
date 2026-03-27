@@ -485,6 +485,7 @@ async def lifespan(app: FastAPI):
         task_scheduler=scheduler,
         tick_interval=config.cron_scheduler.tick_interval,
         available_tools=config.cron_scheduler.available_tools,
+        chatbot_configs=config.chatbots,
     )
     await cron_scheduler.start()
 

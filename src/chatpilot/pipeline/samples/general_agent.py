@@ -55,19 +55,34 @@ class GeneralAgentNode:
         session_id = f"pipeline-agent-{uuid.uuid4().hex[:12]}"
         workdir = self._resolve_workdir(session_id)
 
+        from chatpilot.core.time_service import TimeService
+
         system_msg = (
             f"{self._system_message}\n\n"
+            f"{TimeService.get().system_prompt_hint()}\n\n"
             f"[工作目錄]\n你的工作目錄是 {workdir}，"
             "如果需要暫存或輸出檔案，請放在這個目錄下。"
         )
 
-        # Get tools for pipeline (web_search etc.)
+        # Get tools: use chatbot_tools from input_data if available,
+        # otherwise fall back to web_search only
         tools = None
         if self._tool_factory:
             try:
-                tools = self._tool_factory.get_tools_for_pipeline(
-                    ["web_search"]
-                )
+                chatbot_tools = input.get("chatbot_tools", [])
+                if chatbot_tools:
+                    tools = self._tool_factory.get_tools_for_pipeline(
+                        chatbot_tools
+                    )
+                    chatbot_name = input.get("chatbot_name", "")
+                    logger.info(
+                        "Pipeline agent using chatbot=%s tools=%s",
+                        chatbot_name, chatbot_tools,
+                    )
+                else:
+                    tools = self._tool_factory.get_tools_for_pipeline(
+                        ["web_search"]
+                    )
             except Exception:
                 pass
 

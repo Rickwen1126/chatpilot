@@ -68,6 +68,7 @@ CREATE TABLE IF NOT EXISTS memory_schedules (
     route_id       TEXT NOT NULL,
     cron_expr      TEXT NOT NULL,
     tool_name      TEXT NOT NULL,
+    chatbot_name   TEXT DEFAULT '',
     input_data     TEXT NOT NULL DEFAULT '{}',
     status         TEXT NOT NULL DEFAULT 'pending',
     last_run_at    TEXT,
@@ -126,6 +127,12 @@ class SqliteMemoryStore:
                 "RENAME COLUMN pipeline_name TO tool_name"
             )
             logger.info("Migrated memory_schedules: pipeline_name → tool_name")
+        if "chatbot_name" not in cols:
+            await self._db.execute(
+                "ALTER TABLE memory_schedules "
+                "ADD COLUMN chatbot_name TEXT DEFAULT ''"
+            )
+            logger.info("Migrated memory_schedules: added chatbot_name")
 
     async def close(self) -> None:
         if self._db:
