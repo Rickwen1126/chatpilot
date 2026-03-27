@@ -1,4 +1,9 @@
-"""General Agent pipeline — LLM agent with tools via SDK session."""
+"""Schedule Agent pipeline — executes scheduled tasks with chatbot's tools.
+
+Unlike general-agent (web_search only), schedule-agent inherits the tools
+of the chatbot that created the schedule, so it can query warehouse,
+observations, etc.
+"""
 
 from __future__ import annotations
 
@@ -16,13 +21,14 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_WORKSPACE_ROOT = "data/workspace"
 DEFAULT_SYSTEM_MESSAGE = (
-    "你是一個通用任務代理，負責執行指派給你的任務。"
-    "完成任務後，用簡潔的中文回覆結果。"
+    "你是排程任務代理，負責執行定時排程指派給你的任務。"
+    "用工具完成任務後，用簡潔的中文回覆結果。"
+    "直接回報結果，不要描述你「會」做什麼。"
 )
 
 
-class GeneralAgentNode:
-    """LLM agent — creates a disposable SDK session to process tasks."""
+class ScheduleAgentNode:
+    """Scheduled task agent — uses chatbot's tools to execute tasks."""
 
     def __init__(
         self,
@@ -40,7 +46,7 @@ class GeneralAgentNode:
 
     @property
     def name(self) -> str:
-        return "general-agent"
+        return "schedule-agent"
 
     def _resolve_workdir(self, session_id: str) -> str:
         if self._config_workdir:
@@ -52,7 +58,7 @@ class GeneralAgentNode:
 
     async def execute(self, input: dict) -> NodeOutput:
         prompt = input.get("description", str(input))
-        session_id = f"pipeline-agent-{uuid.uuid4().hex[:12]}"
+        session_id = f"schedule-agent-{uuid.uuid4().hex[:12]}"
         workdir = self._resolve_workdir(session_id)
 
         from chatpilot.core.time_service import TimeService
@@ -64,15 +70,31 @@ class GeneralAgentNode:
             "如果需要暫存或輸出檔案，請放在這個目錄下。"
         )
 
-        # Get tools for pipeline (web_search etc.)
+        # Use chatbot's tools from input_data (injected by CronScheduler)
         tools = None
         if self._tool_factory:
+            chatbot_tools = input.get("chatbot_tools", [])
+            chatbot_name = input.get("chatbot_name", "")
             try:
-                tools = self._tool_factory.get_tools_for_pipeline(
-                    ["web_search"]
-                )
+                if chatbot_tools:
+                    tools = self._tool_factory.get_tools_for_pipeline(
+                        chatbot_tools
+                    )
+                    logger.info(
+                        "[schedule-agent] chatbot=%s tools=%s",
+                        chatbot_name, chatbot_tools,
+                    )
+                else:
+                    # Fallback: no chatbot tools → web_search only
+                    tools = self._tool_factory.get_tools_for_pipeline(
+                        ["web_search"]
+                    )
+                    logger.warning(
+                        "[schedule-agent] no chatbot_tools in input, "
+                        "falling back to web_search"
+                    )
             except Exception:
-                pass
+                logger.exception("[schedule-agent] failed to resolve tools")
 
         try:
             session = await self._sdk_client.create_session(
@@ -91,14 +113,14 @@ class GeneralAgentNode:
             finally:
                 await session.destroy()
         except Exception as e:
-            logger.exception("GeneralAgentNode failed")
+            logger.exception("[schedule-agent] failed")
             return NodeOutput(status="error", data={}, error=str(e))
 
 
-class GeneralAgentPipeline(PipelineDefinition):
-    """LLM agent pipeline — same level as echo/browser-search."""
+class ScheduleAgentPipeline(PipelineDefinition):
+    """Schedule agent pipeline — registered as 'schedule-agent'."""
 
-    name = "general-agent"
+    name = "schedule-agent"
 
     def __init__(
         self,
@@ -107,6 +129,6 @@ class GeneralAgentPipeline(PipelineDefinition):
         **kwargs,
     ) -> None:
         self.nodes: list[PipelineNode] = [
-            GeneralAgentNode(sdk_client, tool_factory, **kwargs)
+            ScheduleAgentNode(sdk_client, tool_factory, **kwargs)
         ]
         self.max_iterations = 1

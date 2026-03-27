@@ -9,7 +9,7 @@ Last updated: 2026-03-26
 ```
 1. 實作功能
 2. uv run ruff check src/ && uv run pytest tests/  （unit test 通過）
-3. bash tests/e2e/run_e2e.sh  （既有 E2E 21 項不壞）
+3. bash tests/e2e/run_e2e.sh  （既有 E2E 不壞）
 4. 新功能 E2E 測試：
    - 邊測邊看 log（grep "[observer]\|[event]\|[tool_call]\|ERROR" /tmp/chatpilot.log）
    - 確認 function 內部行為正確（debug log 要加在關鍵 function）
@@ -17,6 +17,9 @@ Last updated: 2026-03-26
 5. 遇到問題 → 修復 → 回到 step 2 重跑
 6. 全部通過 → 新功能測試項目寫入 /e2e checklist
 7. commit
+8. Milestone review（每個 milestone 做一次）：
+   - /codetour — 產生 CodeTour 紀錄改動脈絡
+   - /reviewCode — code review 確認品質
 ```
 
 **不要**：

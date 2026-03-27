@@ -23,18 +23,10 @@ def create_schedule_task_cron_tool(
     """
 
     def _build_description() -> str:
-        tools = get_available_tools() if get_available_tools else []
-        if tools:
-            tools_list = "、".join(f"'{t}'" for t in tools)
-            return (
-                "建立週期性排程任務。提供 cron 表達式（如 'daily 08:00'、"
-                "'weekly mon 09:00'、'interval 30m'）和 tool 名稱。"
-                f"可用的 tool：{tools_list}。"
-                "只能使用這些已註冊的 tool 名稱，不可自創。"
-            )
         return (
             "建立週期性排程任務。提供 cron 表達式（如 'daily 08:00'、"
-            "'weekly mon 09:00'、'interval 30m'）和 tool 名稱。"
+            "'weekly mon 09:00'、'interval 30m'）和任務描述。"
+            "排程會使用你目前擁有的工具來執行任務。"
         )
 
     async def handler(invocation: ToolInvocation) -> ToolResult:
@@ -45,12 +37,18 @@ def create_schedule_task_cron_tool(
         chatbot_name = session_id.split("__")[1] if "__" in session_id else ""
 
         cron_expr = args.get("cron_expr", "").strip()
-        tool_name = args.get("tool_name", "").strip()
+        tool_name = args.get("tool_name", "schedule-agent").strip()
         description = args.get("description", "").strip()
 
-        if not cron_expr or not tool_name:
+        if not cron_expr:
             return ToolResult(
-                textResultForLlm="需要提供 cron 表達式和 tool 名稱",
+                textResultForLlm="需要提供 cron 表達式",
+                resultType="failure",
+            )
+
+        if not description:
+            return ToolResult(
+                textResultForLlm="需要提供任務描述（description）",
                 resultType="failure",
             )
 
@@ -112,16 +110,16 @@ def create_schedule_task_cron_tool(
                     "type": "string",
                     "description": "排程表達式（daily HH:MM / weekly DAY HH:MM / interval Nm）",
                 },
-                "tool_name": {
-                    "type": "string",
-                    "description": "要執行的 tool 名稱",
-                },
                 "description": {
                     "type": "string",
-                    "description": "排程說明，作為 tool 的 input_data（選填）",
+                    "description": "任務描述（排程到期時 agent 會根據此描述執行任務）",
+                },
+                "tool_name": {
+                    "type": "string",
+                    "description": "Pipeline 名稱（預設 schedule-agent，通常不需指定）",
                 },
             },
-            "required": ["cron_expr", "tool_name"],
+            "required": ["cron_expr", "description"],
         },
         handler=handler,
         access_level=AccessLevel.GLOBAL,

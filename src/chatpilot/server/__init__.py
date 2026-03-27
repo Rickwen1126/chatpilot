@@ -518,6 +518,12 @@ async def lifespan(app: FastAPI):
         BatchImageVisionPipeline(sdk_client, tool_factory)
     )
 
+    from chatpilot.pipeline.samples.schedule_agent import ScheduleAgentPipeline
+
+    pipeline_executor.register(
+        ScheduleAgentPipeline(sdk_client, tool_factory)
+    )
+
     # Hot reload
     def on_config_reload(new_config: GatewayConfig) -> None:
         binding_router.update(new_config.bindings, new_config.match_weights)
