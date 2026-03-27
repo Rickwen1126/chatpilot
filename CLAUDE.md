@@ -20,6 +20,7 @@ Last updated: 2026-03-26
 8. Milestone review（每個 milestone 做一次）：
    - /codetour — 產生 CodeTour 紀錄改動脈絡
    - /reviewCode — code review 確認品質
+   - 必須用 subagent (opus) 執行，避免上下文污染盲點
 ```
 
 **不要**：
