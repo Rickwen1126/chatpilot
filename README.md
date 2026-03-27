@@ -84,7 +84,7 @@ match_weights:                     # Binding score weights
 
 bindings:                          # Routing rules (highest score wins)
   - match: { group_id: "Cxxx" }
-    chatbot: shinyipaint
+    chatbot: my-assistant
   - match: { platform: "line" }
     chatbot: buddy
   - chatbot: buddy                 # default fallback
@@ -129,11 +129,11 @@ Group chat messages are buffered in a sliding window. When the bot is mentioned,
 Silent message collection for analytics. Configured per-chatbot:
 
 ```yaml
-shinyipaint-observer:
+my-observer:
   observer_mode: true
   observer_batch_size: 10
-  observer_categories: [請假, 進料, 出料, 工程進度, ...]
-  observer_allowed_consumers: ["line:Ufc68...", "line:C006..."]
+  observer_categories: [leave, inventory, shipping, ...]
+  observer_allowed_consumers: ["line:Uxxx...", "line:Cxxx..."]
 ```
 
 Messages are buffered until `batch_size` is reached, then LLM categorizes and stores to SQLite. Other chatbots query via `query_observations` tool (permission-gated).

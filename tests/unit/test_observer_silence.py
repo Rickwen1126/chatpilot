@@ -123,11 +123,11 @@ async def test_observer_auto_trigger_no_reply():
     """Auto-trigger keyword in observer group → still silent."""
     from chatpilot.hub.mention_filter import configure_auto_triggers
 
-    configure_auto_triggers({"shinyipaint-observer": ["龍泰", "303"]})
+    configure_auto_triggers({"test-observer": ["keyword1", "keyword2"]})
 
     hub, adapter, on_proceed = _make_hub()
     # Even with matching keyword, observer returns early
-    msg = _msg("龍泰303有貨嗎", group_id="Uobs123")
+    msg = _msg("keyword1 keyword2 test", group_id="Uobs123")
     await hub.receive(msg, adapter)
 
     adapter.send_reply.assert_not_called()

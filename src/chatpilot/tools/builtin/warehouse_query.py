@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import urllib.parse
 import urllib.request
 
@@ -15,8 +16,8 @@ logger = logging.getLogger(__name__)
 
 
 WAREHOUSE_API = "http://localhost:8000/api/v1"
-WAREHOUSE_WEB = "https://warehouse.shinyipaint.com.tw"
-R2_ZONE_BASE = "https://pub-fcc500f8fb48414aba2084e196f653eb.r2.dev/zone"
+WAREHOUSE_WEB = os.environ.get("WAREHOUSE_WEB_URL", "http://localhost:5173")
+R2_ZONE_BASE = os.environ.get("R2_ZONE_BASE_URL", "")
 
 ZONE_IMAGES = {
     "zone_AB": f"{R2_ZONE_BASE}/floor_plan_zone_AB.png",
@@ -101,7 +102,7 @@ def create_warehouse_query_tool(response_injector=None) -> ToolDefinition:
     return ToolDefinition(
         name="warehouse_query",
         description=(
-            "查詢信益倉庫庫存位置和數量。"
+            "查詢倉庫庫存位置和數量。"
             "可搜尋物料名稱、品牌、色號、位置。"
             "query_type: search（搜物料）、location（查位置內容）、"
             "brand（品牌查詢）、low_stock（低庫存）。"

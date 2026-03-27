@@ -157,14 +157,14 @@ async def test_docx_append_list():
 
 
 async def test_docx_replace_text():
-    original = _make_docx(["信益油漆報告"])
-    data_json = json.dumps({"old": "信益油漆", "new": "Shinyipaint"})
+    original = _make_docx(["測試報告初稿"])
+    data_json = json.dumps({"old": "初稿", "new": "定稿"})
 
     result = await _edit_docx(original, "取代", data_json)
     paragraphs = _read_docx_paragraphs(result)
 
-    assert any("Shinyipaint" in p for p in paragraphs)
-    assert not any("信益油漆" in p for p in paragraphs)
+    assert any("定稿" in p for p in paragraphs)
+    assert not any("初稿" in p for p in paragraphs)
 
 
 async def test_docx_no_data_appends_instruction():

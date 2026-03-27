@@ -109,7 +109,7 @@ def create_quote_search_tool() -> ToolDefinition:
     return ToolDefinition(
         name="quote_search",
         description=(
-            "搜尋信益油漆歷史報價紀錄。"
+            "搜尋歷史報價紀錄。"
             "可依建案類型（住宅/商辦/廠房）、坪數範圍、油漆品牌篩選。"
             "回傳匹配的歷史報價資料，供整理比較報告。"
         ),

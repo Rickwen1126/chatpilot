@@ -17,7 +17,7 @@ from chatpilot.core.types import AccessLevel, ToolDefinition
 logger = logging.getLogger(__name__)
 
 WAREHOUSE_API = os.environ.get("WAREHOUSE_API_URL", "http://localhost:8000/api/v1")
-WAREHOUSE_WEB = os.environ.get("WAREHOUSE_WEB_URL", "https://warehouse.shinyipaint.com.tw")
+WAREHOUSE_WEB = os.environ.get("WAREHOUSE_WEB_URL", "http://localhost:5173")
 
 # Per-unit floor plan images (loaded from data/unit_images.json)
 _UNIT_IMAGES: dict[str, str] = {}
@@ -481,7 +481,7 @@ def create_warehouse_tool(response_injector=None) -> ToolDefinition:
     return ToolDefinition(
         name="warehouse",
         description=(
-            "信益倉庫管理工具。支援以下 action：\n"
+            "倉庫管理工具。支援以下 action：\n"
             "查詢：search（搜物料）、get_items（查位置內容）、"
             "get_inventory（庫存快照）、search_materials（物料目錄）\n"
             "寫入：add_item（新增）、update_item（更新）、delete_item（刪除）、"

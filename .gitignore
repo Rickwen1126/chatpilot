@@ -38,9 +38,17 @@ htmlcov/
 # Ruff
 .ruff_cache/
 
-# Runtime data (keep seed/fixture dirs)
-data/*
-!data/quotes/
+# Runtime data
+data/
+
+# Project-specific docs (not public)
+specs/
+PRD.md
+docs/plans/
+
+# Session progress & tours
+.progress/
+.tours/
 
 # Worktrees
 .worktrees/

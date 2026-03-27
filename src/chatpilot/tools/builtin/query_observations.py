@@ -19,7 +19,7 @@ def create_query_observations_tool(
     """Create query_observations tool.
 
     observer_sources: {
-        "信益大群組": {
+        "Main Group": {
             "route_id": "line:Cxxx",
             "allowed_consumers": ["line:Ceead...", "line:Ufc68..."]
         }

@@ -207,10 +207,10 @@ else
 fi
 
 # ─── Quote Search ────────────────────────────────────────────────
-header "Quote Search (shinyipaint)"
-# Switch to shinyipaint chatbot first
+header "Quote Search"
+# Switch to a chatbot with quote_search tool
 QUOTE_USER="e2e-quote-$(date +%s)"
-timeout "$CLI_TIMEOUT" uv run chatpilot-cli --url "$BASE_URL" chat "/chatbot shinyipaint" --user "$QUOTE_USER" > /dev/null 2>&1
+timeout "$CLI_TIMEOUT" uv run chatpilot-cli --url "$BASE_URL" chat "/chatbot ${E2E_QUOTE_CHATBOT:-my-assistant}" --user "$QUOTE_USER" > /dev/null 2>&1
 sleep 2
 QUOTE_RESP=$(timeout "$CLI_TIMEOUT" uv run chatpilot-cli --url "$BASE_URL" chat "幫我找虹牌的歷史報價" --user "$QUOTE_USER" 2>/dev/null)
 if echo "$QUOTE_RESP" | grep -qi "虹牌\|報價\|水泥漆\|防水漆"; then
@@ -274,8 +274,8 @@ fi
 # ─── Observer Mode ────────────────────────────────────────────────
 header "Observer Mode"
 
-# Use LINE-format IDs to match production
-OBS_ROUTE="Ufc68d77c84b42995d970dc6639da4316"
+# Use LINE-format IDs (must match routes.yaml observer binding)
+OBS_ROUTE="${E2E_OBSERVER_UID:-Ua1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4}"
 
 # Test 1: Silent collect — observer route should NOT trigger chatbot
 OBS_BEFORE=$(curl -s "$BASE_URL/health" | python3 -c "import sys,json; print(json.load(sys.stdin)['uptime_seconds'])")

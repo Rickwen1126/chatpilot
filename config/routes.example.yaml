@@ -1,28 +1,67 @@
-# Binding routing: highest score wins. Same score → last defined wins.
+# ChatPilot routing configuration
+# Copy to routes.yaml and customize: cp config/routes.example.yaml config/routes.yaml
+
+timezone: "Asia/Taipei"
+
+trigger_keywords: ["bot"]
+
 match_weights:
   group_id: 10
   user_id: 8
   platform: 5
 
 bindings:
+  # Observer: silently collects messages, never responds
+  - match: { user_id: "Ua1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4" }
+    chatbot: my-observer
+  # Group binding
+  - match: { group_id: "Ca1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4" }
+    chatbot: my-assistant
+  # Platform default
   - match: { platform: "line" }
-    chatbot: general-bot
-  - chatbot: general-bot  # default (no match = score 0)
+    chatbot: buddy
+  # Catch-all
+  - chatbot: buddy
 
 chatbots:
-  general-bot:
+  buddy:
     model: gpt-4.1
-    # system_message uses mode=replace (fully replaces SDK default prompt)
     system_message: |
-      你是一個通用助手。
-      你只能使用明確提供給你的工具，禁止使用任何未註冊的內建工具。
-      群組對話中，標記 [背景] 的內容是其他人的閒聊，供你參考但不需回應。
-      --- 分隔線之後是直接對你說的訊息，請優先處理。
-    tools: [web_search, download_media, save_memo, list_memos, delete_memo, save_custom_prompt, list_custom_prompts, delete_custom_prompt, add_reminder, schedule_task_cron, list_schedules, cancel_schedule]
-    context_window: 20
+      You are a friendly, helpful assistant.
+      Reply concisely. Use web_search when you need up-to-date information.
+      You may only use the tools explicitly provided to you.
+      In group chats, [背景] messages are others' chatter for context.
+      Messages after --- are directed at you.
+    tools: [get_calendar, web_search, download_media, save_memo, list_memos, delete_memo, save_custom_prompt, list_custom_prompts, delete_custom_prompt, add_reminder, schedule_task_cron, list_schedules, cancel_schedule]
+    context_window: 50
+    timeout: 300
+
+  my-assistant:
+    model: gpt-4.1
+    system_message: |
+      You are a domain-specific assistant with warehouse and document tools.
+      Reply concisely. Use tools to complete tasks, don't describe what you would do.
+    tools: [get_calendar, warehouse, quote_search, document_edit, web_search, download_media, show_image, query_observations, save_memo, list_memos, delete_memo, save_custom_prompt, list_custom_prompts, delete_custom_prompt, add_reminder, schedule_task_cron, list_schedules, cancel_schedule]
+    context_window: 50
+    timeout: 300
+    auto_trigger_keywords: []
+
+  my-observer:
+    model: gpt-4.1
+    system_message: "Silent observer."
+    tools: []
+    observer_mode: true
+    observer_batch_size: 10
+    observer_categories: [leave, inventory, shipping]
+    observer_allowed_consumers: ["line:Ua1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4", "line:Ca1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4"]
 
 agents: {}
 
 scheduler:
   concurrent_runners: 2
   max_queue_size: 100
+  task_timeout: 300
+
+cron_scheduler:
+  tick_interval: 60
+  available_tools: [schedule-agent, general-agent, browser-search, echo]
