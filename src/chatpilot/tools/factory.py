@@ -77,10 +77,15 @@ def _to_sdk_tool(defn: ToolDefinition) -> SdkTool:
 
     async def _logged_handler(invocation: Any) -> Any:
         args = invocation.get("arguments") or {}
-        logger.info("[tool_call] %s args=%s", defn.name, args)
+        session_id = invocation.get("session_id", "")
+        logger.info("[tool_call] %s args=%s session=%s", defn.name, args, session_id)
         result = await original(invocation)
         status = result.get("resultType", "?") if isinstance(result, dict) else "?"
-        logger.info("[tool_result] %s status=%s", defn.name, status)
+        text = result.get("textResultForLlm", "") if isinstance(result, dict) else ""
+        logger.info(
+            "[tool_result] %s status=%s result=%s",
+            defn.name, status, text[:200] if text else "",
+        )
         return result
 
     return SdkTool(

@@ -100,6 +100,11 @@ class InMemoryMessageHub:
     async def receive(self, message: Message, adapter: ChannelAdapter) -> None:
         """Process inbound message through mention filter + busy/idle gate."""
         route_id = f"{message.platform}:{message.conversation_id}"
+        logger.info(
+            "[hub] receive route=%s user=%s mention=%s text=%s",
+            route_id, message.user_name or message.user_id,
+            message.is_mention, message.text[:80],
+        )
 
         # Observer mode: silent collect + batch trigger
         obs_config = self._observer_configs.get(route_id)
@@ -144,6 +149,10 @@ class InMemoryMessageHub:
             return
 
         mentioned = is_mention(message)
+        logger.info(
+            "[hub] %s is_mention=%s (group=%s)",
+            route_id, mentioned, message.group_id is not None,
+        )
 
         # Check prefix commands (group requires mention, private chat always)
         # Strip leading @mention or keyword: "@Bot /chatbot" or "bot /chatbot" → "/chatbot"
@@ -156,6 +165,7 @@ class InMemoryMessageHub:
             cmd_parts = text.split(maxsplit=1)
             command = cmd_parts[0][1:]
             args = cmd_parts[1] if len(cmd_parts) > 1 else ""
+            logger.info("[hub] %s command=/%s args=%s", route_id, command, args)
             if self._on_command:
                 await self._on_command(command, args, message, adapter)
             return
@@ -163,6 +173,7 @@ class InMemoryMessageHub:
         # Media-only message (image/audio/file ref without other text):
         # buffer silently, even in private chat — user will follow up with text
         if mentioned and _is_media_only(message.text):
+            logger.info("[hub] %s media-only → buffer (no trigger)", route_id)
             self._context_buffer.append(
                 route_id,
                 ContextMessage(
@@ -193,6 +204,10 @@ class InMemoryMessageHub:
                 )
             else:
                 # Group non-mention: store in context buffer silently
+                logger.info(
+                    "[hub] %s no trigger → context buffer (buf=%d)",
+                    route_id, self._context_buffer.count(route_id) + 1,
+                )
                 self._context_buffer.append(
                     route_id,
                     ContextMessage(
@@ -206,7 +221,9 @@ class InMemoryMessageHub:
                 return
 
         # Mentioned but bot is busy
-        if self.get_status(route_id) == "busy":
+        status = self.get_status(route_id)
+        if status == "busy":
+            logger.info("[hub] %s BUSY → buffering/rejecting", route_id)
             is_private = message.group_id is None
             if is_private:
                 # Private chat: buffer the message, will be drained when idle
@@ -234,6 +251,10 @@ class InMemoryMessageHub:
         # Idle + mentioned: drain context buffer and proceed
         context_messages = self._context_buffer.drain(route_id)
         context_prefix = self._context_buffer.format_context(context_messages) or None
+        logger.info(
+            "[hub] %s PROCEED → chatbot (drained %d context msgs)",
+            route_id, len(context_messages),
+        )
 
         if self._on_proceed:
             self.set_busy(route_id)  # MUST set before create_task to prevent race
@@ -327,9 +348,11 @@ class InMemoryMessageHub:
 
     def set_busy(self, route_id: str) -> None:
         self._busy[route_id] = True
+        logger.info("[hub] %s → BUSY", route_id)
 
     def set_idle(self, route_id: str) -> None:
         self._busy[route_id] = False
+        logger.info("[hub] %s → IDLE", route_id)
         # Drain queued pipeline results
         queue = self._pipeline_result_queue.get(route_id, [])
         if queue and self._on_pipeline_result is not None:

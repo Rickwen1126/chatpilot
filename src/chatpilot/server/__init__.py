@@ -79,6 +79,10 @@ def _init_hub(
         if route is None:
             logger.warning("No binding matched for %s", message.conversation_id)
             return
+        logger.info(
+            "[route] %s → chatbot=%s (score=%d)",
+            route.route_id, route.chatbot_name, route.binding_score,
+        )
         hint = getattr(adapter, "format_hint", None)
         if hint:
             context_prefix = f"{context_prefix}\n{hint}" if context_prefix else hint
@@ -86,6 +90,11 @@ def _init_hub(
             route.route_id, route.chatbot_name
         )
         response = await session.send_message(message.text, context_prefix)
+        logger.info(
+            "[response] %s → %d chars: %s",
+            route.route_id, len(response.text),
+            response.text[:150].replace("\n", " "),
+        )
 
         # Inject pending items from tools (images, links, files)
         from chatpilot.core.types import Attachment

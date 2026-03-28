@@ -152,12 +152,24 @@ def match_auto_trigger(
     # Layer 1: config keywords (per-chatbot)
     for pattern in _chatbot_keywords.get(bound_chatbot, []):
         if pattern.search(message.text):
+            logger.info(
+                "[mention] auto-trigger HIT config keyword='%s' bot=%s",
+                pattern.pattern, bound_chatbot,
+            )
             return True
 
     # Layer 2: DB keywords (per-route)
     route_id = f"{message.platform}:{message.conversation_id}"
     for pattern in _route_keywords.get(route_id, []):
         if pattern.search(message.text):
+            logger.info(
+                "[mention] auto-trigger HIT route keyword='%s' route=%s",
+                pattern.pattern, route_id,
+            )
             return True
 
+    logger.debug(
+        "[mention] auto-trigger MISS bot=%s route=%s text=%s",
+        bound_chatbot, route_id, message.text[:50],
+    )
     return False

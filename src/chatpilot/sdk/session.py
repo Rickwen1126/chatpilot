@@ -71,17 +71,24 @@ class SdkSession:
         Raises:
             TimeoutError: If response takes longer than timeout.
         """
+        prompt_preview = message[:150].replace("\n", " ")
         logger.info(
-            "[SDK] %s sending (%d chars) timeout=%ss", self.session_id, len(message), timeout
+            "[SDK] %s sending (%d chars) timeout=%ss prompt=%s",
+            self.session_id, len(message), timeout, prompt_preview,
         )
         result = await self._session.send_and_wait(
             {"prompt": message}, timeout=timeout
         )
         logger.info("[SDK] %s got result: %s", self.session_id, type(result))
         if result is None:
+            logger.warning("[SDK] %s response is None", self.session_id)
             return ""
         content = getattr(result.data, "content", None) or ""
-        logger.info("[SDK] %s response: %d chars", self.session_id, len(content))
+        response_preview = content[:300].replace("\n", " ")
+        logger.info(
+            "[SDK] %s response (%d chars): %s",
+            self.session_id, len(content), response_preview,
+        )
         return content
 
     async def destroy(self) -> None:

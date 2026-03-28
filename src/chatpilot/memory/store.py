@@ -178,7 +178,10 @@ class SqliteMemoryStore:
             list(row.values()),
         )
         await self._db.commit()
-        logger.info("Saved %s/%s id=%s", type, route_id[:16], obj.id[:8])
+        logger.info(
+            "[db] SAVE %s route=%s id=%s data=%s",
+            type, route_id[:16], obj.id[:8], row,
+        )
         return obj.id
 
     async def get(
@@ -228,7 +231,9 @@ class SqliteMemoryStore:
         await self._db.commit()
         deleted = cursor.rowcount > 0
         if deleted:
-            logger.info("Deleted %s/%s id=%s", type, route_id[:16], id[:8])
+            logger.info("[db] DELETE %s route=%s id=%s", type, route_id[:16], id[:8])
+        else:
+            logger.info("[db] DELETE miss %s route=%s id=%s", type, route_id[:16], id[:8])
         return deleted
 
     async def update(

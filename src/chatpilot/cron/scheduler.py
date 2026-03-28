@@ -68,6 +68,10 @@ class CronScheduler:
         due_reminders = await self._memory_store.query_due_before(
             "reminder", now
         )
+        if due_reminders:
+            logger.info(
+                "[cron] tick found %d due reminders", len(due_reminders)
+            )
         for r in due_reminders:
             await self._handle_reminder(r)
 
@@ -75,6 +79,10 @@ class CronScheduler:
         due_schedules = await self._memory_store.query_due_before(
             "schedule", now
         )
+        if due_schedules:
+            logger.info(
+                "[cron] tick found %d due schedules", len(due_schedules)
+            )
         for s in due_schedules:
             await self._handle_schedule(s)
 
