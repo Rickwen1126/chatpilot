@@ -41,7 +41,7 @@ def create_list_memos_tool(memory_store: Any) -> ToolDefinition:
         for m in memos:
             tags = m.get("tags", [])
             tag_str = f" [{', '.join(tags)}]" if tags else ""
-            lines.append(f"- [{m['id'][:8]}]{tag_str} {m['text']}")
+            lines.append(f"- [{m['id']}]{tag_str} {m['text']}")
 
         return ToolResult(
             textResultForLlm=f"共 {len(memos)} 筆記憶:\n" + "\n".join(lines),

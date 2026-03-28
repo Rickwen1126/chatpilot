@@ -41,7 +41,7 @@ def create_save_memo_tool(memory_store: Any) -> ToolDefinition:
             )
             tag_info = f"（標籤: {', '.join(tags)}）" if tags else ""
             return ToolResult(
-                textResultForLlm=f"已記住{tag_info}，ID: {memo_id[:8]}",
+                textResultForLlm=f"已記住{tag_info}，ID: {memo_id}",
                 resultType="success",
             )
         except Exception as e:
