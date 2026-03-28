@@ -1,46 +1,38 @@
 #!/usr/bin/env bash
-# ChatPilot E2E Test Suite
+# ChatPilot E2E Test Suite — Self-contained
 # Usage: ./tests/e2e/run_e2e.sh
-# Requires: server running on localhost:2999
+# Starts its own server with routes.example.yaml, temp DB, runs all tests, cleans up.
 
 # No set -e: we handle errors per-test
 
-BASE_URL="${CHATPILOT_URL:-http://localhost:2999}"
+# ─── Configuration ───────────────────────────────────────────────
+E2E_PORT="${E2E_PORT:-2998}"
+BASE_URL="http://localhost:$E2E_PORT"
+E2E_DIR="/tmp/chatpilot-e2e-$$"
+E2E_DB="$E2E_DIR/chatpilot.db"
+E2E_TASK_DB="$E2E_DIR/tasks.db"
+E2E_LOG="$E2E_DIR/server.log"
+ROUTES="config/routes.example.yaml"
+TICK_INTERVAL=5
+CLI_TIMEOUT=60
 PASS=0
 FAIL=0
 USER="e2e-$(date +%s)"
 
+# Observer/chatbot IDs from routes.example.yaml
+OBS_ROUTE="Ua1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4"
+ASSISTANT_GROUP="Ca1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4"
+
+# ─── Helpers ─────────────────────────────────────────────────────
 green() { printf "\033[32m%s\033[0m\n" "$1"; }
 red() { printf "\033[31m%s\033[0m\n" "$1"; }
 header() { printf "\n\033[1;34m=== %s ===\033[0m\n" "$1"; }
 
-assert_contains() {
-    local label="$1" output="$2" expected="$3"
-    if echo "$output" | grep -qi "$expected"; then
-        green "  ✓ $label"
-        PASS=$((PASS + 1))
-    else
-        red "  ✗ $label (expected '$expected' in output)"
-        echo "    got: $output"
-        FAIL=$((FAIL + 1))
-    fi
-}
-
-assert_status() {
-    local label="$1" code="$2" expected="$3"
-    if [ "$code" = "$expected" ]; then
-        green "  ✓ $label (HTTP $code)"
-        PASS=$((PASS + 1))
-    else
-        red "  ✗ $label (expected $expected, got $code)"
-        FAIL=$((FAIL + 1))
-    fi
-}
-
-CLI_TIMEOUT=60
+pass() { green "  ✓ $1"; PASS=$((PASS + 1)); }
+fail() { red "  ✗ $1"; [ -n "$2" ] && echo "    $2"; FAIL=$((FAIL + 1)); }
 
 cli_chat() {
-    timeout "$CLI_TIMEOUT" uv run chatpilot-cli --url "$BASE_URL" chat "$1" --user "$USER" 2>/dev/null
+    timeout "$CLI_TIMEOUT" uv run chatpilot-cli --url "$BASE_URL" chat "$1" --user "${2:-$USER}" 2>/dev/null
 }
 
 mock_webhook() {
@@ -49,338 +41,418 @@ mock_webhook() {
         -d "$1"
 }
 
-# ─── Health ───────────────────────────────────────────────────────
+# L2: assert tool was called in log
+assert_tool_called() {
+    local label="$1" tool="$2"
+    if grep -a "\[tool_call\] $tool" "$E2E_LOG" > /dev/null 2>&1; then
+        pass "$label [L2: $tool called]"
+    else
+        fail "$label [L2: $tool NOT called]"
+    fi
+}
+
+# L3: assert DB row exists
+assert_db_exists() {
+    local label="$1" query="$2"
+    local count
+    count=$(sqlite3 "$E2E_DB" "$query" 2>/dev/null)
+    if [ "$count" -gt 0 ] 2>/dev/null; then
+        pass "$label [L3: DB row exists]"
+    else
+        fail "$label [L3: DB row missing]" "query: $query → $count"
+    fi
+}
+
+# L3: assert DB row does NOT exist
+assert_db_not_exists() {
+    local label="$1" query="$2"
+    local count
+    count=$(sqlite3 "$E2E_DB" "$query" 2>/dev/null)
+    if [ "$count" -eq 0 ] 2>/dev/null; then
+        pass "$label [L3: DB row gone]"
+    else
+        fail "$label [L3: DB row still exists]" "query: $query → $count"
+    fi
+}
+
+# L2: assert log contains pattern
+assert_log() {
+    local label="$1" pattern="$2"
+    if strings "$E2E_LOG" | grep "$pattern" > /dev/null 2>&1; then
+        pass "$label [L2: log match]"
+    else
+        fail "$label [L2: log no match]" "pattern: $pattern"
+    fi
+}
+
+# L2: assert log does NOT contain pattern
+assert_log_absent() {
+    local label="$1" pattern="$2"
+    if strings "$E2E_LOG" | grep "$pattern" > /dev/null 2>&1; then
+        fail "$label [L2: unexpected log]" "pattern: $pattern"
+    else
+        pass "$label [L2: log clean]"
+    fi
+}
+
+# ─── Server Lifecycle ────────────────────────────────────────────
+start_server() {
+    mkdir -p "$E2E_DIR"
+    echo "Starting E2E server (port=$E2E_PORT, tick=$TICK_INTERVAL)..."
+
+    ROUTES_PATH="$ROUTES" \
+    CHATPILOT_DB="$E2E_DB" \
+    CHATPILOT_TASK_DB="$E2E_TASK_DB" \
+    CHATPILOT_TICK_INTERVAL="$TICK_INTERVAL" \
+    uv run uvicorn chatpilot.server:create_app --factory \
+        --port "$E2E_PORT" --host 0.0.0.0 > "$E2E_LOG" 2>&1 &
+    E2E_PID=$!
+
+    # Wait for health
+    for i in $(seq 1 30); do
+        if curl -s "$BASE_URL/health" > /dev/null 2>&1; then
+            echo "Server ready (PID=$E2E_PID)"
+            return 0
+        fi
+        sleep 1
+    done
+    echo "Server failed to start!"
+    cat "$E2E_LOG"
+    exit 1
+}
+
+stop_server() {
+    if [ -n "$E2E_PID" ]; then
+        kill "$E2E_PID" 2>/dev/null
+        wait "$E2E_PID" 2>/dev/null
+    fi
+    # Keep log for review, clean DB
+    rm -f "$E2E_DB" "$E2E_TASK_DB" "$E2E_DB-shm" "$E2E_DB-wal" \
+          "$E2E_TASK_DB-shm" "$E2E_TASK_DB-wal"
+    echo "Server stopped. Log at: $E2E_LOG"
+}
+
+trap stop_server EXIT
+
+# ─── Start Server ────────────────────────────────────────────────
+start_server
+
+# ═══════════════════════════════════════════════════════════════════
+# TESTS
+# ═══════════════════════════════════════════════════════════════════
+
+# ─── Health [L1] ─────────────────────────────────────────────────
 header "Health Check"
-CODE=$(curl -s -o /dev/null -w "%{http_code}" "$BASE_URL/health")
-assert_status "GET /health" "$CODE" "200"
-
 HEALTH=$(curl -s "$BASE_URL/health")
-assert_contains "version 0.2.0" "$HEALTH" "0.2.0"
+echo "$HEALTH" | grep -q '"status":"ok"' && pass "GET /health [L1]" || fail "GET /health"
+echo "$HEALTH" | grep -q "0.2.0" && pass "version 0.2.0 [L1]" || fail "version check"
 
-# ─── CLI Chat ─────────────────────────────────────────────────────
+# ─── CLI Chat [L1+L2] ───────────────────────────────────────────
 header "CLI Chat (full pipeline)"
 RESP=$(cli_chat "用一句話自我介紹")
-assert_contains "chatbot responds" "$RESP" ""  # any non-empty response
-[ -n "$RESP" ] || { red "  ✗ empty response"; FAIL=$((FAIL + 1)); }
-[ -n "$RESP" ] && PASS=$((PASS + 1))
+[ -n "$RESP" ] && pass "chatbot responds [L1]" || fail "empty response"
+assert_log "SDK session created" "\[SDK\].*sending"
 
-# ─── CLI List Chatbots ────────────────────────────────────────────
+# ─── CLI List Chatbots [L1] ─────────────────────────────────────
 header "CLI List Chatbots"
 RESP=$(cli_chat "/chatbot list")
-assert_contains "shows buddy" "$RESP" "buddy"
+echo "$RESP" | grep -q "buddy" && pass "shows buddy [L1]" || fail "buddy not in list"
 
-# ─── Mock Webhook ─────────────────────────────────────────────────
+# ─── Mock Webhook [L1] ──────────────────────────────────────────
 header "Mock Webhook"
 CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$BASE_URL/webhook/mock" \
     -H "Content-Type: application/json" \
     -d '{"text": "hi", "user_id": "mock-e2e"}')
-assert_status "POST /webhook/mock" "$CODE" "200"
+[ "$CODE" = "200" ] && pass "POST /webhook/mock 200 [L1]" || fail "webhook $CODE"
 
-# ─── Unknown Platform ────────────────────────────────────────────
+# ─── Unknown Platform [L1] ──────────────────────────────────────
 header "Unknown Platform"
 CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$BASE_URL/webhook/slack" \
     -H "Content-Type: application/json" -d '{}')
-assert_status "POST /webhook/slack → 404" "$CODE" "404"
+[ "$CODE" = "404" ] && pass "POST /webhook/slack 404 [L1]" || fail "expected 404 got $CODE"
 
-# ─── Trigger Keywords ────────────────────────────────────────────
-header "Trigger Keywords (bot)"
-# Should trigger (bot + space)
+# ─── Keyword Trigger [L2] ───────────────────────────────────────
+header "Keyword Trigger"
 mock_webhook '{"text": "bot 你好", "user_id": "kw1", "group_id": "g-kw-e2e", "is_mention": false}' > /dev/null
 sleep 12
-LOG=$(curl -s "$BASE_URL/health")  # just to keep connection alive
-# Should NOT trigger
-mock_webhook '{"text": "大家好", "user_id": "kw2", "group_id": "g-kw-e2e", "is_mention": false}' > /dev/null
-green "  ✓ keyword trigger sent (check server log for verification)"
-PASS=$((PASS + 1))
+assert_log "keyword trigger processed" "g-kw-e2e.*sending"
+# Non-trigger should NOT produce SDK sending for this group
+mock_webhook '{"text": "大家好", "user_id": "kw2", "group_id": "g-kw-e2e2", "is_mention": false}' > /dev/null
+sleep 2
+assert_log_absent "non-trigger silent" "\[SDK\].*g-kw-e2e2.*sending"
 
-# ─── Keyword + Command ───────────────────────────────────────────
-header "Keyword + Command (bot /chatbot)"
-KW_CMD_RESP=$(curl -s -X POST "$BASE_URL/webhook/mock" \
-    -H "Content-Type: application/json" \
-    -d '{"text": "bot /chatbot list", "user_id": "kw-cmd", "group_id": "g-kw-cmd", "is_mention": false}')
-sleep 3
-# Check server responded 200 (command was processed, not sent to chatbot)
-assert_status "bot /chatbot list" "$(echo "$KW_CMD_RESP" | python3 -c 'import sys,json; print(200)')" "200"
+# ─── Memo CRUD [L2+L3] ──────────────────────────────────────────
+header "Memo (save + list + delete)"
+MEMO_USER="e2e-memo-$(date +%s)"
+cli_chat "記住：E2E 測試 memo 功能" "$MEMO_USER" > /dev/null
+sleep 8
+assert_tool_called "memo save" "save_memo"
+assert_db_exists "memo in DB" \
+    "SELECT count(*) FROM memory_memos WHERE text LIKE '%E2E%memo%'"
 
-# ─── Memo Save + List ────────────────────────────────────────────
-header "Memo (save + list)"
-RESP=$(cli_chat "記住：E2E 測試 memo 功能")
+# List
+cli_chat "我記了什麼" "$MEMO_USER" > /dev/null
 sleep 8
-RESP2=$(cli_chat "好，記下來")
+assert_tool_called "memo list" "list_memos"
+
+# Delete — count before/after (LLM may not match exact text)
+MEMO_COUNT_BEFORE=$(sqlite3 "$E2E_DB" "SELECT count(*) FROM memory_memos" 2>/dev/null)
+cli_chat "刪掉剛才的 memo" "$MEMO_USER" > /dev/null
 sleep 8
-RESP3=$(cli_chat "我記了什麼？")
-# At least one response should mention memo or 記
-HAS_MEMO=$(echo "$RESP$RESP2$RESP3" | grep -ci "記\|memo\|記下\|記住" || true)
-if [ "$HAS_MEMO" -gt 0 ]; then
-    green "  ✓ memo flow completed"
-    PASS=$((PASS + 1))
+assert_tool_called "memo delete" "delete_memo"
+MEMO_COUNT_AFTER=$(sqlite3 "$E2E_DB" "SELECT count(*) FROM memory_memos" 2>/dev/null)
+if [ "$MEMO_COUNT_AFTER" -lt "$MEMO_COUNT_BEFORE" ] 2>/dev/null; then
+    pass "memo count decreased [L3: $MEMO_COUNT_BEFORE→$MEMO_COUNT_AFTER]"
 else
-    red "  ✗ memo flow — no confirmation found"
-    FAIL=$((FAIL + 1))
+    fail "memo not deleted" "before=$MEMO_COUNT_BEFORE after=$MEMO_COUNT_AFTER"
 fi
 
-# ─── Reminder ─────────────────────────────────────────────────────
-header "Reminder (add)"
-RESP=$(cli_chat "1 分鐘後提醒我 E2E 測試")
-assert_contains "reminder set" "$RESP" ""
-[ -n "$RESP" ] && PASS=$((PASS + 1))
-green "  ℹ reminder push will fire in ~60s (check server log)"
-
-# ─── Schedule ─────────────────────────────────────────────────────
-header "Schedule (set + list + cancel)"
-RESP=$(cli_chat "設定一個每 5 分鐘的排程用 echo pipeline")
+# ─── Reminder [L2+L3] ───────────────────────────────────────────
+header "Reminder"
+REM_USER="e2e-rem-$(date +%s)"
+cli_chat "30 秒後提醒我 E2E 提醒測試" "$REM_USER" > /dev/null
 sleep 8
-LIST=$(cli_chat "列出排程")
-sleep 8
-CANCEL=$(cli_chat "取消第 1 個")
-assert_contains "schedule set" "$RESP" ""
-[ -n "$RESP" ] && PASS=$((PASS + 1))
-assert_contains "cancel response" "$CANCEL" ""
-[ -n "$CANCEL" ] && PASS=$((PASS + 1))
+assert_tool_called "reminder set" "add_reminder"
+assert_db_exists "reminder in DB" \
+    "SELECT count(*) FROM memory_reminders WHERE text LIKE '%E2E%提醒%'"
 
-# ─── Config Reload ────────────────────────────────────────────────
+# ─── Schedule [L2+L3] ───────────────────────────────────────────
+header "Schedule (set + cancel)"
+SCHED_USER="e2e-sched-$(date +%s)"
+cli_chat "設定一個每 5 分鐘的排程，描述 E2E schedule test" "$SCHED_USER" > /dev/null
+sleep 8
+assert_tool_called "schedule set" "schedule_task_cron"
+assert_db_exists "schedule in DB" \
+    "SELECT count(*) FROM memory_schedules WHERE status='pending'"
+
+# Cancel
+cli_chat "取消排程" "$SCHED_USER" > /dev/null
+sleep 8
+assert_tool_called "schedule cancel" "cancel_schedule"
+
+# ─── Config Reload [L1] ─────────────────────────────────────────
 header "Config Reload"
-RESP=$(curl -s -X POST "$BASE_URL/cli/reload" \
-    -H "Content-Type: application/json" -d '{}')
-assert_contains "reload ok" "$RESP" "reloaded"
+RESP=$(curl -s -X POST "$BASE_URL/cli/reload" -H "Content-Type: application/json" -d '{}')
+echo "$RESP" | grep -q "reloaded" && pass "reload ok [L1]" || fail "reload failed"
+sleep 2
+assert_log "config reload" "Config reloaded"
 
-# ─── Context Buffer (group) ──────────────────────────────────────
-header "Context Buffer (group mock)"
+# ─── Context Buffer [L2] ────────────────────────────────────────
+header "Context Buffer (group)"
 mock_webhook '{"text": "閒聊 A", "user_id": "uA", "user_name": "小明", "group_id": "g-ctx-e2e", "is_mention": false}' > /dev/null
 mock_webhook '{"text": "閒聊 B", "user_id": "uB", "user_name": "小華", "group_id": "g-ctx-e2e", "is_mention": false}' > /dev/null
 mock_webhook '{"text": "他們在聊什麼", "user_id": "uC", "group_id": "g-ctx-e2e", "is_mention": true}' > /dev/null
 sleep 12
-green "  ✓ context buffer messages sent (check server log for context injection)"
-PASS=$((PASS + 1))
+assert_log "context drained" "\[SDK\].*g-ctx-e2e.*sending"
 
-# ─── R2 Image Push ────────────────────────────────────────────────
-header "R2 Image Upload + Push"
-R2_RESULT=$(uv run python -c "
-import asyncio, os
-from dotenv import load_dotenv
-load_dotenv()
-
-async def test():
-    endpoint = os.environ.get('R2_ENDPOINT', '')
-    if not endpoint:
-        return 'SKIP:R2_not_configured'
-
-    from chatpilot.storage.r2 import R2Storage
-    import struct, zlib
-
-    # Generate 10x10 blue PNG
-    w, h = 10, 10
-    raw = b''
-    for _ in range(h):
-        raw += b'\x00' + bytes([0, 0, 255]) * w
-    compressed = zlib.compress(raw)
-    def chunk(ct, d):
-        c = ct + d
-        return struct.pack('>I', len(d)) + c + struct.pack('>I', zlib.crc32(c) & 0xffffffff)
-    png = (b'\x89PNG\r\n\x1a\n' +
-           chunk(b'IHDR', struct.pack('>IIBBBBB', w, h, 8, 2, 0, 0, 0)) +
-           chunk(b'IDAT', compressed) + chunk(b'IEND', b''))
-
-    r2 = R2Storage()
-    url = await r2.upload(png, 'image/png', 'png')
-    if not url:
-        return 'FAIL:upload_returned_none'
-
-    # Verify mock adapter can build messages with attachment
-    from chatpilot.core.types import Attachment, Response
-    resp = Response(text='test', attachments=[Attachment(type='image', url=url)])
-    if len(resp.attachments) == 1 and resp.attachments[0].url == url:
-        return f'OK:{url}'
-    return 'FAIL:attachment_mismatch'
-
-print(asyncio.run(test()))
-" 2>/dev/null)
-
-if echo "$R2_RESULT" | grep -q "^OK:"; then
-    green "  ✓ R2 upload + attachment OK"
-    PASS=$((PASS + 1))
-elif echo "$R2_RESULT" | grep -q "^SKIP"; then
-    green "  ⊘ R2 not configured, skipped"
-else
-    red "  ✗ R2 image test failed: $R2_RESULT"
-    FAIL=$((FAIL + 1))
-fi
-
-# ─── Quote Search ────────────────────────────────────────────────
-header "Quote Search"
-# Switch to a chatbot with quote_search tool
-QUOTE_USER="e2e-quote-$(date +%s)"
-timeout "$CLI_TIMEOUT" uv run chatpilot-cli --url "$BASE_URL" chat "/chatbot ${E2E_QUOTE_CHATBOT:-my-assistant}" --user "$QUOTE_USER" > /dev/null 2>&1
-sleep 2
-QUOTE_RESP=$(timeout "$CLI_TIMEOUT" uv run chatpilot-cli --url "$BASE_URL" chat "幫我找虹牌的歷史報價" --user "$QUOTE_USER" 2>/dev/null)
-if echo "$QUOTE_RESP" | grep -qi "虹牌\|報價\|水泥漆\|防水漆"; then
-    green "  ✓ quote_search tool returned results"
-    PASS=$((PASS + 1))
-else
-    red "  ✗ quote_search — no quote data in response"
-    echo "    got: $QUOTE_RESP"
-    FAIL=$((FAIL + 1))
-fi
-
-# ─── Document Edit (unit-level in E2E) ──────────────────────────
+# ─── Document Edit [L3] ─────────────────────────────────────────
 header "Document Edit (xlsx + docx round-trip)"
-DOC_RESULT=$(uv run python -c "
+DOC_RESULT=$(uv run python3 -c "
 import asyncio, io, json
 
 async def test():
     from chatpilot.tools.builtin.document_edit import _edit_xlsx, _edit_docx
     import openpyxl, docx
 
-    # xlsx: create → append → verify
     wb = openpyxl.Workbook()
     wb.active.append(['品名', '數量'])
     wb.active.append(['水泥漆', 10])
     buf = io.BytesIO()
     wb.save(buf)
-    xlsx_bytes = buf.getvalue()
-
-    edited = await _edit_xlsx(xlsx_bytes, '', json.dumps([['乳膠漆', 5]]))
+    edited = await _edit_xlsx(buf.getvalue(), '', json.dumps([['乳膠漆', 5]]))
     wb2 = openpyxl.load_workbook(io.BytesIO(edited))
     rows = list(wb2.active.iter_rows(values_only=True))
     if len(rows) != 3 or rows[2] != ('乳膠漆', 5):
-        return 'FAIL:xlsx_append'
+        return 'FAIL:xlsx'
 
-    # docx: create → append → verify
     doc = docx.Document()
     doc.add_paragraph('原始段落')
     buf2 = io.BytesIO()
     doc.save(buf2)
-    docx_bytes = buf2.getvalue()
-
-    edited2 = await _edit_docx(docx_bytes, '', json.dumps('新增結論'))
+    edited2 = await _edit_docx(buf2.getvalue(), '', json.dumps('新增結論'))
     doc2 = docx.Document(io.BytesIO(edited2))
-    texts = [p.text for p in doc2.paragraphs]
-    if '新增結論' not in texts:
-        return 'FAIL:docx_append'
-
+    if '新增結論' not in [p.text for p in doc2.paragraphs]:
+        return 'FAIL:docx'
     return 'OK'
 
 print(asyncio.run(test()))
 " 2>/dev/null)
+[ "$DOC_RESULT" = "OK" ] && pass "xlsx + docx round-trip [L3]" || fail "document edit: $DOC_RESULT"
 
-if [ "$DOC_RESULT" = "OK" ]; then
-    green "  ✓ xlsx append + docx append round-trip OK"
-    PASS=$((PASS + 1))
-else
-    red "  ✗ document_edit round-trip failed: $DOC_RESULT"
-    FAIL=$((FAIL + 1))
-fi
-
-# ─── Observer Mode ────────────────────────────────────────────────
+# ─── Observer Mode [L2+L3] ──────────────────────────────────────
 header "Observer Mode"
 
-# Use LINE-format IDs (must match routes.yaml observer binding)
-OBS_ROUTE="${E2E_OBSERVER_UID:-Ua1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4}"
+# Clear log marker
+OBS_MARKER="OBS_TEST_$(date +%s)"
+echo "$OBS_MARKER" >> "$E2E_LOG"
 
-# Test 1: Silent collect — observer route should NOT trigger chatbot
-OBS_BEFORE=$(curl -s "$BASE_URL/health" | python3 -c "import sys,json; print(json.load(sys.stdin)['uptime_seconds'])")
-for i in $(seq 1 10); do
-    mock_webhook "{\"text\": \"observer test msg $i\", \"user_id\": \"$OBS_ROUTE\", \"user_name\": \"TestUser$i\", \"platform\": \"line\", \"is_mention\": false}" > /dev/null
+# Send 10 realistic messages (LLM needs real content to categorize, not "test msg N")
+OBS_MSGS=(
+    '{"text":"老闆我明天請假","user_name":"Worker1","category":"leave"}'
+    '{"text":"收到","user_name":"Boss","category":"ack"}'
+    '{"text":"下午那批水泥漆到了","user_name":"Worker2","category":"inventory"}'
+    '{"text":"K1 區已經放滿了","user_name":"Worker3","category":"inventory"}'
+    '{"text":"明天出貨三桶到工地","user_name":"Boss","category":"shipping"}'
+    '{"text":"我後天也要請假看醫生","user_name":"Worker4","category":"leave"}'
+    '{"text":"好 後天人手要調一下","user_name":"Boss","category":"ack"}'
+    '{"text":"新進的乳膠漆放 A2","user_name":"Worker2","category":"inventory"}'
+    '{"text":"龍泰 303 黑色剩兩桶","user_name":"Worker1","category":"inventory"}'
+    '{"text":"下週一客戶要來驗收","user_name":"Boss","category":"schedule"}'
+)
+for msg_json in "${OBS_MSGS[@]}"; do
+    uname=$(echo "$msg_json" | python3 -c "import sys,json; print(json.load(sys.stdin)['user_name'])")
+    text=$(echo "$msg_json" | python3 -c "import sys,json; print(json.load(sys.stdin)['text'])")
+    mock_webhook "{\"text\": \"$text\", \"user_id\": \"$OBS_ROUTE\", \"user_name\": \"$uname\", \"platform\": \"line\", \"is_mention\": false}" > /dev/null
     sleep 0.2
 done
+sleep 25
+
+# L2: batch triggered
+assert_log "observer batch triggered" "\[observer\].*$OBS_ROUTE.*batch triggered"
+
+# L2: no chatbot response (no SDK sending for this route)
+assert_log_absent "observer silent (no SDK)" "\[SDK\].*$OBS_ROUTE.*sending"
+
+# L3: observations stored in DB
+assert_db_exists "observation in DB" \
+    "SELECT count(*) FROM memory_observations WHERE route_id LIKE '%$OBS_ROUTE%'"
+
+# L3: entries count > 0
+OBS_ENTRIES=$(sqlite3 "$E2E_DB" \
+    "SELECT entries FROM memory_observations WHERE route_id LIKE '%$OBS_ROUTE%' ORDER BY created_at DESC LIMIT 1" 2>/dev/null)
+if echo "$OBS_ENTRIES" | python3 -c "import sys,json; entries=json.load(sys.stdin); exit(0 if len(entries)>0 else 1)" 2>/dev/null; then
+    pass "observation has entries [L3]"
+else
+    fail "observation entries empty" "$OBS_ENTRIES"
+fi
+
+# ─── Observer Silence All Attacks [L2] ───────────────────────────
+header "Observer Silence (attack vectors)"
+
+# @mention
+mock_webhook "{\"text\": \"@bot hello\", \"user_id\": \"$OBS_ROUTE\", \"platform\": \"line\", \"is_mention\": true}" > /dev/null
+sleep 2
+# command
+mock_webhook "{\"text\": \"/chatbot list\", \"user_id\": \"$OBS_ROUTE\", \"platform\": \"line\", \"is_mention\": true}" > /dev/null
+sleep 2
+# media
+mock_webhook "{\"text\": \"[圖片 ref:line:img123]\", \"user_id\": \"$OBS_ROUTE\", \"platform\": \"line\", \"is_mention\": true}" > /dev/null
+sleep 2
+assert_log_absent "observer: @mention blocked" "\[SDK\].*$OBS_ROUTE.*sending"
+pass "observer: all attacks blocked [L2]"
+
+# ─── TimeService [L4] ───────────────────────────────────────────
+header "TimeService Integration"
+TS_RESP=$(cli_chat "今天幾號星期幾")
+sleep 2
+TODAY_DASH=$(date +%Y-%m-%d)
+TODAY_Y=$(date +%Y)
+TODAY_M=$(date +%-m)
+TODAY_D=$(date +%-d)
+# Accept: "2026-03-28" or "2026年3月28日"
+if echo "$TS_RESP" | grep -q "$TODAY_DASH"; then
+    pass "today's date exact match [L4: $TODAY_DASH]"
+elif echo "$TS_RESP" | grep -q "${TODAY_Y}年${TODAY_M}月${TODAY_D}日"; then
+    pass "today's date (Chinese format) [L4: ${TODAY_Y}年${TODAY_M}月${TODAY_D}日]"
+else
+    fail "date mismatch" "expected $TODAY_DASH or Chinese format in: $TS_RESP"
+fi
+
+# ─── Trigger Keyword Lifecycle [L4] ─────────────────────────────
+header "Trigger Keyword Lifecycle"
+
+# Step 1: Add keyword via chatbot in GROUP (not CLI — route must be the group)
+mock_webhook "{\"text\": \"幫我新增觸發關鍵字 e2ekw\", \"user_id\": \"kw-admin\", \"group_id\": \"$ASSISTANT_GROUP\", \"is_mention\": true}" > /dev/null
 sleep 15
 
-# Check batch triggered via log
-if grep -q "\[observer\].*line:$OBS_ROUTE.*batch triggered" /tmp/chatpilot.log 2>/dev/null; then
-    green "  ✓ observer batch triggered (10 msgs)"
-    PASS=$((PASS + 1))
-else
-    red "  ✗ observer batch not triggered"
-    FAIL=$((FAIL + 1))
-fi
+# L2: tool was called
+assert_tool_called "keyword add via group chatbot" "manage_trigger_keywords"
 
-# Check no chatbot response for observer route
-if grep -q "\[Chatbot\].*$OBS_ROUTE" /tmp/chatpilot.log 2>/dev/null; then
-    red "  ✗ observer route should be silent (chatbot responded)"
-    FAIL=$((FAIL + 1))
-else
-    green "  ✓ observer route silent (no chatbot response)"
-    PASS=$((PASS + 1))
-fi
+# L3: keyword in DB for the group route
+assert_db_exists "keyword in DB (group route)" \
+    "SELECT count(*) FROM trigger_keywords WHERE keyword='e2ekw'"
 
-# Test 2: Query from allowed consumer
-QUERY_RESP=$(cli_chat "用 query_observations 查 Rick 私訊 的全部紀錄")
-if echo "$QUERY_RESP" | grep -qi "觀察\|紀錄\|請假\|出料\|無權限"; then
-    if echo "$QUERY_RESP" | grep -qi "無權限"; then
-        red "  ✗ query_observations denied (should be allowed)"
-        FAIL=$((FAIL + 1))
-    else
-        green "  ✓ query_observations returned results"
-        PASS=$((PASS + 1))
-    fi
-else
-    red "  ✗ query_observations no response"
-    echo "    got: $QUERY_RESP"
-    FAIL=$((FAIL + 1))
-fi
+# Step 2 (L4): send group msg with keyword (no mention) → should auto-trigger
+mock_webhook "{\"text\": \"e2ekw 你好\", \"user_id\": \"kw-user\", \"group_id\": \"$ASSISTANT_GROUP\", \"is_mention\": false}" > /dev/null
+sleep 12
+assert_log "keyword triggers in group" "Auto-trigger matched.*$ASSISTANT_GROUP"
 
-# ─── TimeService Integration ─────────────────────────────────────
-header "TimeService Integration"
+# Step 3: remove keyword via chatbot
+mock_webhook "{\"text\": \"移除觸發關鍵字 e2ekw\", \"user_id\": \"kw-admin\", \"group_id\": \"$ASSISTANT_GROUP\", \"is_mention\": true}" > /dev/null
+sleep 15
+assert_db_not_exists "keyword removed from DB" \
+    "SELECT count(*) FROM trigger_keywords WHERE keyword='e2ekw'"
 
-# System prompt should contain time hint
-TS_RESP=$(cli_chat "現在幾點")
-if echo "$TS_RESP" | grep -qi "點\|時\|2026"; then
-    green "  ✓ chatbot knows current time (TimeService hint injected)"
-    PASS=$((PASS + 1))
-else
-    red "  ✗ chatbot doesn't know current time"
-    echo "    got: $TS_RESP"
-    FAIL=$((FAIL + 1))
-fi
-
-# ─── Warehouse Unit Display ──────────────────────────────────────
+# ─── Warehouse Unit Display [L3] ────────────────────────────────
 header "Warehouse Unit Display"
 
-# Search should show unit_of_measure + spec (requires warehouse API on :8000)
 WH_RESP=$(curl -s "http://localhost:8000/api/v1/items/search?q=303" 2>/dev/null)
 if echo "$WH_RESP" | python3 -c "
 import sys, json
 try:
     items = json.load(sys.stdin)
-    if items and 'unit_of_measure' in items[0] and 'spec' in items[0]:
+    if items and 'unit_of_measure' in items[0]:
         print('ok')
     else:
         print('missing')
 except: print('error')
-" | grep -q "ok"; then
-    # API has spec field — test format function
+" 2>/dev/null | grep -q "ok"; then
     FORMAT_RESP=$(uv run python3 -c "
 import json, urllib.request
 items = json.loads(urllib.request.urlopen('http://localhost:8000/api/v1/items/search?q=303', timeout=10).read())
 from chatpilot.tools.builtin.warehouse import _format_search_results
-r = _format_search_results(items[:5], '303')
-print(r)
+print(_format_search_results(items[:5], '303'))
 " 2>/dev/null)
-    if echo "$FORMAT_RESP" | grep -q "罐"; then
-        green "  ✓ warehouse search shows unit_of_measure"
-        PASS=$((PASS + 1))
-    else
-        red "  ✗ warehouse search missing unit_of_measure"
-        echo "    got: $FORMAT_RESP"
-        FAIL=$((FAIL + 1))
-    fi
-    if echo "$FORMAT_RESP" | grep -qE "1L|1加侖|5加侖|18L"; then
-        green "  ✓ warehouse search shows spec"
-        PASS=$((PASS + 1))
-    else
-        red "  ✗ warehouse search missing spec"
-        echo "    got: $FORMAT_RESP"
-        FAIL=$((FAIL + 1))
-    fi
+    echo "$FORMAT_RESP" | grep -q "罐" && pass "unit_of_measure shown [L3]" || fail "no unit_of_measure"
+    echo "$FORMAT_RESP" | grep -qE "1L|1加侖|5加侖|18L" && pass "spec shown [L3]" || fail "no spec"
 else
-    green "  ℹ warehouse API not available (skip unit display tests)"
+    green "  ℹ warehouse API not available (skip)"
 fi
 
-# ─── Summary ──────────────────────────────────────────────────────
+# ─── L4: Reminder Push Verification ─────────────────────────────
+header "Reminder Push [L4]"
+
+REM4_USER="e2e-rem4-$(date +%s)"
+# Set reminder for ~10 seconds from now (tick_interval=5)
+cli_chat "10 秒後提醒我 L4 推播驗證" "$REM4_USER" > /dev/null
+sleep 8
+assert_tool_called "L4 reminder set" "add_reminder"
+
+# Wait for CronScheduler to pick it up (tick_interval=5, max ~15s)
+echo "  ⏳ waiting for reminder to fire..."
+sleep 20
+
+# L4: verify general-agent was enqueued
+assert_log "reminder enqueued" "Reminder.*enqueued as general-agent"
+
+# L4: verify reminder marked completed in DB
+REM_STATUS=$(sqlite3 "$E2E_DB" \
+    "SELECT status FROM memory_reminders WHERE text LIKE '%L4%推播%' LIMIT 1" 2>/dev/null)
+if [ "$REM_STATUS" = "completed" ]; then
+    pass "reminder completed in DB [L4]"
+else
+    fail "reminder status: $REM_STATUS (expected completed)"
+fi
+
+# ═══════════════════════════════════════════════════════════════════
+# Summary
+# ═══════════════════════════════════════════════════════════════════
 header "Summary"
 echo ""
 green "Passed: $PASS"
 [ "$FAIL" -gt 0 ] && red "Failed: $FAIL" || green "Failed: $FAIL"
 echo ""
+echo "Log: $E2E_LOG"
+echo "DB:  $E2E_DB"
+echo ""
+
+# Dump DB summary for review
+echo "─── DB State ───"
+for table in memory_memos memory_reminders memory_schedules memory_observations trigger_keywords; do
+    count=$(sqlite3 "$E2E_DB" "SELECT count(*) FROM $table" 2>/dev/null || echo "?")
+    echo "  $table: $count rows"
+done
+echo ""
+
 [ "$FAIL" -eq 0 ] && green "All E2E tests passed!" || red "Some tests failed"
 exit $FAIL

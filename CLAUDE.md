@@ -10,10 +10,12 @@ Last updated: 2026-03-26
 1. 實作功能
 2. uv run ruff check src/ && uv run pytest tests/  （unit test 通過）
 3. bash tests/e2e/run_e2e.sh  （既有 E2E 不壞）
-4. 新功能 E2E 測試：
-   - 邊測邊看 log（grep "[observer]\|[event]\|[tool_call]\|ERROR" /tmp/chatpilot.log）
-   - 確認 function 內部行為正確（debug log 要加在關鍵 function）
-   - 確認 SDK session 內部運作（event logger 自動印 tool_call/tool_result）
+4. 新功能 E2E 測試（四層驗證標準）：
+   - L1 Response — 有回覆、非錯誤
+   - L2 Tool call — grep log `[tool_call]` 確認正確 tool 被呼叫
+   - L3 Side effect — sqlite3 query 確認 DB state 正確改變
+   - L4 Intent — 功能完整走完（reminder 推播、schedule 連續觸發、observer entries 可追溯）
+   - 每項新功能 E2E 至少 L3，關鍵功能 L4
 5. 遇到問題 → 修復 → 回到 step 2 重跑
 6. 全部通過 → 新功能測試項目寫入 /e2e checklist
 7. commit

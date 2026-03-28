@@ -305,7 +305,9 @@ async def lifespan(app: FastAPI):
     sdk_client = SdkClient()
     await sdk_client.start()
 
-    memory_store = MemoryStore()
+    memory_store = MemoryStore(
+        db_path=os.environ.get("CHATPILOT_DB", "data/chatpilot.db")
+    )
     await memory_store.initialize()
 
     tool_factory = ToolFactory()
@@ -470,7 +472,9 @@ async def lifespan(app: FastAPI):
     hub._on_observer_batch = on_observer_batch
 
     # Task scheduler + pipeline
-    task_store = SqliteTaskStore()
+    task_store = SqliteTaskStore(
+        db_path=os.environ.get("CHATPILOT_TASK_DB", "data/tasks.db")
+    )
     await task_store.initialize()
 
     scheduler = InMemoryTaskScheduler(
@@ -497,7 +501,10 @@ async def lifespan(app: FastAPI):
         memory_store=memory_store,
         hub=hub,
         task_scheduler=scheduler,
-        tick_interval=config.cron_scheduler.tick_interval,
+        tick_interval=int(os.environ.get(
+            "CHATPILOT_TICK_INTERVAL",
+            str(config.cron_scheduler.tick_interval),
+        )),
         available_tools=config.cron_scheduler.available_tools,
         chatbot_configs=config.chatbots,
     )

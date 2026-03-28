@@ -41,7 +41,7 @@ chatbots:
     system_message: |
       You are a domain-specific assistant with warehouse and document tools.
       Reply concisely. Use tools to complete tasks, don't describe what you would do.
-    tools: [get_calendar, warehouse, quote_search, document_edit, web_search, download_media, show_image, query_observations, save_memo, list_memos, delete_memo, save_custom_prompt, list_custom_prompts, delete_custom_prompt, add_reminder, schedule_task_cron, list_schedules, cancel_schedule]
+    tools: [get_calendar, warehouse, quote_search, document_edit, web_search, download_media, show_image, query_observations, save_memo, list_memos, delete_memo, save_custom_prompt, list_custom_prompts, delete_custom_prompt, add_reminder, schedule_task_cron, list_schedules, cancel_schedule, manage_trigger_keywords]
     context_window: 50
     timeout: 300
     auto_trigger_keywords: []
