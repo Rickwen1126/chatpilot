@@ -55,9 +55,8 @@ def create_save_memo_tool(memory_store: Any) -> ToolDefinition:
         name="save_memo",
         description=(
             "儲存重要資訊作為長期記憶。"
-            "當對話中出現約定、偏好、關鍵數據或統整結論時，"
-            "先詢問使用者是否需要記下來，同意後再呼叫此工具。"
-            "使用者也可以直接說「記住 XXX」觸發。"
+            "使用者說「記住 XXX」「幫我記 XXX」時直接呼叫此工具存入，不需要再確認。"
+            "對話中出現重要約定或結論時，可主動詢問是否記下來。"
         ),
         parameters={
             "type": "object",

@@ -78,7 +78,7 @@ assert_db_not_exists() {
 # L2: assert log contains pattern
 assert_log() {
     local label="$1" pattern="$2"
-    if strings "$E2E_LOG" | grep "$pattern" > /dev/null 2>&1; then
+    if LC_ALL=C grep -a "$pattern" "$E2E_LOG" > /dev/null 2>&1; then
         pass "$label [L2: log match]"
     else
         fail "$label [L2: log no match]" "pattern: $pattern"
@@ -88,7 +88,7 @@ assert_log() {
 # L2: assert log does NOT contain pattern
 assert_log_absent() {
     local label="$1" pattern="$2"
-    if strings "$E2E_LOG" | grep "$pattern" > /dev/null 2>&1; then
+    if LC_ALL=C grep -a "$pattern" "$E2E_LOG" > /dev/null 2>&1; then
         fail "$label [L2: unexpected log]" "pattern: $pattern"
     else
         pass "$label [L2: log clean]"
@@ -184,25 +184,29 @@ assert_log_absent "non-trigger silent" "\[SDK\].*g-kw-e2e2.*sending"
 # ─── Memo CRUD [L2+L3] ──────────────────────────────────────────
 header "Memo (save + list + delete)"
 MEMO_USER="e2e-memo-$(date +%s)"
-cli_chat "記住：E2E 測試 memo 功能" "$MEMO_USER" > /dev/null
-sleep 8
+
+# Save — direct command, no time reference (avoid LLM routing to add_reminder)
+cli_chat "記住：倉庫密碼是 7788" "$MEMO_USER" > /dev/null
+sleep 10
 assert_tool_called "memo save" "save_memo"
 assert_db_exists "memo in DB" \
-    "SELECT count(*) FROM memory_memos WHERE text LIKE '%E2E%memo%'"
+    "SELECT count(*) FROM memory_memos WHERE route_id LIKE '%$MEMO_USER%'"
 
 # List
-cli_chat "我記了什麼" "$MEMO_USER" > /dev/null
-sleep 8
+cli_chat "列出我的備忘錄" "$MEMO_USER" > /dev/null
+sleep 10
 assert_tool_called "memo list" "list_memos"
 
-# Delete — count before/after (LLM may not match exact text)
-MEMO_COUNT_BEFORE=$(sqlite3 "$E2E_DB" "SELECT count(*) FROM memory_memos" 2>/dev/null)
-cli_chat "刪掉剛才的 memo" "$MEMO_USER" > /dev/null
-sleep 8
+# Delete
+MEMO_COUNT_BEFORE=$(sqlite3 "$E2E_DB" "SELECT count(*) FROM memory_memos WHERE route_id LIKE '%$MEMO_USER%'" 2>/dev/null)
+cli_chat "把備忘錄全部刪掉" "$MEMO_USER" > /dev/null
+sleep 10
 assert_tool_called "memo delete" "delete_memo"
-MEMO_COUNT_AFTER=$(sqlite3 "$E2E_DB" "SELECT count(*) FROM memory_memos" 2>/dev/null)
-if [ "$MEMO_COUNT_AFTER" -lt "$MEMO_COUNT_BEFORE" ] 2>/dev/null; then
+MEMO_COUNT_AFTER=$(sqlite3 "$E2E_DB" "SELECT count(*) FROM memory_memos WHERE route_id LIKE '%$MEMO_USER%'" 2>/dev/null)
+if [ "${MEMO_COUNT_AFTER:-0}" -lt "${MEMO_COUNT_BEFORE:-0}" ] 2>/dev/null; then
     pass "memo count decreased [L3: $MEMO_COUNT_BEFORE→$MEMO_COUNT_AFTER]"
+elif [ "${MEMO_COUNT_BEFORE:-0}" -eq 0 ]; then
+    fail "memo was never saved (save step failed)"
 else
     fail "memo not deleted" "before=$MEMO_COUNT_BEFORE after=$MEMO_COUNT_AFTER"
 fi
