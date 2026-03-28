@@ -28,6 +28,7 @@ Last updated: 2026-03-26
 - 只跑 unit test 不跑 E2E
 - E2E 只看 pass/fail 不看 log
 - 新功能沒加入 /e2e checklist
+- 改 schema/新增欄位後不檢查 DB 既有資料的影響（必要時做 migration 或清理舊資料）
 
 ## Active Technologies
 - Python 3.11+ + FastAPI, Pydantic v2, github-copilot-sdk, line-bot-sdk, watchdog, pyyaml, uvicorn, playwright

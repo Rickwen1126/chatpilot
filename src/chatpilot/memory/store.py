@@ -93,6 +93,17 @@ CREATE INDEX IF NOT EXISTS idx_observations_route
     ON memory_observations(route_id);
 CREATE INDEX IF NOT EXISTS idx_observations_time
     ON memory_observations(route_id, batch_time);
+
+CREATE TABLE IF NOT EXISTS trigger_keywords (
+    id          TEXT PRIMARY KEY,
+    route_id    TEXT NOT NULL,
+    keyword     TEXT NOT NULL,
+    created_at  TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_trigger_keywords_route
+    ON trigger_keywords(route_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_trigger_keywords_unique
+    ON trigger_keywords(route_id, keyword);
 """
 
 
@@ -295,6 +306,66 @@ class SqliteMemoryStore:
             results = [r for r in results if r["entries"]]
 
         return results
+
+    # ── Trigger Keywords ─────────────────────────────────────────
+
+    async def load_all_trigger_keywords(self) -> dict[str, list[str]]:
+        """Load all trigger keywords grouped by route_id.
+
+        Returns: {route_id: [keyword1, keyword2, ...]}
+        Called once at startup to populate in-memory cache.
+        """
+        if self._db is None:
+            raise RuntimeError("MemoryStore not initialized")
+        result: dict[str, list[str]] = {}
+        async with self._db.execute(
+            "SELECT route_id, keyword FROM trigger_keywords ORDER BY created_at"
+        ) as cursor:
+            async for row in cursor:
+                route_id, keyword = row
+                result.setdefault(route_id, []).append(keyword)
+        return result
+
+    async def add_trigger_keyword(
+        self, route_id: str, keyword: str
+    ) -> str:
+        """Add a trigger keyword for a route. Returns the keyword id."""
+        if self._db is None:
+            raise RuntimeError("MemoryStore not initialized")
+        from chatpilot.core.time_service import TimeService
+
+        kid = uuid.uuid4().hex
+        await self._db.execute(
+            "INSERT OR IGNORE INTO trigger_keywords "
+            "(id, route_id, keyword, created_at) VALUES (?, ?, ?, ?)",
+            (kid, route_id, keyword, TimeService.get().utc_now().isoformat()),
+        )
+        await self._db.commit()
+        return kid
+
+    async def remove_trigger_keyword(
+        self, route_id: str, keyword: str
+    ) -> bool:
+        """Remove a trigger keyword for a route. Returns True if deleted."""
+        if self._db is None:
+            raise RuntimeError("MemoryStore not initialized")
+        cursor = await self._db.execute(
+            "DELETE FROM trigger_keywords WHERE route_id = ? AND keyword = ?",
+            (route_id, keyword),
+        )
+        await self._db.commit()
+        return cursor.rowcount > 0
+
+    async def list_trigger_keywords(self, route_id: str) -> list[str]:
+        """List all trigger keywords for a route."""
+        if self._db is None:
+            raise RuntimeError("MemoryStore not initialized")
+        async with self._db.execute(
+            "SELECT keyword FROM trigger_keywords "
+            "WHERE route_id = ? ORDER BY created_at",
+            (route_id,),
+        ) as cursor:
+            return [row[0] async for row in cursor]
 
 
 def _serialize_json_fields(data: dict) -> None:

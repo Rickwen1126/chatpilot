@@ -259,6 +259,13 @@ def _register_tools(
     tool_factory.register(create_list_schedules_tool(memory_store))
     tool_factory.register(create_cancel_schedule_tool(memory_store))
 
+    # Trigger keyword management
+    from chatpilot.tools.builtin.manage_keywords import (
+        create_manage_keywords_tool,
+    )
+
+    tool_factory.register(create_manage_keywords_tool(memory_store))
+
     # Observer query tool
     if observer_sources:
         from chatpilot.tools.builtin.query_observations import (
@@ -318,7 +325,10 @@ async def lifespan(app: FastAPI):
 
     # Trigger keywords + auto-trigger
     from chatpilot.hub.mention_filter import configure as configure_keywords
-    from chatpilot.hub.mention_filter import configure_auto_triggers
+    from chatpilot.hub.mention_filter import (
+        configure_auto_triggers,
+        load_route_keywords,
+    )
 
     configure_keywords(config.trigger_keywords)
     configure_auto_triggers({
@@ -326,6 +336,10 @@ async def lifespan(app: FastAPI):
         for name, cfg in config.chatbots.items()
         if cfg.auto_trigger_keywords
     })
+
+    # Load per-route trigger keywords from DB → in-memory cache
+    db_keywords = await memory_store.load_all_trigger_keywords()
+    load_route_keywords(db_keywords)
 
     # Hub
     hub = _init_hub(
@@ -528,7 +542,14 @@ async def lifespan(app: FastAPI):
     def on_config_reload(new_config: GatewayConfig) -> None:
         binding_router.update(new_config.bindings, new_config.match_weights)
         chatbot_manager.update_configs(new_config.chatbots)
-        logger.info("Config reloaded successfully")
+        # Rebuild config keyword cache (DB cache untouched)
+        configure_keywords(new_config.trigger_keywords)
+        configure_auto_triggers({
+            name: cfg.auto_trigger_keywords
+            for name, cfg in new_config.chatbots.items()
+            if cfg.auto_trigger_keywords
+        })
+        logger.info("Config reloaded successfully (keywords refreshed)")
 
     observer = watch_config(config_path, on_config_reload) if config_path.exists() else None
 

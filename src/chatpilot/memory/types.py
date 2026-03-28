@@ -60,6 +60,13 @@ class Observation(BaseModel):
     created_at: datetime = Field(default_factory=_utcnow)
 
 
+class TriggerKeyword(BaseModel):
+    id: str = Field(default_factory=_uuid)
+    route_id: str = ""
+    keyword: str = ""
+    created_at: datetime = Field(default_factory=_utcnow)
+
+
 class Schedule(BaseModel):
     id: str = Field(default_factory=_uuid)
     route_id: str = ""
