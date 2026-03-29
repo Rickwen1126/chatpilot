@@ -438,6 +438,63 @@ else
     fail "reminder status: $REM_STATUS (expected completed)"
 fi
 
+# ─── STT Transcriber [L2+L3] ──────────────────────────────────────
+header "STT Transcriber"
+
+STT_RESULT=$(uv run python3 -c "
+import asyncio
+
+async def test():
+    from chatpilot.stt.transcriber import SttTranscriber
+
+    # Test 1: disabled without key
+    t = SttTranscriber(api_key='')
+    assert not t.enabled, 'should be disabled'
+    r = await t.transcribe(b'fake')
+    assert r is None, 'disabled should return None'
+
+    # Test 2: graceful failure on bad key
+    t2 = SttTranscriber(api_key='sk-invalid')
+    assert t2.enabled, 'should be enabled with key'
+    r2 = await t2.transcribe(b'not-real-audio')
+    assert r2 is None, 'bad request should return None'
+
+    return 'OK'
+
+print(asyncio.run(test()))
+" 2>/dev/null)
+[ "$STT_RESULT" = "OK" ] && pass "transcriber unit (disabled + graceful fail) [L2]" || fail "transcriber unit: $STT_RESULT"
+
+# L3: Hub audio ref detection + transcription integration
+STT_HUB_RESULT=$(uv run python3 -c "
+import asyncio
+
+async def test():
+    from chatpilot.hub.hub import _AUDIO_REF_PATTERN
+    from chatpilot.stt.transcriber import SttTranscriber
+    from chatpilot.core.types import Message
+
+    # Pattern detection
+    m = _AUDIO_REF_PATTERN.search('[音檔 ref:line:12345]')
+    assert m is not None, 'pattern should match'
+    assert m.group(1) == 'line', f'platform={m.group(1)}'
+    assert m.group(2) == '12345', f'media_id={m.group(2)}'
+
+    # No match on image
+    assert _AUDIO_REF_PATTERN.search('[圖片 ref:line:99]') is None, 'should not match image'
+
+    # Message text replacement format
+    ref = '[音檔 ref:line:12345]'
+    text = f'{ref}（轉錄：你好世界）'
+    assert '轉錄：' in text
+    assert ref in text
+
+    return 'OK'
+
+print(asyncio.run(test()))
+" 2>/dev/null)
+[ "$STT_HUB_RESULT" = "OK" ] && pass "hub audio pattern + format [L3]" || fail "hub stt: $STT_HUB_RESULT"
+
 # ═══════════════════════════════════════════════════════════════════
 # Summary
 # ═══════════════════════════════════════════════════════════════════
