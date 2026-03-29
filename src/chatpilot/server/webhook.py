@@ -57,6 +57,7 @@ async def cli_chat(request: Request) -> JSONResponse:
 
     text = body.get("message", body.get("text", ""))
     user_id = body.get("user_id", "cli-user")
+    group_id = body.get("group_id")
     if not text:
         return JSONResponse(
             status_code=400,
@@ -67,15 +68,23 @@ async def cli_chat(request: Request) -> JSONResponse:
     response_event = asyncio.Event()
     captured: dict = {"text": ""}
 
+    platform_name = body.get("platform", "cli")
+
     class _CliCaptureAdapter:
         """Temporary adapter that captures the response."""
 
         @property
         def platform(self) -> str:
-            return "cli"
+            return platform_name
 
         @property
         def format_hint(self) -> str | None:
+            if platform_name == "line":
+                return (
+                    "[格式限制] 此平台不支援 Markdown。"
+                    "不要使用 **粗體**、`程式碼`、## 標題、[連結](url)。"
+                    "用純文字和換行來排版。"
+                )
             return None
 
         async def send_reply(self, message: Message, response: Response) -> None:
@@ -90,11 +99,13 @@ async def cli_chat(request: Request) -> JSONResponse:
             return None
 
     adapter = _CliCaptureAdapter()
+    conv_id = group_id or user_id
     msg = Message(
         text=text,
         user_id=user_id,
+        group_id=group_id,
         platform="cli",
-        conversation_id=user_id,
+        conversation_id=conv_id,
         is_mention=True,
     )
 
