@@ -65,11 +65,13 @@ def _init_hub(
     binding_router: BindingRouter,
     chatbot_manager: ChatbotManager,
     response_injector=None,
+    stt_transcriber=None,
 ) -> InMemoryMessageHub:
     hub = InMemoryMessageHub(
         context_buffer=context_buffer,
         adapters=adapters,
         resolve_binding=binding_router.resolve,
+        stt_transcriber=stt_transcriber,
     )
 
     async def on_proceed(
@@ -352,9 +354,15 @@ async def lifespan(app: FastAPI):
     db_keywords = await memory_store.load_all_trigger_keywords()
     load_route_keywords(db_keywords)
 
+    # STT Transcriber
+    from chatpilot.stt import SttTranscriber
+
+    stt = SttTranscriber()
+
     # Hub
     hub = _init_hub(
-        ContextBuffer(), adapters, binding_router, chatbot_manager, response_injector
+        ContextBuffer(), adapters, binding_router, chatbot_manager,
+        response_injector, stt_transcriber=stt,
     )
     app.state.hub = hub
     app.state.chatbot_manager = chatbot_manager

@@ -16,6 +16,7 @@ from chatpilot.core.types import (
 )
 from chatpilot.hub.context_buffer import ContextBuffer
 from chatpilot.hub.mention_filter import is_mention, match_auto_trigger
+from chatpilot.stt.transcriber import SttTranscriber
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +29,10 @@ _MEDIA_REF_PATTERN = re.compile(
 def _is_media_only(text: str) -> bool:
     """Check if message text contains only media refs with no other content."""
     return bool(_MEDIA_REF_PATTERN.match(text.strip()))
+
+
+# Pattern to extract audio refs: [音檔 ref:platform:message_id]
+_AUDIO_REF_PATTERN = re.compile(r"\[音檔\s+ref:(\w+):(\w+)\]")
 
 OnProceedCallback = Callable[
     [Message, str | None, ChannelAdapter], Coroutine[Any, Any, None]
@@ -58,9 +63,11 @@ class InMemoryMessageHub:
         on_pipeline_result: OnPipelineResultCallback | None = None,
         resolve_binding: ResolveBindingCallback | None = None,
         on_observer_batch: OnObserverBatchCallback | None = None,
+        stt_transcriber: SttTranscriber | None = None,
     ) -> None:
         self._context_buffer = context_buffer
         self._adapters = adapters
+        self._stt = stt_transcriber
         self._busy: dict[str, bool] = {}
         self._on_proceed = on_proceed
         self._on_command = on_command
@@ -105,6 +112,9 @@ class InMemoryMessageHub:
             route_id, message.user_name or message.user_id,
             message.is_mention, message.text[:80],
         )
+
+        # STT: transcribe audio refs before routing
+        await self._transcribe_audio(message, adapter)
 
         # Observer mode: silent collect + batch trigger
         obs_config = self._observer_configs.get(route_id)
@@ -380,3 +390,39 @@ class InMemoryMessageHub:
                     logger.exception("Fallback push also failed for %s", route_id)
             finally:
                 self._busy[route_id] = False
+
+    async def _transcribe_audio(
+        self, message: Message, adapter: ChannelAdapter
+    ) -> None:
+        """Detect audio refs in message, transcribe, and update message.text."""
+        if not self._stt or not self._stt.enabled:
+            return
+
+        match = _AUDIO_REF_PATTERN.search(message.text)
+        if not match:
+            return
+
+        platform, media_id = match.group(1), match.group(2)
+        ref_tag = match.group(0)  # e.g. [音檔 ref:line:607214746994999315]
+        logger.info("[stt] detected audio ref: %s:%s", platform, media_id)
+
+        # Download audio bytes via adapter
+        source_adapter = self._adapters.get(platform)
+        if source_adapter is None or not hasattr(source_adapter, "download_media"):
+            logger.warning("[stt] no adapter for platform %s, skip", platform)
+            return
+
+        audio_bytes = await source_adapter.download_media(media_id)
+        if not audio_bytes:
+            logger.warning("[stt] download failed for %s:%s", platform, media_id)
+            return
+
+        logger.info("[stt] downloaded %d bytes, transcribing...", len(audio_bytes))
+        text = await self._stt.transcribe(audio_bytes)
+        if not text:
+            logger.warning("[stt] transcription returned empty for %s:%s", platform, media_id)
+            return
+
+        # Replace message text: keep ref tag + append transcription
+        message.text = f"{ref_tag}（轉錄：{text}）"
+        logger.info("[stt] transcribed %s:%s → %d chars", platform, media_id, len(text))

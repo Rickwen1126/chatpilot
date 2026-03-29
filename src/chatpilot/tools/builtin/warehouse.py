@@ -395,7 +395,11 @@ def _format_search_results(items: list, query: str) -> str:
         loc = item.get("location_display", item.get("unit_id", "?"))
         location_set.add(loc)
 
-    lines = [f"[搜尋] 「{query}」— {len(groups)} 種品項，{total_items} 筆，分布 {len(location_set)} 個位置"]
+    header = (
+        f"[搜尋] 「{query}」— {len(groups)} 種品項，"
+        f"{total_items} 筆，分布 {len(location_set)} 個位置"
+    )
+    lines = [header]
 
     # Structured data per group
     spec_totals: dict[str, int] = {}
