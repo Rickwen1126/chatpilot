@@ -5,11 +5,13 @@ from __future__ import annotations
 import logging
 
 from linebot.v3.webhooks import (
+    AudioMessageContent,
     FileMessageContent,
     ImageMessageContent,
     MessageEvent,
     TextMessageContent,
     UserMentionee,
+    VideoMessageContent,
 )
 
 from chatpilot.core.time_service import TimeService
@@ -81,6 +83,52 @@ def parse_line_events(events: list) -> list[Message]:
         elif isinstance(event.message, ImageMessageContent):
             msg = Message(
                 text=f"[圖片 ref:line:{event.message.id}]",
+                user_id=user_id,
+                user_name="",
+                platform="line",
+                group_id=group_id,
+                conversation_id=conversation_id,
+                is_mention=False,
+                timestamp=event_ts,
+                platform_context={
+                    "reply_token": event.reply_token,
+                    "message_id": event.message.id,
+                    "received_at": received_at.isoformat(),
+                },
+            )
+            messages.append(msg)
+
+        elif isinstance(event.message, AudioMessageContent):
+            duration = getattr(event.message, "duration", None)
+            logger.info(
+                "LINE audio from %s duration=%sms",
+                user_id[:8], duration,
+            )
+            msg = Message(
+                text=f"[音檔 ref:line:{event.message.id}]",
+                user_id=user_id,
+                user_name="",
+                platform="line",
+                group_id=group_id,
+                conversation_id=conversation_id,
+                is_mention=False,
+                timestamp=event_ts,
+                platform_context={
+                    "reply_token": event.reply_token,
+                    "message_id": event.message.id,
+                    "received_at": received_at.isoformat(),
+                },
+            )
+            messages.append(msg)
+
+        elif isinstance(event.message, VideoMessageContent):
+            duration = getattr(event.message, "duration", None)
+            logger.info(
+                "LINE video from %s duration=%sms",
+                user_id[:8], duration,
+            )
+            msg = Message(
+                text=f"[影片 ref:line:{event.message.id}]",
                 user_id=user_id,
                 user_name="",
                 platform="line",
