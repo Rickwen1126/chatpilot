@@ -32,7 +32,7 @@ def _is_media_only(text: str) -> bool:
 
 
 # Pattern to extract audio refs: [音檔 ref:platform:message_id]
-_AUDIO_REF_PATTERN = re.compile(r"\[音檔\s+ref:(\w+):(\w+)\]")
+_AUDIO_REF_PATTERN = re.compile(r"\[音檔\s+ref:([^:\]]+(?::[^:\]]+)?):([^:\]]+)\]")
 
 OnProceedCallback = Callable[
     [Message, str | None, ChannelAdapter], Coroutine[Any, Any, None]
@@ -311,7 +311,7 @@ class InMemoryMessageHub:
                 route_id, response.text[:80],
             )
             return
-        platform = route_id.split(":")[0]
+        platform = route_id.rsplit(":", 1)[0]
         adapter = self._adapters.get(platform)
         if adapter is None:
             logger.error("No adapter for platform '%s'", platform)

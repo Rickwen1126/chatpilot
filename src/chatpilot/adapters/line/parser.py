@@ -20,7 +20,7 @@ from chatpilot.core.types import Message
 logger = logging.getLogger(__name__)
 
 
-def parse_line_events(events: list) -> list[Message]:
+def parse_line_events(events: list, platform: str = "line") -> list[Message]:
     """Parse LINE webhook events into unified Message list.
 
     Handles text messages and image messages.
@@ -67,7 +67,7 @@ def parse_line_events(events: list) -> list[Message]:
                 text=event.message.text,
                 user_id=user_id,
                 user_name="",
-                platform="line",
+                platform=platform,
                 group_id=group_id,
                 conversation_id=conversation_id,
                 is_mention=is_mention,
@@ -82,10 +82,10 @@ def parse_line_events(events: list) -> list[Message]:
 
         elif isinstance(event.message, ImageMessageContent):
             msg = Message(
-                text=f"[圖片 ref:line:{event.message.id}]",
+                text=f"[圖片 ref:{platform}:{event.message.id}]",
                 user_id=user_id,
                 user_name="",
-                platform="line",
+                platform=platform,
                 group_id=group_id,
                 conversation_id=conversation_id,
                 is_mention=False,
@@ -105,10 +105,10 @@ def parse_line_events(events: list) -> list[Message]:
                 user_id[:8], duration,
             )
             msg = Message(
-                text=f"[音檔 ref:line:{event.message.id}]",
+                text=f"[音檔 ref:{platform}:{event.message.id}]",
                 user_id=user_id,
                 user_name="",
-                platform="line",
+                platform=platform,
                 group_id=group_id,
                 conversation_id=conversation_id,
                 is_mention=False,
@@ -128,10 +128,10 @@ def parse_line_events(events: list) -> list[Message]:
                 user_id[:8], duration,
             )
             msg = Message(
-                text=f"[影片 ref:line:{event.message.id}]",
+                text=f"[影片 ref:{platform}:{event.message.id}]",
                 user_id=user_id,
                 user_name="",
-                platform="line",
+                platform=platform,
                 group_id=group_id,
                 conversation_id=conversation_id,
                 is_mention=False,
@@ -151,10 +151,10 @@ def parse_line_events(events: list) -> list[Message]:
                 user_id[:8], fname, event.message.file_size or 0,
             )
             msg = Message(
-                text=f"[檔案 ref:line:{event.message.id}:{fname}]",
+                text=f"[檔案 ref:{platform}:{event.message.id}:{fname}]",
                 user_id=user_id,
                 user_name="",
-                platform="line",
+                platform=platform,
                 group_id=group_id,
                 conversation_id=conversation_id,
                 is_mention=False,

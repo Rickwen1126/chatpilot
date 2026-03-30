@@ -13,7 +13,6 @@ from chatpilot.core.time_service import TimeService
 from chatpilot.core.types import ContextMessage, ContextMessageType
 from chatpilot.hub.context_buffer import ContextBuffer
 from chatpilot.memory.store import SqliteMemoryStore
-from chatpilot.memory.types import MemoryStatus
 
 
 @pytest.fixture(autouse=True)
@@ -96,7 +95,6 @@ def test_cron_parser_interval_from_time_service():
 
     before = TimeService.get().utc_now()
     result = calculate_next_run("interval 15m")
-    after = TimeService.get().utc_now()
     # Should be ~15 minutes after now
     diff = (result - before).total_seconds()
     assert 14 * 60 <= diff <= 15 * 60 + 1

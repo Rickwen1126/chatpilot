@@ -12,6 +12,7 @@ from watchdog.events import FileSystemEvent, FileSystemEventHandler
 from watchdog.observers import Observer
 
 from chatpilot.core.types import (
+    AdapterChannelConfig,
     AgentConfig,
     Binding,
     ChatbotConfig,
@@ -25,12 +26,13 @@ logger = logging.getLogger(__name__)
 
 class GatewayConfig(BaseModel):
     timezone: str = "Asia/Taipei"
-    match_weights: MatchWeights = MatchWeights()
-    bindings: list[Binding] = []
-    chatbots: dict[str, ChatbotConfig] = {}
-    agents: dict[str, AgentConfig] = {}
-    scheduler: SchedulerConfig = SchedulerConfig()
-    cron_scheduler: CronSchedulerConfig = CronSchedulerConfig()
+    match_weights: MatchWeights = Field(default_factory=MatchWeights)
+    bindings: list[Binding] = Field(default_factory=list)
+    chatbots: dict[str, ChatbotConfig] = Field(default_factory=dict)
+    agents: dict[str, AgentConfig] = Field(default_factory=dict)
+    adapters: dict[str, list[AdapterChannelConfig]] = Field(default_factory=dict)
+    scheduler: SchedulerConfig = Field(default_factory=SchedulerConfig)
+    cron_scheduler: CronSchedulerConfig = Field(default_factory=CronSchedulerConfig)
     trigger_keywords: list[str] = Field(default_factory=list)
 
 

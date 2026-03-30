@@ -17,6 +17,29 @@ class DownloadMediaParams(BaseModel):
     ref: str = Field(description="媒體參考 ID，格式為 platform:media_id，例如 line:msg_123")
 
 
+def _parse_ref(ref: str, adapters: dict) -> tuple[str, str, str | None]:
+    for platform in sorted(adapters.keys(), key=len, reverse=True):
+        prefix = f"{platform}:"
+        if not ref.startswith(prefix):
+            continue
+        remainder = ref[len(prefix):]
+        if not remainder:
+            break
+        if ":" in remainder:
+            media_id, filename = remainder.split(":", 1)
+        else:
+            media_id, filename = remainder, None
+        return platform, media_id, filename
+
+    parts = ref.split(":", 2)
+    if len(parts) < 2:
+        raise ValueError(f"無效的 ref 格式: {ref}（應為 platform:media_id）")
+    platform = parts[0]
+    media_id = parts[1]
+    filename = parts[2] if len(parts) == 3 else None
+    return platform, media_id, filename
+
+
 def create_download_media_tool(adapters: dict) -> ToolDefinition:
     """Create a download_media tool.
 
@@ -30,16 +53,10 @@ def create_download_media_tool(adapters: dict) -> ToolDefinition:
         args = invocation.get("arguments") or {}
         ref = args.get("ref", "")
 
-        if ":" not in ref:
-            return ToolResult(
-                textResultForLlm=f"無效的 ref 格式: {ref}（應為 platform:media_id）",
-                resultType="failure",
-            )
-
-        parts = ref.split(":")
-        platform = parts[0]
-        media_id = parts[1] if len(parts) >= 2 else ""
-        filename = parts[2] if len(parts) >= 3 else None
+        try:
+            platform, media_id, filename = _parse_ref(ref, adapters)
+        except ValueError as e:
+            return ToolResult(textResultForLlm=str(e), resultType="failure")
         adapter = adapters.get(platform)
         if adapter is None:
             return ToolResult(

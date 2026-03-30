@@ -158,6 +158,14 @@ class CronSchedulerConfig(BaseModel):
     available_tools: list[str] = Field(default_factory=list)
 
 
+class AdapterChannelConfig(BaseModel):
+    """Named adapter channel loaded from config."""
+
+    name: str
+    channel_secret_env: str
+    channel_token_env: str
+
+
 # ── Task ──────────────────────────────────────────────────────────────
 
 

@@ -4,8 +4,6 @@ import asyncio
 import json
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from chatpilot.stt.transcriber import SttTranscriber
 
 

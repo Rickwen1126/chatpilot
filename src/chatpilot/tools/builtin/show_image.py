@@ -12,6 +12,18 @@ from chatpilot.core.types import AccessLevel, ToolDefinition
 logger = logging.getLogger(__name__)
 
 
+def _parse_ref(ref: str, adapters: dict) -> tuple[str, str]:
+    for platform in sorted(adapters.keys(), key=len, reverse=True):
+        prefix = f"{platform}:"
+        if ref.startswith(prefix):
+            return platform, ref[len(prefix):]
+
+    parts = ref.split(":", 1)
+    if len(parts) != 2:
+        raise ValueError(f"無效的 ref 格式: {ref}")
+    return parts[0], parts[1]
+
+
 def create_show_image_tool(
     adapters: dict,
     r2_storage: Any,
@@ -49,14 +61,13 @@ def create_show_image_tool(
             )
 
         # Mode 2: download from platform ref → upload R2 → inject
-        parts = ref.split(":")
-        if len(parts) < 2:
+        try:
+            platform, media_id = _parse_ref(ref, adapters)
+        except ValueError:
             return ToolResult(
                 textResultForLlm=f"無效的 ref 格式: {ref}",
                 resultType="failure",
             )
-
-        platform, media_id = parts[0], parts[1]
         adapter = adapters.get(platform)
         if adapter is None or not hasattr(adapter, "download_media"):
             return ToolResult(

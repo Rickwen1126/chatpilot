@@ -16,6 +16,16 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+def _line_adapter_candidates(adapters: dict) -> list:
+    named = [
+        adapter
+        for key, adapter in adapters.items()
+        if key.startswith("line:")
+    ]
+    fallback = [adapters["line"]] if "line" in adapters else []
+    return named + fallback
+
+
 @router.post("/webhook/{platform}")
 async def webhook_handler(platform: str, request: Request) -> JSONResponse:
     """Handle incoming webhook from any platform."""
@@ -23,20 +33,39 @@ async def webhook_handler(platform: str, request: Request) -> JSONResponse:
     hub = request.app.state.hub
 
     adapter = adapters.get(platform)
+    if platform == "line":
+        candidates = _line_adapter_candidates(adapters)
+        if candidates:
+            adapter = None
+            for candidate in candidates:
+                try:
+                    await candidate.verify_request(request)
+                    adapter = candidate
+                    break
+                except Exception:
+                    continue
+            if adapter is None:
+                logger.warning("Signature verification failed for %s", platform)
+                return JSONResponse(
+                    status_code=401,
+                    content={"error": "Invalid signature", "code": "SIGNATURE_INVALID"},
+                )
+
     if adapter is None:
         return JSONResponse(
             status_code=404,
             content={"error": f"Unknown platform: {platform}", "code": "PLATFORM_UNKNOWN"},
         )
 
-    try:
-        await adapter.verify_request(request)
-    except Exception as e:
-        logger.warning("Signature verification failed for %s: %s", platform, e)
-        return JSONResponse(
-            status_code=401,
-            content={"error": "Invalid signature", "code": "SIGNATURE_INVALID"},
-        )
+    if platform != "line":
+        try:
+            await adapter.verify_request(request)
+        except Exception as e:
+            logger.warning("Signature verification failed for %s: %s", platform, e)
+            return JSONResponse(
+                status_code=401,
+                content={"error": "Invalid signature", "code": "SIGNATURE_INVALID"},
+            )
 
     messages = await adapter.parse_messages(request)
     for msg in messages:

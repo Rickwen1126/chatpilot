@@ -61,9 +61,19 @@ def _split_text(text: str) -> list[str]:
 class LineAdapter:
     """LINE Messaging API adapter."""
 
-    def __init__(self) -> None:
-        self._secret = os.environ.get("LINE_CHANNEL_SECRET", "")
-        token = os.environ.get("LINE_CHANNEL_ACCESS_TOKEN", "")
+    def __init__(
+        self,
+        name: str | None = None,
+        secret: str | None = None,
+        token: str | None = None,
+    ) -> None:
+        self._name = name
+        self._secret = secret if secret is not None else os.environ.get(
+            "LINE_CHANNEL_SECRET", ""
+        )
+        token = token if token is not None else os.environ.get(
+            "LINE_CHANNEL_ACCESS_TOKEN", ""
+        )
         self._parser = WebhookParser(self._secret) if self._secret else None
         if token:
             config = Configuration(access_token=token)
@@ -76,7 +86,7 @@ class LineAdapter:
 
     @property
     def platform(self) -> str:
-        return "line"
+        return f"line:{self._name}" if self._name else "line"
 
     @property
     def format_hint(self) -> str:
@@ -114,7 +124,7 @@ class LineAdapter:
         signature = request.headers.get("X-Line-Signature", "")
         try:
             events = self._parser.parse(body.decode("utf-8"), signature)
-            return parse_line_events(events)
+            return parse_line_events(events, platform=self.platform)
         except Exception as e:
             logger.error("LINE parse error: %s", e)
             return []
@@ -125,7 +135,7 @@ class LineAdapter:
             raise AdapterError("LINE API not initialized")
 
         msgs = _build_messages(response)
-        route_id = f"line:{message.conversation_id}"
+        route_id = f"{message.platform}:{message.conversation_id}"
 
         # If expired or too many messages, use push
         # Use received_at (webhook arrival time) not message.timestamp (LINE event time)
@@ -157,7 +167,7 @@ class LineAdapter:
         """Push message to a conversation, splitting long text into chunks."""
         if self._api is None:
             raise AdapterError("LINE API not initialized")
-        _, conversation_id = route_id.split(":", 1)
+        conversation_id = route_id.rsplit(":", 1)[1]
         msgs = _build_messages(response)
 
         for i in range(0, len(msgs), LINE_MAX_MESSAGES_PER_CALL):

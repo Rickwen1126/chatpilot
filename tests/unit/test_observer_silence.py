@@ -6,12 +6,9 @@ These tests cover every possible leak path.
 
 import asyncio
 from datetime import datetime, timezone
-from unittest.mock import AsyncMock, MagicMock
-
-import pytest
+from unittest.mock import AsyncMock
 
 from chatpilot.core.types import (
-    ContextMessageType,
     Message,
     Response,
 )

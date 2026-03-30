@@ -1,5 +1,7 @@
 """Tests for document_edit tool — xlsx/docx editing + full handler flow."""
 
+from __future__ import annotations
+
 import io
 import json
 
@@ -14,7 +16,6 @@ from chatpilot.tools.builtin.document_edit import (
     _parse_ref,
     create_document_edit_tool,
 )
-
 
 # ── Helpers ──────────────────────────────────────────────────────
 
@@ -65,6 +66,14 @@ def test_parse_ref_two_parts():
 def test_parse_ref_invalid():
     with pytest.raises(ValueError, match="無效"):
         _parse_ref("bad")
+
+
+def test_parse_ref_named_line_channel():
+    assert _parse_ref("line:webric:msg_123:report.xlsx") == (
+        "line:webric",
+        "msg_123",
+        "report.xlsx",
+    )
 
 
 # ── _get_extension ───────────────────────────────────────────────

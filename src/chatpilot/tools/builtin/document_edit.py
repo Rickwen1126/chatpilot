@@ -22,6 +22,12 @@ def _parse_ref(ref: str) -> tuple[str, str, str]:
     Format: "platform:message_id:filename"
     """
     parts = ref.split(":", 2)
+    if ref.startswith("line:") and ref.count(":") >= 3:
+        parts = ref.split(":", 3)
+        platform = ":".join(parts[:2])
+        message_id = parts[2]
+        filename = parts[3] if len(parts) == 4 else ""
+        return platform, message_id, filename
     if len(parts) < 2:
         raise ValueError(f"無效的 file_ref 格式: {ref}（應為 platform:message_id:filename）")
     platform = parts[0]

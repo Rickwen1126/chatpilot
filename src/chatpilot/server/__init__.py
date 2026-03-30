@@ -44,12 +44,32 @@ def _load_gateway_config(config_path: Path) -> GatewayConfig:
         return GatewayConfig()
 
 
-def _init_adapters() -> dict[str, ChannelAdapter]:
+def _init_adapters(config: GatewayConfig) -> dict[str, ChannelAdapter]:
     adapters: dict[str, ChannelAdapter] = {}
     try:
         from chatpilot.adapters.line.adapter import LineAdapter
 
-        adapters["line"] = LineAdapter()
+        line_channels = config.adapters.get("line", [])
+        if line_channels:
+            for channel in line_channels:
+                secret = os.environ.get(channel.channel_secret_env, "")
+                token = os.environ.get(channel.channel_token_env, "")
+                if not secret or not token:
+                    logger.warning(
+                        "Skip LINE channel %s (missing env: %s / %s)",
+                        channel.name,
+                        channel.channel_secret_env,
+                        channel.channel_token_env,
+                    )
+                    continue
+                adapter = LineAdapter(
+                    name=channel.name,
+                    secret=secret,
+                    token=token,
+                )
+                adapters[adapter.platform] = adapter
+        else:
+            adapters["line"] = LineAdapter()
     except Exception:
         logger.warning("LINE adapter not available (missing env vars?)")
 
@@ -322,7 +342,7 @@ async def lifespan(app: FastAPI):
     await memory_store.initialize()
 
     tool_factory = ToolFactory()
-    adapters = _init_adapters()
+    adapters = _init_adapters(config)
     app.state.adapters = adapters
 
     # Routing + chatbot
@@ -564,6 +584,8 @@ async def lifespan(app: FastAPI):
 
     # Hot reload
     def on_config_reload(new_config: GatewayConfig) -> None:
+        adapters.clear()
+        adapters.update(_init_adapters(new_config))
         binding_router.update(new_config.bindings, new_config.match_weights)
         chatbot_manager.update_configs(new_config.chatbots)
         # Rebuild config keyword cache (DB cache untouched)
