@@ -31,6 +31,10 @@ class ChatbotSession:
     def chatbot_name(self) -> str:
         return self._config.name
 
+    @property
+    def session_id(self) -> str:
+        return self._session.session_id
+
     async def send_message(
         self,
         text: str,

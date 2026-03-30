@@ -9,6 +9,7 @@ from copilot.types import Tool as SdkTool
 
 from chatpilot.core.types import AccessLevel, ToolDefinition
 from chatpilot.tools.registry import ToolRegistry
+from chatpilot.tools.session_context import SessionContextRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -22,8 +23,18 @@ _PIPELINE_LEVELS = (AccessLevel.GLOBAL, AccessLevel.AGENT_TEAM_ONLY)
 class ToolFactory:
     """Central tool registration and distribution center."""
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        session_context_registry: SessionContextRegistry | None = None,
+    ) -> None:
         self._registry = ToolRegistry()
+        self._session_context_registry = (
+            session_context_registry or SessionContextRegistry()
+        )
+
+    @property
+    def session_context_registry(self) -> SessionContextRegistry:
+        return self._session_context_registry
 
     def register(self, definition: ToolDefinition) -> None:
         self._registry.register(definition)
@@ -40,7 +51,10 @@ class ToolFactory:
                 continue
             defn = self._registry.get(name)
             if defn.access_level in _CHATBOT_LEVELS:
-                result.append(_to_sdk_tool(defn))
+                result.append(_to_sdk_tool(
+                    defn,
+                    session_context_registry=self._session_context_registry,
+                ))
         return result
 
     def get_tools_for_pipeline(self, tool_names: list[str]) -> list[SdkTool]:
@@ -61,7 +75,10 @@ class ToolFactory:
                     f"and cannot be used inside a pipeline"
                 )
             if defn.access_level in _PIPELINE_LEVELS:
-                result.append(_to_sdk_tool(defn))
+                result.append(_to_sdk_tool(
+                    defn,
+                    session_context_registry=self._session_context_registry,
+                ))
         return result
 
     def get_handler(self, tool_name: str) -> ToolHandler:
@@ -71,15 +88,24 @@ class ToolFactory:
         return self._registry.all()
 
 
-def _to_sdk_tool(defn: ToolDefinition) -> SdkTool:
+def _to_sdk_tool(
+    defn: ToolDefinition,
+    *,
+    session_context_registry: SessionContextRegistry | None = None,
+) -> SdkTool:
     """Convert internal ToolDefinition to SDK Tool dataclass."""
     original = defn.handler
 
     async def _logged_handler(invocation: Any) -> Any:
-        args = invocation.get("arguments") or {}
-        session_id = invocation.get("session_id", "")
+        enriched_invocation = dict(invocation)
+        args = enriched_invocation.get("arguments") or {}
+        session_id = enriched_invocation.get("session_id", "")
+        if session_context_registry is not None and "session_context" not in enriched_invocation:
+            context = session_context_registry.resolve(session_id)
+            if context is not None:
+                enriched_invocation["session_context"] = context.model_dump()
         logger.info("[tool_call] %s args=%s session=%s", defn.name, args, session_id)
-        result = await original(invocation)
+        result = await original(enriched_invocation)
         status = result.get("resultType", "?") if isinstance(result, dict) else "?"
         text = result.get("textResultForLlm", "") if isinstance(result, dict) else ""
         logger.info(

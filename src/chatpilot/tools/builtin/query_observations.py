@@ -8,6 +8,7 @@ from typing import Any
 from copilot.types import ToolInvocation, ToolResult
 
 from chatpilot.core.types import AccessLevel, ToolDefinition
+from chatpilot.tools.session_context import get_session_context
 
 logger = logging.getLogger(__name__)
 
@@ -29,8 +30,8 @@ def create_query_observations_tool(
 
     async def handler(invocation: ToolInvocation) -> ToolResult:
         args = invocation.get("arguments") or {}
-        session_id = invocation.get("session_id", "")
-        caller_route = session_id.split("__")[0].replace("-", ":", 1)
+        session_context = get_session_context(invocation)
+        caller_route = session_context.route_id
 
         source_name = args.get("source", "")
         category = args.get("category", "")
@@ -64,9 +65,9 @@ def create_query_observations_tool(
         # Permission check (match by conversation_id, ignore platform)
         allowed = src.get("allowed_consumers", [])
         if allowed:
-            caller_cid = caller_route.split(":", 1)[1] if ":" in caller_route else caller_route
+            caller_cid = session_context.conversation_id
             allowed_cids = [
-                a.split(":", 1)[1] if ":" in a else a for a in allowed
+                a.rsplit(":", 1)[1] if ":" in a else a for a in allowed
             ]
             if caller_cid not in allowed_cids:
                 logger.info(

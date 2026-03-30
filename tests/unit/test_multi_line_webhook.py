@@ -8,6 +8,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from chatpilot.core.errors import AdapterError
 from chatpilot.core.types import Message
 from chatpilot.hub.context_buffer import ContextBuffer
 from chatpilot.hub.hub import _AUDIO_REF_PATTERN, InMemoryMessageHub
@@ -37,7 +38,7 @@ class _StubLineAdapter:
         self.verify_calls += 1
         signature = request.headers.get("X-Line-Signature", "")
         if signature != self._valid_signature:
-            raise ValueError("invalid signature")
+            raise AdapterError("invalid signature", code="SIGNATURE_INVALID")
         return True
 
     async def parse_messages(self, request) -> list[Message]:

@@ -8,6 +8,7 @@ from typing import Any, Callable
 from copilot.types import ToolInvocation, ToolResult
 
 from chatpilot.core.types import AccessLevel, ToolDefinition
+from chatpilot.tools.session_context import get_session_context
 
 logger = logging.getLogger(__name__)
 
@@ -29,8 +30,7 @@ def create_delete_custom_prompt_tool(
 
     async def handler(invocation: ToolInvocation) -> ToolResult:
         args = invocation.get("arguments") or {}
-        session_id = invocation.get("session_id", "")
-        route_id = session_id.split("__")[0].replace("-", ":", 1)
+        route_id = get_session_context(invocation).route_id
 
         prompt_id = args.get("prompt_id", "").strip()
         if not prompt_id:

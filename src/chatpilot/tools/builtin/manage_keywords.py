@@ -15,6 +15,7 @@ from chatpilot.hub.mention_filter import (
     get_route_keywords,
     remove_route_keyword,
 )
+from chatpilot.tools.session_context import get_session_context
 
 logger = logging.getLogger(__name__)
 
@@ -26,11 +27,9 @@ def create_manage_keywords_tool(memory_store) -> ToolDefinition:
         args = invocation.get("arguments", {})
         action = args.get("action", "list").strip().lower()
         keyword = args.get("keyword", "").strip()
-        session_id = invocation.get("session_id", "")
-
-        # Extract route_id and chatbot_name from session
-        route_id = session_id.split("__")[0].replace("-", ":", 1)
-        chatbot_name = session_id.split("__")[1] if "__" in session_id else ""
+        session_context = get_session_context(invocation)
+        route_id = session_context.route_id
+        chatbot_name = session_context.chatbot_name
 
         if action == "list":
             db_keywords = get_route_keywords(route_id)

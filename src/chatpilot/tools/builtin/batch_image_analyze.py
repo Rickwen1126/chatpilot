@@ -10,6 +10,7 @@ from copilot.types import ToolInvocation, ToolResult
 
 from chatpilot.core.time_service import TimeService
 from chatpilot.core.types import AccessLevel, TaskInfo, ToolDefinition
+from chatpilot.tools.session_context import get_session_context
 
 logger = logging.getLogger(__name__)
 
@@ -23,8 +24,7 @@ def create_batch_image_analyze_tool(scheduler: Any) -> ToolDefinition:
 
     async def handler(invocation: ToolInvocation) -> ToolResult:
         args = invocation.get("arguments") or {}
-        session_id = invocation.get("session_id", "")
-        route_id = session_id.split("__")[0].replace("-", ":", 1)
+        route_id = get_session_context(invocation).route_id
 
         refs = args.get("refs", [])
         prompt = args.get("prompt", "")

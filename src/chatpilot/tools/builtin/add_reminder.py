@@ -3,13 +3,13 @@ from __future__ import annotations
 from copilot.types import ToolInvocation, ToolResult
 
 from chatpilot.core.types import AccessLevel, ToolDefinition
+from chatpilot.tools.session_context import get_session_context
 
 
 def create_add_reminder_tool(memory_store) -> ToolDefinition:
     async def handler(invocation: ToolInvocation) -> ToolResult:
         args = invocation.get("arguments") or {}
-        session_id = invocation.get("session_id", "")
-        route_id = session_id.split("__")[0].replace("-", ":", 1)
+        route_id = get_session_context(invocation).route_id
 
         text = args.get("text", "")
         due_at = args.get("due_at", "")

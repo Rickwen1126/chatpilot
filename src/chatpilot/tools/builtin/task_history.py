@@ -5,6 +5,7 @@ from __future__ import annotations
 from copilot.types import ToolInvocation, ToolResult
 
 from chatpilot.core.types import AccessLevel, ToolDefinition
+from chatpilot.tools.session_context import get_session_context
 
 
 def create_task_history_tool(scheduler) -> ToolDefinition:
@@ -17,7 +18,7 @@ def create_task_history_tool(scheduler) -> ToolDefinition:
         args = invocation.get("arguments") or {}
         action = args.get("action", "list")
         task_id = args.get("task_id", "")
-        chat_route_id = invocation.get("session_id", "")
+        chat_route_id = get_session_context(invocation).route_id
 
         if action == "detail" and task_id:
             task = await scheduler.get_task(task_id)

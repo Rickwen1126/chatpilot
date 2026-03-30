@@ -8,6 +8,7 @@ from typing import Any
 from copilot.types import ToolInvocation, ToolResult
 
 from chatpilot.core.types import AccessLevel, ToolDefinition
+from chatpilot.tools.session_context import get_session_context
 
 logger = logging.getLogger(__name__)
 
@@ -17,8 +18,7 @@ def create_cancel_schedule_tool(memory_store: Any) -> ToolDefinition:
 
     async def handler(invocation: ToolInvocation) -> ToolResult:
         args = invocation.get("arguments") or {}
-        session_id = invocation.get("session_id", "")
-        route_id = session_id.split("__")[0].replace("-", ":", 1)
+        route_id = get_session_context(invocation).route_id
 
         index = args.get("index", 0)
         try:

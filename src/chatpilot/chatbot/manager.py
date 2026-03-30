@@ -7,9 +7,14 @@ from pathlib import Path
 from typing import Any
 
 from chatpilot.chatbot.session import ChatbotSession
-from chatpilot.core.types import ChatbotConfig
+from chatpilot.core.types import ChatbotConfig, SessionContext
 from chatpilot.sdk.session import SdkClient
 from chatpilot.tools.factory import ToolFactory
+from chatpilot.tools.session_context import (
+    SessionContextRegistry,
+    build_sdk_session_id,
+    split_route_id,
+)
 
 DEFAULT_WORKSPACE_ROOT = "data/workspace"
 
@@ -25,11 +30,16 @@ class ChatbotManager:
         chatbot_configs: dict[str, ChatbotConfig],
         tool_factory: ToolFactory,
         memory_store: Any = None,
+        session_context_registry: SessionContextRegistry | None = None,
     ) -> None:
         self._sdk = sdk_client
         self._configs = chatbot_configs
         self._tool_factory = tool_factory
         self._memory_store = memory_store
+        self._session_context_registry = (
+            session_context_registry
+            or tool_factory.session_context_registry
+        )
         self._sessions: dict[str, ChatbotSession] = {}
         self._route_model_overrides: dict[str, str] = {}
         self._route_chatbot_overrides: dict[str, str] = {}
@@ -61,12 +71,14 @@ class ChatbotManager:
         # Eviction checks
         if existing and existing.broken:
             self._sessions.pop(route_id, None)
+            self._session_context_registry.unregister(existing.session_id)
             logger.info("Evicted route=%s reason=broken", route_id)
             existing = None
 
         if existing and existing.needs_rebuild:
             await existing.destroy()
             self._sessions.pop(route_id, None)
+            self._session_context_registry.unregister(existing.session_id)
             logger.info("Evicted route=%s reason=custom_prompt", route_id)
             existing = None
 
@@ -78,7 +90,7 @@ class ChatbotManager:
             raise ValueError(f"Chatbot '{chatbot_name}' not found")
 
         # Session ID: route@chatbot (@ separator preserves route_id derivation)
-        sdk_session_id = f"{route_id.replace(':', '-')}__{chatbot_name}"
+        sdk_session_id = build_sdk_session_id(route_id, chatbot_name)
 
         # Resolve working directory: config.workdir or default per-session
         workdir = self._resolve_workdir(config.workdir, sdk_session_id)
@@ -120,6 +132,17 @@ class ChatbotManager:
 
         session = ChatbotSession(sdk_session, config)
         self._sessions[route_id] = session
+        platform, conversation_id = split_route_id(route_id)
+        self._session_context_registry.register(
+            SessionContext(
+                sdk_session_id=sdk_session_id,
+                route_id=route_id,
+                platform=platform,
+                conversation_id=conversation_id,
+                chatbot_name=chatbot_name,
+            ),
+            workdir=workdir,
+        )
         return session
 
     @staticmethod
@@ -172,6 +195,7 @@ class ChatbotManager:
         """Switch chatbot for a route. Destroys old session, creates fresh."""
         old = self._sessions.pop(route_id, None)
         if old:
+            self._session_context_registry.unregister(old.session_id)
             await old.destroy()
         self._route_chatbot_overrides[route_id] = chatbot_name
         logger.info(
@@ -182,6 +206,7 @@ class ChatbotManager:
         """Switch model. Destroys session, next message resumes with new model."""
         old = self._sessions.pop(route_id, None)
         if old:
+            self._session_context_registry.unregister(old.session_id)
             await old.destroy()
         self._route_model_overrides[route_id] = new_model
         logger.info("Switched model route=%s to %s", route_id, new_model)
@@ -189,6 +214,7 @@ class ChatbotManager:
     async def destroy_session(self, route_id: str) -> None:
         session = self._sessions.pop(route_id, None)
         if session:
+            self._session_context_registry.unregister(session.session_id)
             await session.destroy()
 
     async def destroy_all(self) -> None:

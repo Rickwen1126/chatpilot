@@ -8,6 +8,7 @@ from copilot.types import ToolInvocation, ToolResult
 
 from chatpilot.core.time_service import TimeService
 from chatpilot.core.types import AccessLevel, TaskInfo, ToolDefinition
+from chatpilot.tools.session_context import get_session_context
 
 
 def create_browse_task_tool(scheduler) -> ToolDefinition:
@@ -20,7 +21,7 @@ def create_browse_task_tool(scheduler) -> ToolDefinition:
     async def handler(invocation: ToolInvocation) -> ToolResult:
         args = invocation.get("arguments") or {}
         query = args.get("query", "")
-        chat_route_id = invocation.get("session_id", "")
+        chat_route_id = get_session_context(invocation).route_id
 
         if not query:
             return ToolResult(

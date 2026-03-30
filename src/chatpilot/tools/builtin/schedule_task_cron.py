@@ -8,6 +8,7 @@ from typing import Any
 from copilot.types import ToolInvocation, ToolResult
 
 from chatpilot.core.types import AccessLevel, ToolDefinition
+from chatpilot.tools.session_context import get_session_context
 
 logger = logging.getLogger(__name__)
 
@@ -31,10 +32,9 @@ def create_schedule_task_cron_tool(
 
     async def handler(invocation: ToolInvocation) -> ToolResult:
         args = invocation.get("arguments") or {}
-        session_id = invocation.get("session_id", "")
-        route_id = session_id.split("__")[0].replace("-", ":", 1)
-        # Auto-detect chatbot name from session: "route__chatbot_name"
-        chatbot_name = session_id.split("__")[1] if "__" in session_id else ""
+        session_context = get_session_context(invocation)
+        route_id = session_context.route_id
+        chatbot_name = session_context.chatbot_name
 
         cron_expr = args.get("cron_expr", "").strip()
         tool_name = args.get("tool_name", "schedule-agent").strip()

@@ -8,6 +8,7 @@ from copilot.types import ToolInvocation, ToolResult
 
 from chatpilot.core.time_service import TimeService
 from chatpilot.core.types import AccessLevel, TaskInfo, ToolDefinition
+from chatpilot.tools.session_context import get_session_context
 
 
 def create_submit_task_tool(scheduler, pipeline_name: str = "echo") -> ToolDefinition:
@@ -19,7 +20,7 @@ def create_submit_task_tool(scheduler, pipeline_name: str = "echo") -> ToolDefin
     async def handler(invocation: ToolInvocation) -> ToolResult:
         args = invocation.get("arguments") or {}
         task_description = args.get("task_description", "")
-        chat_route_id = invocation.get("session_id", "")
+        chat_route_id = get_session_context(invocation).route_id
 
         task_id = str(uuid.uuid4())
         task = TaskInfo(

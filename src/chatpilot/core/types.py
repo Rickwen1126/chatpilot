@@ -98,6 +98,16 @@ class ChatRoute(BaseModel):
     binding_score: int
 
 
+class SessionContext(BaseModel):
+    """Runtime session identity mapped back to domain route context."""
+
+    sdk_session_id: str
+    route_id: str
+    platform: str
+    conversation_id: str
+    chatbot_name: str
+
+
 class Binding(BaseModel):
     """Routing rule that maps match conditions to a chatbot."""
 

@@ -9,7 +9,12 @@ import time
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
+from chatpilot.core.errors import AdapterError
 from chatpilot.core.types import Message, Response
+from chatpilot.tools.session_context import (
+    DEFAULT_WORKSPACE_ROOT,
+    SessionContextRegistry,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +29,20 @@ def _line_adapter_candidates(adapters: dict) -> list:
     ]
     fallback = [adapters["line"]] if "line" in adapters else []
     return named + fallback
+
+
+def _load_known_session_contexts(request: Request) -> list:
+    registry = getattr(request.app.state, "session_context_registry", None)
+    if registry is None:
+        registry = SessionContextRegistry()
+
+    known = {
+        context.sdk_session_id: context
+        for context in registry.list_contexts()
+    }
+    for context in registry.scan_workspace_sidecars(DEFAULT_WORKSPACE_ROOT):
+        known.setdefault(context.sdk_session_id, context)
+    return list(known.values())
 
 
 @router.post("/webhook/{platform}")
@@ -42,8 +61,17 @@ async def webhook_handler(platform: str, request: Request) -> JSONResponse:
                     await candidate.verify_request(request)
                     adapter = candidate
                     break
-                except Exception:
+                except AdapterError:
                     continue
+                except Exception:
+                    logger.exception(
+                        "Unexpected LINE verification failure for %s",
+                        getattr(candidate, "platform", "?"),
+                    )
+                    return JSONResponse(
+                        status_code=500,
+                        content={"error": "LINE verification failed"},
+                    )
             if adapter is None:
                 logger.warning("Signature verification failed for %s", platform)
                 return JSONResponse(
@@ -60,11 +88,17 @@ async def webhook_handler(platform: str, request: Request) -> JSONResponse:
     if platform != "line":
         try:
             await adapter.verify_request(request)
-        except Exception as e:
+        except AdapterError as e:
             logger.warning("Signature verification failed for %s: %s", platform, e)
             return JSONResponse(
                 status_code=401,
                 content={"error": "Invalid signature", "code": "SIGNATURE_INVALID"},
+            )
+        except Exception:
+            logger.exception("Unexpected verification failure for %s", platform)
+            return JSONResponse(
+                status_code=500,
+                content={"error": "Verification failed"},
             )
 
     messages = await adapter.parse_messages(request)
@@ -165,27 +199,17 @@ async def cli_routes(request: Request) -> JSONResponse:
     if labels_path.exists():
         labels = _json.loads(labels_path.read_text(encoding="utf-8"))
 
-    # Collect route_ids from SDK session state
-    session_dir = Path.home() / ".copilot" / "session-state"
     known_routes: dict[str, dict] = {}
-
-    if session_dir.exists():
-        for entry in session_dir.iterdir():
-            name = entry.name
-            # Our session IDs: {platform}-{conversation_id}__{chatbot}
-            if "__" not in name:
-                continue
-            route_part, chatbot = name.rsplit("__", 1)
-            # Reconstruct route_id: first - → :
-            route_id = route_part.replace("-", ":", 1)
-            if route_id not in known_routes:
-                known_routes[route_id] = {
-                    "route_id": route_id,
-                    "platform": route_id.split(":")[0],
-                    "conversation_id": route_id.split(":", 1)[1],
-                    "sessions": [],
-                }
-            known_routes[route_id]["sessions"].append(chatbot)
+    for context in _load_known_session_contexts(request):
+        route_id = context.route_id
+        if route_id not in known_routes:
+            known_routes[route_id] = {
+                "route_id": route_id,
+                "platform": context.platform,
+                "conversation_id": context.conversation_id,
+                "sessions": [],
+            }
+        known_routes[route_id]["sessions"].append(context.chatbot_name)
 
     # Enrich with current state
     routes = []
@@ -213,7 +237,11 @@ async def cli_routes(request: Request) -> JSONResponse:
             "label": labels.get(route_id),
             "platform": info["platform"],
             "conversation_id": info["conversation_id"],
-            "current_chatbot": override or default_binding or "unknown",
+            "current_chatbot": (
+                override
+                or default_binding
+                or (info["sessions"][0] if info["sessions"] else "unknown")
+            ),
             "override": override,
             "default_binding": default_binding,
             "sessions": sorted(set(info["sessions"])),
@@ -261,47 +289,31 @@ async def cli_routes_sync(request: Request) -> JSONResponse:
     synced: list[dict] = []
 
     # LINE: query group summary for group conversations
-    line_adapter = adapters.get("line")
-    if line_adapter:
+    seen: set[str] = set()
+    for context in _load_known_session_contexts(request):
+        if not context.platform.startswith("line"):
+            continue
+        if not context.conversation_id.startswith("C"):
+            continue
+        if context.route_id in seen:
+            continue
+        seen.add(context.route_id)
+        line_adapter = adapters.get(context.platform)
+        if line_adapter is None:
+            continue
         try:
-            from linebot.v3.messaging import MessagingApi
-
-            api: MessagingApi = line_adapter._api
-            session_dir = Path.home() / ".copilot" / "session-state"
-            seen: set[str] = set()
-
-            if session_dir.exists():
-                for entry in session_dir.iterdir():
-                    name = entry.name
-                    if not name.startswith("line-C"):
-                        continue
-                    # Extract group_id from session name
-                    prefix = name.replace("line-", "", 1)
-                    if "__" in prefix:
-                        gid = prefix.split("__")[0]
-                    else:
-                        gid = prefix
-                    # Skip invalid IDs (old format with -chatbot suffix)
-                    if not gid.startswith("C") or len(gid) < 30:
-                        continue
-                    if gid in seen:
-                        continue
-                    seen.add(gid)
-
-                    try:
-                        summary = api.get_group_summary(gid)
-                        count_resp = api.get_group_member_count(gid)
-                        count = getattr(count_resp, "count", count_resp)
-                        label = f"{summary.group_name}（{count}人）"
-                        route_id = f"line:{gid}"
-                        synced.append({
-                            "route_id": route_id,
-                            "label": label,
-                        })
-                    except Exception:
-                        pass
-        except Exception as e:
-            logger.warning("LINE sync failed: %s", e)
+            summary = line_adapter._api.get_group_summary(context.conversation_id)
+            count_resp = line_adapter._api.get_group_member_count(
+                context.conversation_id
+            )
+            count = getattr(count_resp, "count", count_resp)
+            label = f"{summary.group_name}（{count}人）"
+            synced.append({
+                "route_id": context.route_id,
+                "label": label,
+            })
+        except Exception:
+            logger.exception("LINE sync failed for %s", context.route_id)
 
     # Write labels
     if synced:

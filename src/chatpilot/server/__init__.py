@@ -29,6 +29,10 @@ from chatpilot.scheduler.store import SqliteTaskStore
 from chatpilot.sdk.session import SdkClient
 from chatpilot.server.webhook import router
 from chatpilot.tools.factory import ToolFactory
+from chatpilot.tools.session_context import (
+    SessionContextRegistry,
+    build_sdk_session_id,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -124,7 +128,7 @@ def _init_hub(
         chatbot_for_sid = chatbot_manager.get_current_chatbot(
             route.route_id
         ) or route.chatbot_name
-        sdk_sid = f"{route.route_id.replace(':', '-')}__{chatbot_for_sid}"
+        sdk_sid = build_sdk_session_id(route.route_id, chatbot_for_sid)
         pending = response_injector.pop(sdk_sid)
         if pending:
             attachments = list(response.attachments)
@@ -341,14 +345,21 @@ async def lifespan(app: FastAPI):
     )
     await memory_store.initialize()
 
-    tool_factory = ToolFactory()
+    session_context_registry = SessionContextRegistry()
+    tool_factory = ToolFactory(
+        session_context_registry=session_context_registry
+    )
     adapters = _init_adapters(config)
     app.state.adapters = adapters
 
     # Routing + chatbot
     binding_router = BindingRouter(config.bindings, config.match_weights)
     chatbot_manager = ChatbotManager(
-        sdk_client, config.chatbots, tool_factory, memory_store=memory_store
+        sdk_client,
+        config.chatbots,
+        tool_factory,
+        memory_store=memory_store,
+        session_context_registry=session_context_registry,
     )
 
     # Image injector
@@ -387,6 +398,7 @@ async def lifespan(app: FastAPI):
     app.state.hub = hub
     app.state.chatbot_manager = chatbot_manager
     app.state.binding_router = binding_router
+    app.state.session_context_registry = session_context_registry
 
     # Observer mode — register observer routes + batch callback
     observer_sources: dict[str, dict] = {}
