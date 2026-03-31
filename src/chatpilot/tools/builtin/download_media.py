@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 
 from chatpilot.core.types import AccessLevel, ToolDefinition
 from chatpilot.files.center import FileHandleCenter
+from chatpilot.files.ref_lookup import parse_media_ref
 from chatpilot.tools.session_context import get_session_context
 
 logger = logging.getLogger(__name__)
@@ -18,30 +19,6 @@ logger = logging.getLogger(__name__)
 
 class DownloadMediaParams(BaseModel):
     ref: str = Field(description="媒體參考 ID，格式為 platform:media_id，例如 line:msg_123")
-
-
-def _parse_ref(ref: str, adapters: dict) -> tuple[str, str, str | None]:
-    for platform in sorted(adapters.keys(), key=len, reverse=True):
-        prefix = f"{platform}:"
-        if not ref.startswith(prefix):
-            continue
-        remainder = ref[len(prefix):]
-        if not remainder:
-            break
-        if ":" in remainder:
-            media_id, filename = remainder.split(":", 1)
-        else:
-            media_id, filename = remainder, None
-        return platform, media_id, filename
-
-    parts = ref.split(":", 2)
-    if len(parts) < 2:
-        raise ValueError(f"無效的 ref 格式: {ref}（應為 platform:media_id）")
-    platform = parts[0]
-    media_id = parts[1]
-    filename = parts[2] if len(parts) == 3 else None
-    return platform, media_id, filename
-
 
 def create_download_media_tool(
     adapters: dict,
@@ -60,7 +37,7 @@ def create_download_media_tool(
         ref = args.get("ref", "")
 
         try:
-            platform, media_id, filename = _parse_ref(ref, adapters)
+            platform, media_id, filename = parse_media_ref(ref, adapters)
         except ValueError as e:
             return ToolResult(textResultForLlm=str(e), resultType="failure")
         adapter = adapters.get(platform)

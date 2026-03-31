@@ -618,7 +618,12 @@ async def lifespan(app: FastAPI):
     from chatpilot.pipeline.samples.batch_vision import BatchImageVisionPipeline
 
     pipeline_executor.register(
-        BatchImageVisionPipeline(sdk_client, tool_factory)
+        BatchImageVisionPipeline(
+            sdk_client,
+            tool_factory,
+            file_center,
+            adapters,
+        )
     )
 
     from chatpilot.pipeline.samples.schedule_agent import ScheduleAgentPipeline

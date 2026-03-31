@@ -76,9 +76,36 @@ class SdkSession:
             "[SDK] %s sending (%d chars) timeout=%ss prompt=%s",
             self.session_id, len(message), timeout, prompt_preview,
         )
-        result = await self._session.send_and_wait(
-            {"prompt": message}, timeout=timeout
+        return await self._send_and_wait_impl(
+            message,
+            timeout=timeout,
         )
+
+    async def send_and_wait_with_attachments(
+        self,
+        message: str,
+        *,
+        attachments: list[dict[str, str]],
+        timeout: float = 60.0,
+    ) -> str:
+        """Send message with local file attachments and wait for response."""
+        return await self._send_and_wait_impl(
+            message,
+            attachments=attachments,
+            timeout=timeout,
+        )
+
+    async def _send_and_wait_impl(
+        self,
+        message: str,
+        *,
+        attachments: list[dict[str, str]] | None = None,
+        timeout: float = 60.0,
+    ) -> str:
+        payload: dict[str, Any] = {"prompt": message}
+        if attachments:
+            payload["attachments"] = attachments
+        result = await self._session.send_and_wait(payload, timeout=timeout)
         logger.info("[SDK] %s got result: %s", self.session_id, type(result))
         if result is None:
             logger.warning("[SDK] %s response is None", self.session_id)
