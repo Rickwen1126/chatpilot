@@ -1,0 +1,22 @@
+{
+  "$schema": "https://aka.ms/codetour-schema",
+  "title": "Code Review: file-handle-center-foundation 2026-03-31",
+  "steps": [
+    {
+      "title": "Review Summary",
+      "description": "## Review Summary\n\n🔴 Critical: 0\n🟡 Suggestions: 1\n✅ Good Practices: 1\n\n### Scope\nReview of the FileHandleCenter foundation milestone: new `src/chatpilot/files/*` package, adapter contract extension, startup wiring, and the new unit/integration tests.\n\n### Focus\nArchitecture fit, lifecycle correctness, file identity boundaries, and whether the foundation is ready for hub ingress integration."
+    },
+    {
+      "file": "src/chatpilot/files/center.py",
+      "line": 56,
+      "title": "🟡 Repeated Source Registration Will Currently Fan Out Duplicate File Records",
+      "description": "## Problem\n`register()` always allocates a fresh UUID and writes a new `file_assets` row for the incoming source handle. Once ingress preprocessing is wired into `hub.receive()`, the same `(route_id, platform, native_locator)` can plausibly be registered multiple times across repeated inbound processing or later tool-driven re-registration. That will create duplicate file rows and can trigger duplicate downloads and fragmented lineage.\n\n## Fix\n```python\nexisting = await self._store.find_file_by_source(\n    route_id=source.route_id,\n    platform=source.platform,\n    native_locator=source.native_locator,\n)\nif existing is not None:\n    return build_handle_from_row(existing)\n```\nImplement this as an opt-in lookup/upsert path in the store, then decide in policy whether repeated registration should reuse or intentionally fork.\n\n## Rationale\nThis is not a blocking bug for the current foundation milestone, but it is the most likely integration risk in the next phase. If it is left implicit until hub ingress and tool convergence, the system may accumulate multiple records for one real-world upload and make route-level recall noisier."
+    },
+    {
+      "file": "src/chatpilot/files/center.py",
+      "line": 83,
+      "title": "✅ Center Keeps Platform Fetch, System Identity, and Local Materialization Properly Separated",
+      "description": "## Problem\nThere is no problem here; this is the strongest part of the milestone.\n\n## Fix\n```python\n# Keep this separation as later integrations land:\n# adapter.fetch_source_file(...) -> bytes\n# FileHandleCenter.download_now(...) -> local asset + DB state\n# callers -> ensure_local()/get_asset()\n```\n\n## Rationale\nThe code preserves the architecture agreed in the design discussions: adapters absorb platform differences, `register()` allocates the opaque system identity, and local persistence remains in the center instead of leaking back into adapters or tools. This gives the next milestones a stable boundary for hub ingress, STT, vision attachments, and generated-file registration."
+    }
+  ]
+}
