@@ -45,6 +45,14 @@
 - 建立 file memory index，支援 session reset 後的 route-level file recall
 - 為未來 tool / pipeline / agent generated files 留出正式治理邊界
 
+## User Stories
+
+- 作為一般使用者，我希望在 session 重置後仍可問「昨天我傳群組的照片效果如何」，而系統能基於 route-level file memory 回答，不是只會要求我重傳。
+- 作為使用者，我希望私訊 bot 請它整理我上傳的 Excel 時，系統能有秩序地納管原檔、衍生檔與後續摘要，而不是讓 agent 亂丟 workpath。
+- 作為 vision / STT 類 workflow 的使用者，我希望圖片、音檔與文件一進系統就能被正確 register 並按 policy 預抓，避免後續流程各自用 ad-hoc parser 重做一次。
+- 作為工具與 pipeline 開發者，我希望 file ingress、下載、local path 取得與暴露都走同一套 center，不需要在每個 tool 裡重寫 adapter lookup、ref parse 與 local file hardcode。
+- 作為未來的多代理人協作者，我希望不同 agent 能透過被治理過的 external file memory 無聲交接，而不是靠完整 prompt 歷史或隨機 path 猜測脈絡。
+
 ## Non-Goals
 
 - 本輪不做完整 antivirus / container hardening
@@ -431,3 +439,4 @@ data/file_assets/
 - `docs/reference/file-handle-center-design.md`
 - `docs/reference/file-external-memory-principles.md`
 - `docs/todo/20260331.md`
+- `docs/file-handle-center/plan.md`
