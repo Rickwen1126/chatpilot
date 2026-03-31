@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import time
@@ -18,6 +19,7 @@ from chatpilot.core.config import GatewayConfig, load_config, watch_config
 from chatpilot.core.types import Message, Response
 from chatpilot.files.center import FileHandleCenter
 from chatpilot.files.ingress import InboundFilePreprocessor
+from chatpilot.files.policy import DEFAULT_CLEANUP_INTERVAL_SECONDS
 from chatpilot.files.store import SqliteFileStore
 from chatpilot.hub.context_buffer import ContextBuffer
 from chatpilot.hub.hub import InMemoryMessageHub
@@ -388,6 +390,31 @@ async def lifespan(app: FastAPI):
     app.state.file_store = file_store
     app.state.file_handle_center = file_center
     app.state.file_ingress = file_ingress
+    cleanup_interval = int(
+        os.environ.get(
+            "CHATPILOT_FILE_CLEANUP_INTERVAL_SECONDS",
+            str(DEFAULT_CLEANUP_INTERVAL_SECONDS),
+        )
+    )
+    cleanup_task: asyncio.Task[None] | None = None
+
+    async def _run_file_cleanup_loop() -> None:
+        while True:
+            try:
+                await file_center.cleanup_expired()
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.exception("[file] cleanup loop failed")
+            await asyncio.sleep(cleanup_interval)
+
+    if cleanup_interval > 0:
+        cleanup_task = asyncio.create_task(_run_file_cleanup_loop())
+        app.state.file_cleanup_task = cleanup_task
+        logger.info(
+            "[file] cleanup loop started interval=%ss",
+            cleanup_interval,
+        )
 
     # Routing + chatbot
     binding_router = BindingRouter(config.bindings, config.match_weights)
@@ -658,6 +685,12 @@ async def lifespan(app: FastAPI):
     yield
 
     # Shutdown
+    if cleanup_task is not None:
+        cleanup_task.cancel()
+        try:
+            await cleanup_task
+        except asyncio.CancelledError:
+            pass
     await cron_scheduler.stop()
     await runner_pool.stop()
     await task_store.close()

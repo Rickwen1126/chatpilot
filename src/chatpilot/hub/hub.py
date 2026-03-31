@@ -466,6 +466,11 @@ class InMemoryMessageHub:
         platform, media_id = match.group(1), match.group(2)
         ref_tag = match.group(0)  # e.g. [音檔 ref:line:607214746994999315]
         logger.info("[stt] detected audio ref: %s:%s", platform, media_id)
+        logger.warning(
+            "[file] legacy STT fallback ref=%s route=%s",
+            ref_tag,
+            f"{message.platform}:{message.conversation_id}",
+        )
 
         # Download audio bytes via adapter
         source_adapter = self._adapters.get(platform)

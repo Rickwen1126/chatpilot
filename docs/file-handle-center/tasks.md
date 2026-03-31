@@ -89,10 +89,10 @@ All tasks use the required checklist format:
 
 **Purpose**: 收斂剩餘 scattered logic、補齊 observability、完成 staged validation 與文件同步。
 
-- [ ] T035 Remove or downgrade obsolete file/ref parsing paths in `src/chatpilot/tools/builtin/download_media.py`, `src/chatpilot/tools/builtin/show_image.py`, `src/chatpilot/tools/builtin/document_edit.py`, and `src/chatpilot/hub/hub.py`
-- [ ] T036 [P] Add logging / debug traces for file register, policy decisions, local materialization, and cleanup in `src/chatpilot/files/center.py` and `src/chatpilot/files/ingress.py`
-- [ ] T037 [P] Add cleanup job hooks and retention-class defaults in `src/chatpilot/files/policy.py`, `src/chatpilot/files/center.py`, and `src/chatpilot/server/__init__.py`
-- [ ] T038 Add staged validation notes and E2E checklist updates in `docs/file-handle-center/spec.md`, `docs/file-handle-center/plan.md`, and `docs/todo/20260331.md`
+- [x] T035 Remove or downgrade obsolete file/ref parsing paths in `src/chatpilot/tools/builtin/download_media.py`, `src/chatpilot/tools/builtin/show_image.py`, `src/chatpilot/tools/builtin/document_edit.py`, and `src/chatpilot/hub/hub.py`
+- [x] T036 [P] Add logging / debug traces for file register, policy decisions, local materialization, and cleanup in `src/chatpilot/files/center.py` and `src/chatpilot/files/ingress.py`
+- [x] T037 [P] Add cleanup job hooks and retention-class defaults in `src/chatpilot/files/policy.py`, `src/chatpilot/files/center.py`, and `src/chatpilot/server/__init__.py`
+- [x] T038 Add staged validation notes and E2E checklist updates in `docs/file-handle-center/spec.md`, `docs/file-handle-center/plan.md`, and `docs/todo/20260331.md`
 
 ## Dependencies
 

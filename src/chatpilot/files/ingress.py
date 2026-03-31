@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import logging
+
 from chatpilot.adapters.protocol import ChannelAdapter
 from chatpilot.core.types import Message
 from chatpilot.files.center import FileHandleCenter
 from chatpilot.files.policy import IngressAction, decide_ingress_action
+
+logger = logging.getLogger(__name__)
 
 
 class InboundFilePreprocessor:
@@ -37,6 +41,14 @@ class InboundFilePreprocessor:
             file_ids.append(handle.file_id)
 
             action = decide_ingress_action(source)
+            logger.info(
+                "[file] ingress route=%s locator=%s kind=%s action=%s file_id=%s",
+                source.route_id,
+                source.native_locator,
+                source.kind.value,
+                action.value,
+                handle.file_id,
+            )
             if action == IngressAction.download_now:
                 await self._center.download_now(handle.file_id)
             elif action == IngressAction.prefetch:

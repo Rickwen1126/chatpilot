@@ -28,7 +28,11 @@ from chatpilot.files.models import (
     SourceHandleInput,
     StorageBackend,
 )
-from chatpilot.files.policy import compute_expires_at, default_scan_status
+from chatpilot.files.policy import (
+    compute_expires_at,
+    default_scan_status,
+    normalize_retention_class,
+)
 from chatpilot.files.store import (
     SqliteFileStore,
     build_asset_from_row,
@@ -63,20 +67,25 @@ class FileHandleCenter:
         now = TimeService.get().utc_now()
         file_id = str(uuid.uuid4())
         handle = CanonicalFileHandle.from_source(file_id=file_id, source=source)
-        expires_at = compute_expires_at(retention_class, from_time=now)
+        normalized_retention = normalize_retention_class(retention_class)
+        expires_at = compute_expires_at(normalized_retention, from_time=now)
         await self._store.create_file(
             handle,
             created_at=now,
             expires_at=expires_at,
-            retention_class=retention_class,
+            retention_class=normalized_retention,
             is_pinned=is_pinned,
         )
         logger.info(
-            "[file] register file_id=%s route=%s kind=%s platform=%s",
+            "[file] register file_id=%s route=%s kind=%s platform=%s "
+            "retention=%s expires_at=%s pinned=%s",
             file_id,
             source.route_id,
             source.kind.value,
             source.platform,
+            normalized_retention.value,
+            expires_at.isoformat() if expires_at else "never",
+            is_pinned,
         )
         return handle
 
@@ -176,10 +185,12 @@ class FileHandleCenter:
         )
 
         logger.info(
-            "[file] register internal file_id=%s route=%s origin=%s",
+            "[file] register internal file_id=%s route=%s origin=%s "
+            "retention=%s",
             handle.file_id,
             route_id,
             origin_type,
+            normalize_retention_class(retention_class).value,
         )
         return handle
 
@@ -236,10 +247,11 @@ class FileHandleCenter:
                 source_mime_type=asset.mime_type,
             )
             logger.info(
-                "[file] download file_id=%s backend=%s bytes=%s",
+                "[file] download file_id=%s backend=%s bytes=%s mime=%s",
                 file_id,
                 asset.storage_backend.value,
                 asset.size_bytes,
+                asset.mime_type or "unknown",
             )
             return asset
         except Exception:
@@ -409,7 +421,10 @@ class FileHandleCenter:
     async def ensure_local(self, file_id: str) -> str:
         asset = await self.get_asset(file_id)
         if asset is None or not asset.local_path or not Path(asset.local_path).exists():
+            logger.info("[file] ensure_local miss file_id=%s", file_id)
             asset = await self.download_now(file_id)
+        else:
+            logger.info("[file] ensure_local hit file_id=%s path=%s", file_id, asset.local_path)
         if not asset.local_path:
             raise RuntimeError(f"File '{file_id}' has no local path")
         return asset.local_path

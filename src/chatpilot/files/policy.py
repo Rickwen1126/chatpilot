@@ -7,6 +7,9 @@ from enum import Enum
 
 from chatpilot.files.models import FileKind, RetentionClass, ScanStatus, SourceHandleInput
 
+DEFAULT_RETENTION_CLASS = RetentionClass.default
+DEFAULT_CLEANUP_INTERVAL_SECONDS = 3600
+
 RETENTION_WINDOWS: dict[RetentionClass, timedelta | None] = {
     RetentionClass.short: timedelta(days=1),
     RetentionClass.default: timedelta(days=7),
@@ -16,15 +19,21 @@ RETENTION_WINDOWS: dict[RetentionClass, timedelta | None] = {
 
 
 def compute_expires_at(
-    retention_class: RetentionClass | str = RetentionClass.default,
+    retention_class: RetentionClass | str = DEFAULT_RETENTION_CLASS,
     *,
     from_time: datetime,
 ) -> datetime | None:
-    retention = RetentionClass(retention_class)
+    retention = normalize_retention_class(retention_class)
     window = RETENTION_WINDOWS[retention]
     if window is None:
         return None
     return from_time + window
+
+
+def normalize_retention_class(
+    retention_class: RetentionClass | str = DEFAULT_RETENTION_CLASS,
+) -> RetentionClass:
+    return RetentionClass(retention_class)
 
 
 def default_scan_status() -> ScanStatus:

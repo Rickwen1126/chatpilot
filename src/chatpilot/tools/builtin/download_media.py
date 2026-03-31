@@ -49,6 +49,7 @@ def create_download_media_tool(
 
         data: bytes | None = None
         handle = None
+        session_context = None
         if file_handle_center is not None:
             try:
                 session_context = get_session_context(invocation)
@@ -70,6 +71,11 @@ def create_download_media_tool(
                     textResultForLlm=f"平台 {platform} 不支援媒體下載",
                     resultType="failure",
                 )
+            logger.warning(
+                "[file] legacy download_media fallback ref=%s route=%s",
+                ref,
+                session_context.route_id if session_context is not None else "unknown",
+            )
             data = await adapter.download_media(media_id)
         if data is None:
             return ToolResult(

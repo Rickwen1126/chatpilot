@@ -1,0 +1,28 @@
+{
+  "$schema": "https://aka.ms/codetour-schema",
+  "title": "Code Review: file-ops-cleanup 2026-03-31",
+  "steps": [
+    {
+      "title": "Review Summary",
+      "description": "## Review Summary\n\n🔴 Critical: 0\n🟡 Suggestions: 2\n✅ Good Practices: 1\n\n### Scope\nReview the phase-8 file operations cleanup milestone covering policy defaults, ingress/materialization logging, legacy fallback warnings, cleanup loop wiring, and docs/task sync.\n\n### Focus\nCheck whether file-center is now more observable and operational without accidentally changing the core governance model."
+    },
+    {
+      "file": "src/chatpilot/server/__init__.py",
+      "line": 392,
+      "title": "🟡 Cleanup loop is intentionally simple and single-process",
+      "description": "## Problem\nThe new cleanup loop is correct for the current local-first deployment, but it is deliberately a single-process background task. If ChatPilot later grows into multi-node or multi-process operation, this loop will need coordination rather than blind parallel execution.\n\n## Fix\n```python\n# Follow-up direction\n# Keep this loop for local-first runtime, but move to a coordinated scheduler\n# once file cleanup becomes a shared control-plane concern.\n```\n\n## Rationale\nThis is not a bug for the current target deployment. Calling it out now prevents a local-first convenience loop from being mistaken for the final distributed design."
+    },
+    {
+      "file": "src/chatpilot/tools/builtin/download_media.py",
+      "line": 72,
+      "title": "🟡 Legacy warnings improve visibility, but the compatibility paths still exist",
+      "description": "## Problem\nThe new warnings make legacy fallback visible, which is good, but they do not remove the compatibility paths. Over time, these warnings should lead to concrete removal work rather than becoming permanent noise.\n\n## Fix\n```python\n# Follow-up direction\n# Use the new warning signals to identify the remaining live fallback callers,\n# then retire or narrow those paths milestone by milestone.\n```\n\n## Rationale\nThis milestone correctly chooses observability over risky deletion. The only caution is to ensure the warnings remain a transition tool, not a resting place."
+    },
+    {
+      "file": "src/chatpilot/files/ingress.py",
+      "line": 38,
+      "title": "✅ Policy decisions are now visible at the right boundary",
+      "description": "## Problem\nNo issue here. The logging boundary is well chosen.\n\n## Fix\n```python\n# Reuse this pattern when future policies grow:\n# log the route, locator, action, and resulting canonical file_id\n# at the center boundary rather than inside downstream consumers.\n```\n\n## Rationale\nThis is exactly where observability belongs: right where the file policy decision is made. It gives high-value traces without pushing platform-specific debug logic back into tools."
+    }
+  ]
+}

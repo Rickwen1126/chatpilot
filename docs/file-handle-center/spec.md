@@ -60,6 +60,13 @@
 - 本輪不做 source/materialized/derived 的完全正規化多表設計
 - 本輪不做所有現有 file-related tools 的全面重寫，但設計必須能承接後續重構
 
+## Validation Notes
+
+- 本 feature 採 staged rollout：先證明 center 本體與 DB/schema 正確，再逐段嫁接到 adapter、hub、tool、pipeline。
+- 已完成的嫁接路徑，必須優先補 targeted integration / E2E；不可用「功能還沒全部做完」當作忽略失敗的理由。
+- 目前已完成並測過的高價值路徑包括：audio ingress/STT、canonical file recall、generated file governance、vision local attachment、以及 `download_media` / `document_edit` / `show_image` 的 canonical file path。
+- 真正需要 localhost:2999 與 tunnel/webhook 的 E2E 階段，必須先停止現有本機 chatpilot 服務，避免 runtime state 與 port 干擾。
+
 ## Architecture
 
 ### Adapter Responsibility

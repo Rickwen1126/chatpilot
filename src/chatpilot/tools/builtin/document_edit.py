@@ -182,6 +182,11 @@ def create_document_edit_tool(
                     textResultForLlm=f"未知的平台: {platform}",
                     resultType="failure",
                 )
+            logger.warning(
+                "[file] legacy document_edit fallback file_ref=%s route=%s",
+                file_ref,
+                session_context.route_id if session_context is not None else "unknown",
+            )
             file_bytes = await adapter.download_media(message_id)
         if file_bytes is None:
             return ToolResult(

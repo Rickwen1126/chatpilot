@@ -197,6 +197,14 @@ file/media 邏輯目前散在多處，收斂過程中容易牽動：
   - 減少測試結果被現存 runtime 狀態污染
 - 雖然部分測試未必用到 LINE，但本輪仍以保守策略處理
 
+### Current Staged Validation Status
+
+- `FileHandleCenter` foundation、DB schema、storage layout：已由 mock / unit / integration 驗證。
+- adapter ingress + hub/STT 嫁接：已由 integration tests 驗證 canonical file registration 與 audio eager download。
+- file-producing / file-consuming tools：已由 targeted integration tests 驗證 `download_media`、`document_edit`、`show_image` 的 canonical lookup、lineage 與 exposure behavior。
+- vision attachment path：已由 integration tests 驗證 local file attachments 可正確送入 SDK。
+- 下一步 E2E：在 localhost:2999 起測試 server 前，先停止現有本機 chatpilot 服務，並優先驗證 vision / document / image response 這幾條已完成嫁接的真實場景。
+
 ## Recommended Order
 
 1. 型別與 DB schema

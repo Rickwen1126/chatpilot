@@ -1,0 +1,34 @@
+{
+  "$schema": "https://aka.ms/codetour-schema",
+  "title": "11 - File Ops Cleanup: ChatPilot FileHandleCenter",
+  "steps": [
+    {
+      "title": "Context",
+      "description": "## 這條 tour 在看什麼\n\n這輪不是擴大 file-center 能力面，而是把它從『功能上成立』往『真的能長時間運作』推進。你會看到兩件事一起收斂：\n\n1. legacy file/ref 路徑不再靜默存在，而是被明確降級成可觀測 fallback。\n2. retention/cleanup 與 ingress/materialization decision 開始有實際 log 與 background hook。\n\n## 為什麼值得讀\n\n因為系統成長到這個階段，很多風險不再是「功能沒有」，而是「出事時看不出來」或「清不掉、留太久」。這條 tour 就是在把 file-center 的維運面補齊。"
+    },
+    {
+      "file": "src/chatpilot/files/policy.py",
+      "line": 9,
+      "title": "Retention defaults 正式變成 policy 常數",
+      "description": "## Insight\n\n**機制**：`DEFAULT_RETENTION_CLASS` 與 `DEFAULT_CLEANUP_INTERVAL_SECONDS` 把原本散在呼叫端的預設值收斂成 policy module 的正式常數，再搭配 `normalize_retention_class()` 統一轉換。這讓 retention 與 cleanup loop 都有單一預設來源。\n\n**故障模式**：如果 retention/default interval 只靠各處字串 hardcode，之後 file-center 擴散到更多 tool/pipeline 時，很容易出現不同預設值彼此漂移。\n\n**設計取捨**：這裡先只做最小 defaults，不提前做完整 config system。好處是簡單而且一致；代價是之後若要更細的 per-route / per-origin policy，仍要再擴充。"
+    },
+    {
+      "file": "src/chatpilot/files/ingress.py",
+      "line": 38,
+      "title": "Ingress 決策現在開始可追",
+      "description": "## Insight\n\n**機制**：每一個 inbound source handle 在 register 後，都會記錄 route、locator、kind、policy action 與 file_id。這讓之後看到 STT/vision/file recall 行為時，不再只能猜中心到底有沒有接手。\n\n**故障模式**：如果 ingress policy 還是黑盒子，等之後 eager/lazy 規則變多，實際上會很難知道到底是 register_only、download_now 還是 prefetch 在起作用。\n\n**設計取捨**：這裡先做結構化 log，不急著上 metrics/telemetry。好處是足夠 debug；代價是現在仍要靠 log 搜索，而不是 dashboard。"
+    },
+    {
+      "file": "src/chatpilot/tools/builtin/download_media.py",
+      "line": 72,
+      "title": "Legacy 路徑現在被明確降級成 fallback",
+      "description": "## Insight\n\n**機制**：`download_media`、`document_edit`、`show_image` 與 hub STT fallback 現在都會在掉回 legacy adapter/path 時打明確 warning。這不是在擴大 fallback 的合法性，而是在把它們變成可觀測的過渡路徑。\n\n**故障模式**：如果 legacy ref / adapter download path 繼續靜默存在，系統就算表面上看起來『file-center 已接上』，實際上仍可能大量繞過中心而不自知。\n\n**設計取捨**：這一輪選擇 downgrade 而不是直接刪除所有 fallback。好處是 side effect 小、能穩定抓漏；代價是 compatibility code 仍存在，之後還要繼續收斂。"
+    },
+    {
+      "file": "src/chatpilot/server/__init__.py",
+      "line": 395,
+      "title": "Server 現在會自動跑 file cleanup loop",
+      "description": "## Insight\n\n**機制**：startup 會根據 `CHATPILOT_FILE_CLEANUP_INTERVAL_SECONDS` 啟動背景 cleanup loop，定期呼叫 `file_center.cleanup_expired()`；shutdown 時會正確 cancel。這讓 retention 不再只是資料欄位，而是開始有實際執行者。\n\n**故障模式**：如果 file-center 只有 `expires_at` 但沒有週期性 cleanup hook，系統就只是把過期資訊記得很漂亮，local assets 還是會一直累積。\n\n**設計取捨**：這裡先做單一 process 內的最小 cleanup task，不引入 scheduler/job queue。好處是立刻可用；代價是未來若進到多節點或更嚴格維運模型，這條 loop 可能要進一步集中化。"
+    }
+  ]
+}
