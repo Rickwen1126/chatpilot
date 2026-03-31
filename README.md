@@ -212,7 +212,7 @@ New adapters implement `ChannelAdapter` Protocol: `verify_request`, `parse_messa
 
 ```bash
 GET  /health                  # Status + version + uptime
-GET  /cli/routes              # All routes, bindings, labels, sessions
+GET  /cli/routes              # Known routes + bindings + labels + known chatbots
 POST /cli/routes/label        # Set/remove route label
 POST /cli/routes/sync         # Sync labels from LINE API
 POST /cli/reload              # Hot-reload config

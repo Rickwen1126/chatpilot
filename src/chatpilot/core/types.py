@@ -99,7 +99,16 @@ class ChatRoute(BaseModel):
 
 
 class SessionContext(BaseModel):
-    """Runtime session identity mapped back to domain route context."""
+    """Bridge from a runtime session to the delegated target route context.
+
+    `sdk_session_id` identifies the current runtime actor (chatbot session or
+    disposable pipeline session). `route_id` identifies the target
+    conversation lane whose state/tools this actor is operating on.
+
+    In chatbot mode the runtime actor and target route usually align. In
+    pipeline/delegate mode they do not: the pipeline session is only acting on
+    behalf of the original route/chatbot context.
+    """
 
     sdk_session_id: str
     route_id: str
@@ -180,7 +189,12 @@ class AdapterChannelConfig(BaseModel):
 
 
 class TaskInfo(BaseModel):
-    """Async task managed by the scheduler."""
+    """Async task managed by the scheduler.
+
+    `chat_route_id` is the target route that owns the task/result path. It is
+    not the runtime SDK session identifier of whichever pipeline actor happens
+    to execute the task later.
+    """
 
     id: str
     status: TaskStatus = TaskStatus.queued

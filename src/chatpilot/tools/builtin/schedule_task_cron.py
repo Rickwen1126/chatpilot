@@ -34,6 +34,9 @@ def create_schedule_task_cron_tool(
         args = invocation.get("arguments") or {}
         session_context = get_session_context(invocation)
         route_id = session_context.route_id
+        # `chatbot_name` here means the chatbot that created the delegation.
+        # The schedule will later run inside a disposable pipeline actor, not
+        # by resuming this exact chatbot runtime session.
         chatbot_name = session_context.chatbot_name
 
         cron_expr = args.get("cron_expr", "").strip()
@@ -112,7 +115,7 @@ def create_schedule_task_cron_tool(
                 },
                 "description": {
                     "type": "string",
-                    "description": "任務描述（排程到期時 agent 會根據此描述執行任務）",
+                    "description": "任務描述（排程到期時 delegate agent 會根據此描述執行任務）",
                 },
                 "tool_name": {
                     "type": "string",

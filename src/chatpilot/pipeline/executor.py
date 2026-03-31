@@ -41,7 +41,7 @@ class PipelineExecutor:
         if pipeline is None:
             raise PipelineError(f"Pipeline '{task.pipeline_name}' not found")
 
-        current_input = task.input_data
+        current_input = self._with_task_context(task, task.input_data)
         last_output = NodeOutput(status="success", data=current_input)
         iteration = 0
 
@@ -66,9 +66,13 @@ class PipelineExecutor:
                     return last_output
 
                 if isinstance(last_output.data, dict):
-                    current_input = last_output.data
+                    current_input = self._with_task_context(
+                        task, last_output.data
+                    )
                 else:
-                    current_input = {"data": last_output.data}
+                    current_input = self._with_task_context(
+                        task, {"data": last_output.data}
+                    )
 
             iteration += 1
             if not pipeline.should_continue(iteration, last_output):
@@ -79,3 +83,10 @@ class PipelineExecutor:
                 break
 
         return last_output
+
+    @staticmethod
+    def _with_task_context(task: TaskInfo, data: dict) -> dict:
+        """Inject canonical task context into pipeline node input."""
+        enriched = dict(data)
+        enriched["route_id"] = task.chat_route_id
+        return enriched

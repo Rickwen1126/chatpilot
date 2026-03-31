@@ -14,6 +14,7 @@ from chatpilot.core.types import (
     SessionContext,
     ToolDefinition,
 )
+from chatpilot.pipeline.samples.schedule_agent import ScheduleAgentNode
 from chatpilot.server.webhook import router
 from chatpilot.tools.builtin.query_observations import (
     create_query_observations_tool,
@@ -47,6 +48,38 @@ class _StubScheduler:
 
     async def enqueue(self, task) -> None:
         self.enqueued.append(task)
+
+
+class _StubSdkSession:
+    def __init__(self, session_id: str, tools: list, seen: dict) -> None:
+        self._session_id = session_id
+        self._tools = tools
+        self._seen = seen
+
+    async def send_and_wait(self, prompt: str, timeout: float = 300.0) -> str:
+        self._seen["prompt"] = prompt
+        self._seen["timeout"] = timeout
+        if self._tools:
+            result = await self._tools[0].handler({
+                "session_id": self._session_id,
+                "arguments": {},
+            })
+            self._seen["tool_result"] = result
+        return "delegate ok"
+
+    async def destroy(self) -> None:
+        self._seen["destroyed"] = True
+
+
+class _StubSdkClient:
+    def __init__(self, seen: dict) -> None:
+        self._seen = seen
+
+    async def create_session(self, session_id: str, **kwargs):
+        self._seen["session_id"] = session_id
+        self._seen["tools"] = kwargs.get("tools") or []
+        self._seen["working_directory"] = kwargs.get("working_directory")
+        return _StubSdkSession(session_id, self._seen["tools"], self._seen)
 
 
 def _register_context(registry: SessionContextRegistry, session_id: str) -> None:
@@ -135,6 +168,71 @@ async def test_submit_task_uses_route_id_from_session_context():
     })
 
     assert scheduler.enqueued[0].chat_route_id == "line:webric:Ufc68"
+
+
+def test_registry_list_contexts_ignores_non_persisted_sessions(tmp_path):
+    registry = SessionContextRegistry(metadata_dir=tmp_path / "session-contexts")
+    _register_context(registry, "line-webric-Ufc68__buddy")
+
+    assert len(registry.list_contexts()) == 1
+
+    registry.register(
+        SessionContext(
+            sdk_session_id="schedule-agent-ephemeral",
+            route_id="line:webric:Ufc68",
+            platform="line:webric",
+            conversation_id="Ufc68",
+            chatbot_name="buddy",
+        ),
+        persist_metadata=False,
+    )
+
+    listed_ids = {context.sdk_session_id for context in registry.list_contexts()}
+    assert listed_ids == {"line-webric-Ufc68__buddy"}
+
+
+@pytest.mark.asyncio
+async def test_schedule_agent_registers_ephemeral_session_context(tmp_path):
+    seen: dict = {"session_contexts": []}
+
+    async def handler(invocation):
+        seen["session_contexts"].append(invocation.get("session_context"))
+        return {"resultType": "success", "textResultForLlm": "ok"}
+
+    registry = SessionContextRegistry(metadata_dir=tmp_path / "session-contexts")
+    factory = ToolFactory(session_context_registry=registry)
+    factory.register(ToolDefinition(
+        name="inspect_context",
+        description="inspect context",
+        parameters={"type": "object", "properties": {}},
+        handler=handler,
+        access_level=AccessLevel.GLOBAL,
+    ))
+
+    node = ScheduleAgentNode(
+        sdk_client=_StubSdkClient(seen),
+        tool_factory=factory,
+    )
+
+    result = await node.execute({
+        "description": "run delegated task",
+        "route_id": "line:webric:Ufc68",
+        "chatbot_name": "buddy",
+        "chatbot_tools": ["inspect_context"],
+    })
+
+    assert result.status == "success"
+    assert seen["session_contexts"] == [{
+        "sdk_session_id": seen["session_id"],
+        "route_id": "line:webric:Ufc68",
+        "platform": "line:webric",
+        "conversation_id": "Ufc68",
+        "chatbot_name": "buddy",
+    }]
+    assert registry.resolve(seen["session_id"]) is None
+    assert registry.list_contexts() == []
+    metadata_dir = tmp_path / "session-contexts"
+    assert not metadata_dir.exists() or list(metadata_dir.glob("*.json")) == []
 
 
 def test_cli_routes_reads_workspace_session_context_metadata(

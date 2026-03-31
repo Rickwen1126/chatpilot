@@ -1,8 +1,8 @@
-"""Schedule Agent pipeline — executes scheduled tasks with chatbot's tools.
+"""Schedule Agent pipeline — executes delegated tasks with chatbot tools.
 
 Unlike general-agent (web_search only), schedule-agent inherits the tools
-of the chatbot that created the schedule, so it can query warehouse,
-observations, etc.
+of the chatbot that created the schedule, so a disposable pipeline actor can
+operate on behalf of the original target route.
 """
 
 from __future__ import annotations
@@ -11,11 +11,12 @@ import logging
 import uuid
 from pathlib import Path
 
-from chatpilot.core.types import NodeOutput
+from chatpilot.core.types import NodeOutput, SessionContext
 from chatpilot.pipeline.executor import PipelineDefinition
 from chatpilot.pipeline.node import PipelineNode
 from chatpilot.sdk.session import SdkClient
 from chatpilot.tools.factory import ToolFactory
+from chatpilot.tools.session_context import split_route_id
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +29,7 @@ DEFAULT_SYSTEM_MESSAGE = (
 
 
 class ScheduleAgentNode:
-    """Scheduled task agent — uses chatbot's tools to execute tasks."""
+    """Delegate agent that uses chatbot tools against a target route context."""
 
     def __init__(
         self,
@@ -60,6 +61,8 @@ class ScheduleAgentNode:
         prompt = input.get("description", str(input))
         session_id = f"schedule-agent-{uuid.uuid4().hex[:12]}"
         workdir = self._resolve_workdir(session_id)
+        target_route_id = str(input.get("route_id", "")).strip()
+        origin_chatbot_name = str(input.get("chatbot_name", "")).strip()
 
         from chatpilot.core.time_service import TimeService
 
@@ -73,10 +76,11 @@ class ScheduleAgentNode:
         # Use chatbot's tools from input_data (injected by CronScheduler).
         # Filter out AGENT_TEAM_TRIGGER / CHATBOT_ONLY tools — pipeline
         # cannot use those (recursion guard). They are silently skipped.
+        # `chatbot_name` here means the chatbot that created/delegated the job,
+        # not the identity of this disposable schedule-agent session.
         tools = None
         if self._tool_factory:
             chatbot_tools = input.get("chatbot_tools", [])
-            chatbot_name = input.get("chatbot_name", "")
             try:
                 if chatbot_tools:
                     # Filter to pipeline-safe tools only (GLOBAL + AGENT_TEAM_ONLY)
@@ -94,8 +98,11 @@ class ScheduleAgentNode:
                         safe_tools
                     ) if safe_tools else None
                     logger.info(
-                        "[schedule-agent] chatbot=%s tools=%s (from %s)",
-                        chatbot_name, safe_tools, chatbot_tools,
+                        "[schedule-agent] delegated_by=%s target_route=%s tools=%s (from %s)",
+                        origin_chatbot_name,
+                        target_route_id or "?",
+                        safe_tools,
+                        chatbot_tools,
                     )
                 else:
                     # Fallback: no chatbot tools → web_search only
@@ -108,6 +115,24 @@ class ScheduleAgentNode:
                     )
             except Exception:
                 logger.exception("[schedule-agent] failed to resolve tools")
+
+        registry = (
+            self._tool_factory.session_context_registry
+            if self._tool_factory is not None
+            else None
+        )
+        if registry is not None and target_route_id:
+            platform, conversation_id = split_route_id(target_route_id)
+            registry.register(
+                SessionContext(
+                    sdk_session_id=session_id,
+                    route_id=target_route_id,
+                    platform=platform,
+                    conversation_id=conversation_id,
+                    chatbot_name=origin_chatbot_name,
+                ),
+                persist_metadata=False,
+            )
 
         try:
             session = await self._sdk_client.create_session(
@@ -128,6 +153,9 @@ class ScheduleAgentNode:
         except Exception as e:
             logger.exception("[schedule-agent] failed")
             return NodeOutput(status="error", data={}, error=str(e))
+        finally:
+            if registry is not None:
+                registry.unregister(session_id)
 
 
 class ScheduleAgentPipeline(PipelineDefinition):

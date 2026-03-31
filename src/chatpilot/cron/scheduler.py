@@ -143,6 +143,8 @@ class CronScheduler:
         route_id = schedule["route_id"]
         tool_name = schedule.get("tool_name", "")
         cron_expr = schedule.get("cron_expr", "")
+        # Stored chatbot_name is the delegator/origin chatbot whose toolset
+        # should be inherited by the disposable schedule-agent actor.
         chatbot_name = schedule.get("chatbot_name", "")
 
         # Mark running
@@ -159,7 +161,7 @@ class CronScheduler:
 
             from chatpilot.core.types import TaskInfo
 
-            # Resolve chatbot_name → tool list at trigger time
+            # Resolve origin chatbot → delegated tool list at trigger time.
             input_data = dict(schedule.get("input_data", {}))
             if chatbot_name:
                 cfg = self._chatbot_configs.get(chatbot_name)

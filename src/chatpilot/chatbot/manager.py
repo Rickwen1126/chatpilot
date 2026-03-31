@@ -89,7 +89,7 @@ class ChatbotManager:
         if config is None:
             raise ValueError(f"Chatbot '{chatbot_name}' not found")
 
-        # Session ID: route@chatbot (@ separator preserves route_id derivation)
+        # Runtime anchor for the chatbot session on this route/chatbot pair.
         sdk_session_id = build_sdk_session_id(route_id, chatbot_name)
 
         # Resolve working directory: config.workdir or default per-session
@@ -133,6 +133,7 @@ class ChatbotManager:
         session = ChatbotSession(sdk_session, config)
         self._sessions[route_id] = session
         platform, conversation_id = split_route_id(route_id)
+        # Persist chatbot sessions as known-route metadata for admin views.
         self._session_context_registry.register(
             SessionContext(
                 sdk_session_id=sdk_session_id,

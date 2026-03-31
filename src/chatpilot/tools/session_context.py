@@ -14,7 +14,7 @@ DEFAULT_WORKSPACE_ROOT = Path("data/workspace")
 
 
 def build_sdk_session_id(route_id: str, chatbot_name: str) -> str:
-    """Build the SDK session identifier for a route/chatbot pair."""
+    """Build the runtime SDK session identifier for a route/chatbot pair."""
     return f"{route_id.replace(':', '-')}__{chatbot_name}"
 
 
@@ -52,7 +52,7 @@ def get_session_context(invocation: Mapping[str, Any]) -> SessionContext:
 
 
 class SessionContextRegistry:
-    """Runtime registry backed by persisted session metadata."""
+    """Runtime registry backed by optional persisted session metadata."""
 
     def __init__(
         self,
@@ -70,9 +70,11 @@ class SessionContextRegistry:
         context: SessionContext,
         *,
         workdir: str | Path | None = None,
+        persist_metadata: bool = True,
     ) -> None:
         self._contexts[context.sdk_session_id] = context
-        self._persist_context(context, workdir=workdir)
+        if persist_metadata:
+            self._persist_context(context, workdir=workdir)
 
     def resolve(self, sdk_session_id: str) -> SessionContext | None:
         if not sdk_session_id:
@@ -104,8 +106,8 @@ class SessionContextRegistry:
                 path.unlink()
 
     def list_contexts(self) -> list[SessionContext]:
-        """List all known contexts from memory and persisted metadata."""
-        known: dict[str, SessionContext] = dict(self._contexts)
+        """List persisted/known contexts for admin views."""
+        known: dict[str, SessionContext] = {}
         if self._metadata_dir.exists():
             for path in sorted(self._metadata_dir.glob("*.json")):
                 context = SessionContext.model_validate_json(
@@ -113,6 +115,9 @@ class SessionContextRegistry:
                 )
                 known.setdefault(context.sdk_session_id, context)
                 self._contexts.setdefault(context.sdk_session_id, context)
+        for session_id, context in self._contexts.items():
+            if self._metadata_path(session_id).exists():
+                known.setdefault(session_id, context)
         return list(known.values())
 
     def scan_workspace_sidecars(

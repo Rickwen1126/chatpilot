@@ -118,7 +118,7 @@ Python 3.11+: Pydantic v2 models, Protocol for interfaces, async/await, ruff for
 管理群組/對話 binding 和標籤的 API：
 
 ```bash
-# 列出所有已知 routes（含標籤、chatbot binding、sessions）
+# 列出所有已知 routes（含標籤、chatbot binding、已知 chatbot；非 live session 清單）
 GET /cli/routes
 
 # 從 LINE API 同步群組名稱+人數到標籤

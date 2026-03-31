@@ -186,7 +186,12 @@ async def cli_chat(request: Request) -> JSONResponse:
 
 @router.get("/cli/routes")
 async def cli_routes(request: Request) -> JSONResponse:
-    """List all known routes with chatbot binding info."""
+    """List known routes for admin views.
+
+    This endpoint reflects persisted/known route metadata, not a live list of
+    currently running SDK sessions. `sessions` therefore means chatbots seen or
+    persisted for that route, not active runtime actors.
+    """
     import json as _json
     from pathlib import Path
 
@@ -211,7 +216,7 @@ async def cli_routes(request: Request) -> JSONResponse:
             }
         known_routes[route_id]["sessions"].append(context.chatbot_name)
 
-    # Enrich with current state
+    # Enrich known-route metadata with current binding/override state.
     routes = []
     for route_id, info in sorted(known_routes.items()):
         override = chatbot_manager.get_current_chatbot(route_id)
