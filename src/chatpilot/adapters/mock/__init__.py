@@ -5,6 +5,7 @@ from __future__ import annotations
 from fastapi import Request
 
 from chatpilot.core.types import Message, Response
+from chatpilot.files.models import SourceFetchResult, SourceHandleInput
 
 
 class MockAdapter:
@@ -46,6 +47,26 @@ class MockAdapter:
     async def push_message(self, route_id: str, response: Response) -> None:
         self.pushes.append((route_id, response.text))
 
+    def build_source_handle(
+        self,
+        *,
+        route_id: str,
+        kind: str,
+        native_locator: str,
+        filename: str | None = None,
+        mime_type: str | None = None,
+        platform_context: dict | None = None,
+    ) -> SourceHandleInput:
+        return SourceHandleInput(
+            route_id=route_id,
+            platform=self.platform,
+            kind=kind,
+            native_locator=native_locator,
+            filename=filename,
+            mime_type=mime_type,
+            platform_context=dict(platform_context or {}),
+        )
+
     async def download_media(self, media_id: str) -> bytes | None:
         """Return a tiny test PNG for mock media IDs."""
         import struct
@@ -66,4 +87,18 @@ class MockAdapter:
             + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0))
             + chunk(b"IDAT", compressed)
             + chunk(b"IEND", b"")
+        )
+
+    async def fetch_source_file(
+        self,
+        source: SourceHandleInput,
+    ) -> SourceFetchResult | None:
+        data = await self.download_media(source.native_locator)
+        if data is None:
+            return None
+        return SourceFetchResult(
+            data=data,
+            filename=source.filename,
+            mime_type=source.mime_type or "image/png",
+            size_bytes=len(data),
         )

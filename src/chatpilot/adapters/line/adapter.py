@@ -25,6 +25,7 @@ from chatpilot.adapters.line.parser import parse_line_events
 from chatpilot.core.errors import AdapterError
 from chatpilot.core.time_service import TimeService
 from chatpilot.core.types import Message, Response
+from chatpilot.files.models import SourceFetchResult, SourceHandleInput
 
 logger = logging.getLogger(__name__)
 
@@ -195,6 +196,26 @@ class LineAdapter:
             except Exception as e:
                 raise AdapterError("LINE push failed", cause=e) from e
 
+    def build_source_handle(
+        self,
+        *,
+        route_id: str,
+        kind: str,
+        native_locator: str,
+        filename: str | None = None,
+        mime_type: str | None = None,
+        platform_context: dict | None = None,
+    ) -> SourceHandleInput:
+        return SourceHandleInput(
+            route_id=route_id,
+            platform=self.platform,
+            kind=kind,
+            native_locator=native_locator,
+            filename=filename,
+            mime_type=mime_type,
+            platform_context=dict(platform_context or {}),
+        )
+
     async def download_media(self, media_id: str) -> bytes | None:
         """Download media from LINE by message ID."""
         self._log_legacy_mode("download_media")
@@ -205,3 +226,17 @@ class LineAdapter:
         except Exception as e:
             logger.warning("LINE media download failed for %s: %s", media_id, e)
             return None
+
+    async def fetch_source_file(
+        self,
+        source: SourceHandleInput,
+    ) -> SourceFetchResult | None:
+        data = await self.download_media(source.native_locator)
+        if data is None:
+            return None
+        return SourceFetchResult(
+            data=data,
+            filename=source.filename,
+            mime_type=source.mime_type,
+            size_bytes=len(data),
+        )

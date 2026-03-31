@@ -16,6 +16,8 @@ from chatpilot.adapters.protocol import ChannelAdapter
 from chatpilot.chatbot.manager import ChatbotManager
 from chatpilot.core.config import GatewayConfig, load_config, watch_config
 from chatpilot.core.types import Message, Response
+from chatpilot.files.center import FileHandleCenter
+from chatpilot.files.store import SqliteFileStore
 from chatpilot.hub.context_buffer import ContextBuffer
 from chatpilot.hub.hub import InMemoryMessageHub
 from chatpilot.memory.store import SqliteMemoryStore as MemoryStore
@@ -350,12 +352,27 @@ async def lifespan(app: FastAPI):
     )
     await memory_store.initialize()
 
+    file_store = SqliteFileStore(
+        db_path=os.environ.get("CHATPILOT_FILES_DB", "data/files.db")
+    )
+    await file_store.initialize()
+
     session_context_registry = SessionContextRegistry()
     tool_factory = ToolFactory(
         session_context_registry=session_context_registry
     )
     adapters = _init_adapters(config)
     app.state.adapters = adapters
+    file_center = FileHandleCenter(
+        file_store,
+        adapters,
+        asset_root=os.environ.get(
+            "CHATPILOT_FILE_ASSETS_DIR",
+            "data/file_assets",
+        ),
+    )
+    app.state.file_store = file_store
+    app.state.file_handle_center = file_center
 
     # Routing + chatbot
     binding_router = BindingRouter(config.bindings, config.match_weights)
@@ -623,6 +640,7 @@ async def lifespan(app: FastAPI):
     await cron_scheduler.stop()
     await runner_pool.stop()
     await task_store.close()
+    await file_store.close()
     await memory_store.close()
     if observer:
         observer.stop()
