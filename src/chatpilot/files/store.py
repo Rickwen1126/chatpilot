@@ -5,13 +5,14 @@ from __future__ import annotations
 import json
 import logging
 import uuid
-from datetime import UTC, datetime
+from datetime import datetime
 from enum import Enum
 from pathlib import Path
 from typing import Any
 
 import aiosqlite
 
+from chatpilot.core.time_service import TimeService
 from chatpilot.files.models import (
     CanonicalFileHandle,
     FetchStatus,
@@ -197,7 +198,7 @@ class SqliteFileStore:
     ) -> str:
         db = self._require_db()
         relation_id = relation_id or str(uuid.uuid4())
-        created_at = created_at or datetime.now(UTC)
+        created_at = created_at or TimeService.get().utc_now()
         await db.execute(
             """
             INSERT INTO file_relations (
@@ -259,7 +260,7 @@ class SqliteFileStore:
     ) -> str:
         db = self._require_db()
         note_id = note_id or str(uuid.uuid4())
-        created_at = created_at or datetime.now(UTC)
+        created_at = created_at or TimeService.get().utc_now()
         await db.execute(
             """
             INSERT INTO file_notes (
