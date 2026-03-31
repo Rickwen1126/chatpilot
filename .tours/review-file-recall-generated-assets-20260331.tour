@@ -1,0 +1,22 @@
+{
+  "$schema": "https://aka.ms/codetour-schema",
+  "title": "Code Review: file-recall-generated-assets 2026-03-31",
+  "steps": [
+    {
+      "title": "Review Summary",
+      "description": "## Review Summary\n\n🔴 Critical: 0\n🟡 Suggestions: 1\n✅ Good Practices: 1\n\n### Scope\nReview the `FileHandleCenter` route recall helpers, note/relation façade, and generated local file registration path introduced in commit `3f4efe4`.\n\n### Focus\nCheck whether the new helper surface preserves file-governance invariants without reopening workpath-based escape hatches."
+    },
+    {
+      "file": "src/chatpilot/files/center.py",
+      "line": 101,
+      "title": "🟡 Internal source handles cannot be rehydrated after asset loss",
+      "description": "## Problem\n`register_local_file()` creates a canonical handle with `platform=\"internal\"` and immediately materializes the current bytes into governed storage. That works while the local asset exists, but if the asset is later deleted or otherwise lost before the row is expired, `ensure_local()` falls through to `download_now()`, which tries adapter lookup on `internal` and raises `No adapter registered`. The current tests lock the happy path, but there is no explicit policy for what should happen when generated/internal files need re-materialization.\n\n## Fix\n```python\n# Possible follow-up direction\nif handle.platform == \"internal\":\n    raise RuntimeError(\n        f\"Generated file '{file_id}' cannot be re-fetched after local asset loss\"\n    )\n```\nOr, if rehydration is a real requirement, introduce an internal source-provider model instead of pretending `internal` is fetchable like an external platform.\n\n## Rationale\nThis is not a blocker for the current milestone, but it is a real lifecycle edge. Generated files are now governed, which is good, yet their source semantics differ from adapter-backed files. Making that boundary explicit will avoid confusing runtime failures later."
+    },
+    {
+      "file": "tests/unit/test_file_handle_center.py",
+      "line": 138,
+      "title": "✅ Recall and lineage invariants are tested directly",
+      "description": "## Problem\nNo issue here. These tests are well-targeted to the new contract.\n\n## Fix\n```python\n# Keep this style for future milestones:\n# - test route recall survives asset cleanup\n# - test generated files enter governed storage with relations\n```\n\n## Rationale\nThe tests do more than check download success. They pin the exact new invariants this milestone claims to introduce: route-level recall outliving raw asset expiry, and generated local files being pulled into the governed file graph instead of staying as loose workpath artifacts."
+    }
+  ]
+}

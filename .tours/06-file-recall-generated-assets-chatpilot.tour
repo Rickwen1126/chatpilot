@@ -1,0 +1,31 @@
+{
+  "$schema": "https://aka.ms/codetour-schema",
+  "title": "06 - File Recall & Generated Assets: ChatPilot FileHandleCenter",
+  "steps": [
+    {
+      "title": "Context",
+      "description": "## 這條 tour 其實是在看\n\n這條路徑其實是在看：`FileHandleCenter` 怎麼從「只會下載外部檔案」再往前長一步，變成 route-level file recall 與 generated file 納管的中心。\n\n如果先記不住細節，先抓住每個 step 只是在回答「檔案如果不是只來自 adapter，而是也會被 tool / pipeline 產生，系統要怎麼讓它仍然走同一條治理鏈？」\n\n## ChatPilot 是什麼\n\nChatPilot 是一個 local-first、route-aware、multi-platform 的 agent runtime，重點不是單次對話，而是讓 route、task、tool、pipeline 能共享同一套治理過的 context。\n\n## 錨定已知\n\n如果你熟悉 message adapter / hub / route_id 這條線，可以把這裡想成同一種 pattern 往 file domain 再複用一次：平台差異留在邊界，系統內只吃 canonical unit。\n\n## 這條路徑在解決什麼問題\n\n一旦檔案不只來自外部上傳，也可能來自 document tool、vision pipeline、agent generated artifact，系統就不能再容忍各種 workpath hardcode。這條路徑是在把這些檔案納回同一個 `file_id` 與 route-level recall 模型。\n\n## 這條路徑展示什麼 mental model\n\n走完這條 tour，應該能建立這個 mental model：`FileHandleCenter` 不只是 downloader，而是 file governance boundary；原始檔可以過期，但 route-level 記憶、notes、relations 仍然存在。\n\n## 為什麼值得讀\n\n因為這是 ChatPilot 從「會處理附件」往「有外部檔案記憶與 generated artifact discipline」進化的第一個完整步驟。"
+    },
+    {
+      "file": "src/chatpilot/files/center.py",
+      "line": 83,
+      "ref": "3f4efe43ddd5e6e5215a4a4cea942520c4b333aa",
+      "title": "Generated File 也先走 register 再落地",
+      "description": "## Insight\n\n**機制**：`register_local_file()` 沒有繞過中心直接把 local path 丟給下游，而是先合成一個 internal source、走同一個 `register()` 配 `file_id`，再把現有 bytes 複製進 governed storage。這讓 generated file 也落在同一條 canonical file lifecycle。\n\n**故障模式**：如果 tool/pipeline 直接把檔案留在 workpath，短期雖然能跑，但後面 route recall、retention、lineage、cleanup 都會失真，最後只剩一堆找不到來龍去脈的路徑。\n\n**設計取捨**：這裡接受了一個刻意的 tradeoff：generated/local import 先被建成 `platform=\"internal\"` 的 source handle，好處是治理鏈一致；代價是它不是可重新 fetch 的外部來源，之後若要更強 rehydrate 能力，還得再補 source provider 模型。\n\n## 白話解析\n\n這段在整條鏈上扮演的是「把 agent/tool 產出的檔案也拉回正規軍」的角色。它其實就是在做一件事：就算檔案已經在本機了，也先發一張正式身分證，再搬進受治理的資產區，而不是讓它永遠躺在臨時工作路徑裡。之後如果這條線沒做好，你會在 generated file 想被再次引用、清理、追 lineage 的時候看到混亂。\n\n## Code Detail\n\n這段在幹嘛：\n1. 驗證 local source file 存在。\n2. 用 internal source fields 走 `register()` 取得 canonical `file_id`。\n3. 直接把 bytes 寫進 governed asset storage。\n4. 補上 `derived_from` / `generated_by_tool` / `generated_by_pipeline` relations。\n\n為什麼這樣寫：\n- 好處：generated file 與 adapter ingress 共用同一套 `file_id`、retention、relation、ensure_local` 規則。\n- 好處：不需要為 tool output 另外發明一種 storage discipline。\n- 壞處：目前 internal source 不可 re-fetch，若未來要支援更強的再 materialize，還要補 source provider 概念。\n\n思考問題：\n1. generated file 若要在 cleanup 後仍能重新 materialize，最小需要再多一層什麼 source abstraction？\n2. `generated_by_tool` 與 `generated_by_pipeline` 是 relation 還是主表欄位，哪個更能承接未來複雜 graph？"
+    },
+    {
+      "file": "src/chatpilot/files/center.py",
+      "line": 257,
+      "ref": "3f4efe43ddd5e6e5215a4a4cea942520c4b333aa",
+      "title": "Route Recall 靠的是檔案記憶，不是 session continuity",
+      "description": "## Insight\n\n**機制**：`get_handle()`、`list_route_files()`、`add_note()`、`list_notes()`、`add_relation()`、`list_relations()` 把 `FileHandleCenter` 從純下載器擴成 route-level file memory façade。原始檔案可回收，但 note / relation / route lookup 仍可留下來支撐後續回答。\n\n**故障模式**：如果系統只有 local asset，沒有 route lookup 與 note surface，那 session reset 後就只能叫使用者重傳；外部檔案記憶無法成立，跨代理人的 handoff 也會退化成硬吃完整歷史。\n\n**設計取捨**：這裡先用很薄的 façade 直接透過 store 回傳 dict rows，而不是一開始就建立更重的 query model。好處是能快速把 recall path 打通；代價是回傳型別還偏資料庫形狀，之後若跨模組大量使用，可能要再收斂 typed view model。\n\n## 白話解析\n\n這段在整條鏈上扮演的是「讓 file 變成 external memory unit」的角色。它其實就是在把檔案從『有沒有還在 local path』提升成『這條 route 以前有什麼檔案、曾被寫過什麼摘要、彼此有什麼關係』。你真正會看到它效果的地方，是 session 重置後仍能回答『昨天那張圖怎麼樣』這類問題。\n\n## Code Detail\n\n這段在幹嘛：\n- 提供 route-level file listing。\n- 提供 note 與 relation 的增查接口。\n- 讓上層不必直接碰 file store 的 SQL 形狀。\n\n為什麼這樣寫：\n- 好處：先把 recall 能力接進中心邊界，不讓 file notes / relations 又散到各 tool。\n- 好處：之後 tool、pipeline、hub 都能從同一邊界查詢 file memory。\n- 壞處：目前回傳值還是 dict-based façade，typed query surface 之後可能還要補。\n\n思考問題：\n1. 什麼時候 `list_route_files()` 值得升級成更有語意的 query API？\n2. `file_notes` 應該如何區分 user-facing summary 與 agent-only analysis？"
+    },
+    {
+      "file": "tests/unit/test_file_handle_center.py",
+      "line": 138,
+      "ref": "3f4efe43ddd5e6e5215a4a4cea942520c4b333aa",
+      "title": "測試在釘兩個新 invariant",
+      "description": "## Insight\n\n**機制**：這兩個測試沒有只驗 happy-path download，而是刻意釘住兩個新的系統 invariant：`notes survive asset expiry` 與 `generated local files become governed assets with lineage`。\n\n**故障模式**：如果測試只驗 register/download 成功，之後最容易發生的是原檔一清掉就失憶，或 generated file 再次偷偷回到 workpath hardcode 世界，最後整條治理鏈又碎掉。\n\n**設計取捨**：測試目前先用 fake adapter 與 temp local file，把邊界收在 center 自己。好處是定位很準、跑得快；代價是還沒證明這些能力在 hub/tool 真實嫁接後的全鏈路一致性，所以後面還需要沿流程補 integration / E2E。\n\n## 白話解析\n\n這段在整條鏈上扮演的是『把新規矩真的鎖住』的角色。它其實就是在防止我們嘴上說 file 是 external memory、generated file 要納管，但實際一 cleanup 或一經手 tool 就掉回舊世界。之後如果這裡鬆掉，你會看到 session reset 回答能力和 tool 產檔治理一起倒退。\n\n## Code Detail\n\n這段在幹嘛：\n- 驗證 cleanup 後 row 與 note 仍可 route lookup。\n- 驗證 local generated file 會被複製進 governed storage。\n- 驗證 relations 被正確建立。\n\n為什麼這樣寫：\n- 好處：直接對準我們這輪新引入的 memory / lineage invariant。\n- 好處：失敗時能很快分辨是 recall 壞掉還是 generated asset 納管壞掉。\n- 壞處：目前還沒覆蓋 internal-source 再 materialize 等更邊界的情況。\n\n思考問題：\n1. 下一輪 integration test 最應該先嫁接哪條 flow，才能最快暴露 file memory 的真實斷點？\n2. generated file 若之後要回推到 msg hub，relation 應該先補哪種語意最有價值？"
+    }
+  ]
+}
