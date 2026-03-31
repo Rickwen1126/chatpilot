@@ -134,6 +134,7 @@
 - 先立契約與中心，再做嫁接
 - 先做最小通路，不一次重寫全部工具
 - 先修已確認的 broken path（vision），再擴大治理面
+- 需要起測試 server / 跑 E2E 前，先主動清掉現有本機 chatpilot 服務，避免 port / tunnel / webhook 干擾
 
 ### 策略
 
@@ -141,6 +142,8 @@
 - adapter 保持平台翻譯器 + fetch primitive 角色
 - 現有 scattered tool 先逐步接入，不急著一次替換
 - 讓 DB 與 storage layout 先成形，避免後續 migration 更痛
+- 先用 mock / integration 證明 center 本身正確，再沿主流程一路一路串上去
+- 若某一段整合受前置進度阻塞，可先 skip，保留測試入口與待辦，不硬擠全綠
 
 ## Risks
 
@@ -184,6 +187,15 @@ file/media 邏輯目前散在多處，收斂過程中容易牽動：
 - user 傳圖片後，vision pipeline 能實際讀到圖
 - user 傳音檔後，STT 能從 canonical local asset 運作
 - session reset 後，仍能透過 route-level file memory 查到前一天 file metadata / notes
+
+### E2E / Server 注意事項
+
+- 進入需要 localhost:2999 測試 server 的 phase 前，先停止目前本機正在跑的 chatpilot 服務
+- 原因：
+  - 避免 port 衝突
+  - 避免 tunnel / webhook 被既有服務占用
+  - 減少測試結果被現存 runtime 狀態污染
+- 雖然部分測試未必用到 LINE，但本輪仍以保守策略處理
 
 ## Recommended Order
 
