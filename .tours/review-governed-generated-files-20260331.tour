@@ -1,0 +1,28 @@
+{
+  "$schema": "https://aka.ms/codetour-schema",
+  "title": "Code Review: governed-generated-files 2026-03-31",
+  "steps": [
+    {
+      "title": "Review Summary",
+      "description": "## Review Summary\n\n🔴 Critical: 0\n🟡 Suggestions: 2\n✅ Good Practices: 1\n\n### Scope\nReview the generated-file governance milestone in commit `4804be2`, covering `register_bytes_file`, `document_edit` output registration, `show_image` center-first migration, and targeted tests.\n\n### Focus\nCheck whether tool-generated files are now properly absorbed into FileHandleCenter without accidentally overreaching into unresolved exposure-policy territory."
+    },
+    {
+      "file": "src/chatpilot/tools/builtin/document_edit.py",
+      "line": 231,
+      "title": "🟡 Generated output is only governed when session context is present",
+      "description": "## Problem\n`document_edit` now correctly registers generated output into FileHandleCenter, but only when `session_context` is available. Calls coming from any non-standard path without session context will still produce a URL-only output with no canonical file record, even though the tool itself succeeded.\n\n## Fix\n```python\n# Follow-up direction\n# Require/derive route ownership explicitly for file-producing tool paths,\n# or add a clearer degraded-mode contract when governance cannot be applied.\n```\n\n## Rationale\nThis is not a blocker for the current chatbot path, because normal tool invocations should carry session context. But now that generated-file governance exists, it is worth making the degraded path explicit rather than accidental."
+    },
+    {
+      "file": "src/chatpilot/tools/builtin/show_image.py",
+      "line": 66,
+      "title": "🟡 show_image data path is fixed, but exposure policy is still intentionally open",
+      "description": "## Problem\n`show_image` now uses FileHandleCenter as the primary data path, which is good, but it still treats any successfully resolved file as displayable. That is the right incremental move for this milestone, yet relation-driven exposure checks are still absent.\n\n## Fix\n```python\n# Follow-up direction\n# Add relation / route-scope exposure policy once the security-boundary design is ready,\n# rather than keeping show_image as a pure data-path tool forever.\n```\n\n## Rationale\nThis is not a bug in the current migration milestone; it is an intentionally deferred policy layer. Calling it out prevents the data-path fix from being mistaken for a complete exposure-control design."
+    },
+    {
+      "file": "tests/unit/test_document_edit.py",
+      "line": 325,
+      "title": "✅ Generated-file governance is protected by the right invariant test",
+      "description": "## Problem\nNo issue here. The test is protecting the right behavior.\n\n## Fix\n```python\n# Reuse this pattern for future file-producing tools:\n# assert canonical file registration + relation lineage,\n# not just response text or uploaded URL.\n```\n\n## Rationale\nThe test does exactly what this milestone needs: it proves that tool output is no longer just a side effect. That is the key architectural gain here, and it is good that the test locks it directly."
+    }
+  ]
+}
