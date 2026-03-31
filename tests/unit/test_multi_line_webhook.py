@@ -10,6 +10,9 @@ from fastapi.testclient import TestClient
 
 from chatpilot.core.errors import AdapterError
 from chatpilot.core.types import Message
+from chatpilot.files.center import FileHandleCenter
+from chatpilot.files.models import FileKind, SourceFetchResult, SourceHandleInput
+from chatpilot.files.store import SqliteFileStore
 from chatpilot.hub.context_buffer import ContextBuffer
 from chatpilot.hub.hub import _AUDIO_REF_PATTERN, InMemoryMessageHub
 from chatpilot.server.webhook import router
@@ -61,6 +64,16 @@ class _StubLineAdapter:
 
     async def download_media(self, media_id: str) -> bytes | None:
         return b"ok"
+
+    async def fetch_source_file(
+        self,
+        source: SourceHandleInput,
+    ) -> SourceFetchResult | None:
+        return SourceFetchResult(
+            data=b"ok",
+            filename=source.filename,
+            mime_type=source.mime_type,
+        )
 
 
 def _build_test_client(adapters: dict[str, object]) -> tuple[TestClient, _StubHub]:
@@ -134,6 +147,47 @@ async def test_download_media_accepts_multi_part_platform_key():
     result = await tool.handler({"arguments": {"ref": "line:webric:img123"}})
 
     assert result["resultType"] == "success"
+
+
+@pytest.mark.asyncio
+async def test_download_media_prefers_center_lookup_for_legacy_ref(tmp_path):
+    adapter = _StubLineAdapter("line:webric", "sig-a")
+    store = SqliteFileStore(str(tmp_path / "files.db"))
+    await store.initialize()
+    center = FileHandleCenter(
+        store,
+        {"line:webric": adapter},
+        asset_root=tmp_path / "assets",
+    )
+    handle = await center.register(
+        SourceHandleInput(
+            route_id="line:webric:C123",
+            platform="line:webric",
+            kind=FileKind.image,
+            native_locator="img123",
+            filename="photo.jpg",
+            mime_type="image/jpeg",
+        )
+    )
+    await center.download_now(handle.file_id)
+    tool = create_download_media_tool({"line:webric": adapter}, center)
+
+    result = await tool.handler({
+        "session_id": "sid-1",
+        "session_context": {
+            "sdk_session_id": "sid-1",
+            "route_id": "line:webric:C123",
+            "platform": "line:webric",
+            "conversation_id": "C123",
+            "chatbot_name": "buddy",
+        },
+        "arguments": {"ref": "line:webric:img123"},
+    })
+
+    assert result["resultType"] == "success"
+    assert handle.file_id in result["textResultForLlm"]
+
+    await store.close()
 
 
 @pytest.mark.asyncio

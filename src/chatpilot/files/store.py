@@ -162,6 +162,28 @@ class SqliteFileStore:
             row = await cursor.fetchone()
         return _row_to_dict(row) if row is not None else None
 
+    async def find_file_by_source(
+        self,
+        *,
+        route_id: str,
+        platform: str,
+        native_locator: str,
+    ) -> dict[str, Any] | None:
+        db = self._require_db()
+        async with db.execute(
+            """
+            SELECT * FROM file_assets
+            WHERE route_id = ?
+              AND source_platform = ?
+              AND source_native_locator = ?
+            ORDER BY created_at DESC
+            LIMIT 1
+            """,
+            (route_id, platform, native_locator),
+        ) as cursor:
+            row = await cursor.fetchone()
+        return _row_to_dict(row) if row is not None else None
+
     async def list_files_for_route(self, route_id: str) -> list[dict[str, Any]]:
         db = self._require_db()
         async with db.execute(

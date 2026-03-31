@@ -9,6 +9,9 @@ import docx
 import openpyxl
 import pytest
 
+from chatpilot.files.center import FileHandleCenter
+from chatpilot.files.models import FileKind, SourceFetchResult, SourceHandleInput
+from chatpilot.files.store import SqliteFileStore
 from chatpilot.tools.builtin.document_edit import (
     _edit_docx,
     _edit_xlsx,
@@ -191,9 +194,25 @@ async def test_docx_no_data_appends_instruction():
 class MockAdapter:
     def __init__(self, file_bytes: bytes | None):
         self._data = file_bytes
+        self.download_calls = 0
+        self.fetch_calls = 0
 
     async def download_media(self, media_id: str) -> bytes | None:
+        self.download_calls += 1
         return self._data
+
+    async def fetch_source_file(
+        self,
+        source: SourceHandleInput,
+    ) -> SourceFetchResult | None:
+        self.fetch_calls += 1
+        if self._data is None:
+            return None
+        return SourceFetchResult(
+            data=self._data,
+            filename=source.filename,
+            mime_type=source.mime_type,
+        )
 
 
 class MockR2:
@@ -249,6 +268,57 @@ async def test_handler_docx_full_flow():
     assert ext == "docx"
     paragraphs = _read_docx_paragraphs(uploaded_data)
     assert "結論：專案完成" in paragraphs
+
+
+async def test_handler_prefers_center_lookup_when_session_context_present(tmp_path):
+    xlsx_bytes = _make_xlsx([["品名", "數量"], ["水泥漆", 10]])
+    adapter = MockAdapter(xlsx_bytes)
+    store = SqliteFileStore(str(tmp_path / "files.db"))
+    await store.initialize()
+    center = FileHandleCenter(
+        store,
+        {"mock": adapter},
+        asset_root=tmp_path / "assets",
+    )
+    handle = await center.register(
+        SourceHandleInput(
+            route_id="mock:C777",
+            platform="mock",
+            kind=FileKind.file,
+            native_locator="msg_777",
+            filename="report.xlsx",
+            mime_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+    )
+    await center.download_now(handle.file_id)
+    adapter.download_calls = 0
+
+    r2 = MockR2("https://r2.example.com/center.xlsx")
+    tool = create_document_edit_tool({"mock": adapter}, r2, center)
+    result = await tool.handler({
+        "session_id": "sid-1",
+        "session_context": {
+            "sdk_session_id": "sid-1",
+            "route_id": "mock:C777",
+            "platform": "mock",
+            "conversation_id": "C777",
+            "chatbot_name": "buddy",
+        },
+        "arguments": {
+            "file_ref": "mock:msg_777:report.xlsx",
+            "instruction": "追加出貨紀錄",
+            "data": json.dumps([["乳膠漆", 5]]),
+        },
+    })
+
+    assert result["resultType"] == "success"
+    assert adapter.download_calls == 0
+    uploaded_data, _, ext = r2.last_upload
+    assert ext == "xlsx"
+    rows = _read_xlsx_rows(uploaded_data)
+    assert len(rows) == 3
+
+    await store.close()
 
 
 async def test_handler_unsupported_format():

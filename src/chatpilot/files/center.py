@@ -260,6 +260,22 @@ class FileHandleCenter:
             return None
         return build_handle_from_row(row)
 
+    async def find_source_handle(
+        self,
+        *,
+        route_id: str,
+        platform: str,
+        native_locator: str,
+    ) -> CanonicalFileHandle | None:
+        row = await self._store.find_file_by_source(
+            route_id=route_id,
+            platform=platform,
+            native_locator=native_locator,
+        )
+        if row is None:
+            return None
+        return build_handle_from_row(row)
+
     async def list_route_files(self, route_id: str) -> list[dict]:
         return await self._store.list_files_for_route(route_id)
 

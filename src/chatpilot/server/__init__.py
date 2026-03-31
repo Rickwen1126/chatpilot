@@ -212,6 +212,7 @@ def _register_tools(
     tool_factory: ToolFactory,
     scheduler: InMemoryTaskScheduler,
     adapters: dict[str, ChannelAdapter],
+    file_handle_center: FileHandleCenter,
     memory_store: MemoryStore,
     chatbot_manager: ChatbotManager,
     response_injector=None,
@@ -268,7 +269,7 @@ def _register_tools(
 
     tool_factory.register(create_calendar_tool())
     tool_factory.register(create_web_search_tool())
-    tool_factory.register(create_download_media_tool(adapters))
+    tool_factory.register(create_download_media_tool(adapters, file_handle_center))
 
     # Browser tools (Chrome CDP)
     from chatpilot.tools.builtin.browser_tools import (
@@ -283,7 +284,9 @@ def _register_tools(
 
     # Document edit + show image
     if r2_storage is not None:
-        tool_factory.register(create_document_edit_tool(adapters, r2_storage))
+        tool_factory.register(
+            create_document_edit_tool(adapters, r2_storage, file_handle_center)
+        )
         from chatpilot.tools.builtin.show_image import create_show_image_tool
 
         tool_factory.register(
@@ -599,7 +602,7 @@ async def lifespan(app: FastAPI):
         return config.cron_scheduler.available_tools
 
     _register_tools(
-        tool_factory, scheduler, adapters, memory_store,
+        tool_factory, scheduler, adapters, file_center, memory_store,
         chatbot_manager, response_injector, r2_storage,
         get_available_tools, observer_sources,
     )

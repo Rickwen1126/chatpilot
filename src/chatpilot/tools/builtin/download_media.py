@@ -4,11 +4,14 @@ from __future__ import annotations
 
 import base64
 import logging
+from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, Field
 
 from chatpilot.core.types import AccessLevel, ToolDefinition
+from chatpilot.files.center import FileHandleCenter
+from chatpilot.tools.session_context import get_session_context
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +43,10 @@ def _parse_ref(ref: str, adapters: dict) -> tuple[str, str, str | None]:
     return platform, media_id, filename
 
 
-def create_download_media_tool(adapters: dict) -> ToolDefinition:
+def create_download_media_tool(
+    adapters: dict,
+    file_handle_center: FileHandleCenter | None = None,
+) -> ToolDefinition:
     """Create a download_media tool.
 
     The tool parses the ref to determine platform, finds the adapter,
@@ -64,13 +70,30 @@ def create_download_media_tool(adapters: dict) -> ToolDefinition:
                 resultType="failure",
             )
 
-        if not hasattr(adapter, "download_media"):
-            return ToolResult(
-                textResultForLlm=f"平台 {platform} 不支援媒體下載",
-                resultType="failure",
-            )
+        data: bytes | None = None
+        handle = None
+        if file_handle_center is not None:
+            try:
+                session_context = get_session_context(invocation)
+            except RuntimeError:
+                session_context = None
+            if session_context is not None:
+                handle = await file_handle_center.find_source_handle(
+                    route_id=session_context.route_id,
+                    platform=platform,
+                    native_locator=media_id,
+                )
+            if handle is not None:
+                local_path = await file_handle_center.ensure_local(handle.file_id)
+                data = Path(local_path).read_bytes()
 
-        data = await adapter.download_media(media_id)
+        if data is None:
+            if not hasattr(adapter, "download_media"):
+                return ToolResult(
+                    textResultForLlm=f"平台 {platform} 不支援媒體下載",
+                    resultType="failure",
+                )
+            data = await adapter.download_media(media_id)
         if data is None:
             return ToolResult(
                 textResultForLlm=f"無法下載媒體 {ref}（可能已過期或不存在）",
@@ -78,7 +101,11 @@ def create_download_media_tool(adapters: dict) -> ToolDefinition:
             )
 
         b64 = base64.b64encode(data).decode("ascii")
-        label = filename or ref
+        label = (
+            handle.filename
+            if handle is not None and handle.filename
+            else filename or ref
+        )
         logger.info("Downloaded media %s (%d bytes)", label, len(data))
 
         # Detect mime type from filename
@@ -94,7 +121,14 @@ def create_download_media_tool(adapters: dict) -> ToolDefinition:
             mime = mime_map.get(ext, "application/octet-stream")
 
         return ToolResult(
-            textResultForLlm=f"已下載 {label}（{len(data)} bytes）",
+            textResultForLlm=(
+                f"已下載 {label}（{len(data)} bytes）"
+                + (
+                    f"\nfile_id: {handle.file_id}"
+                    if handle is not None
+                    else ""
+                )
+            ),
             resultType="success",
             binaryResultsForLlm=[
                 {"data": b64, "mimeType": mime, "type": "image"},

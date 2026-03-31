@@ -5,11 +5,14 @@ from __future__ import annotations
 import io
 import json
 import logging
+from pathlib import Path
 from typing import Any
 
 from copilot.types import ToolInvocation, ToolResult
 
 from chatpilot.core.types import AccessLevel, ToolDefinition
+from chatpilot.files.center import FileHandleCenter
+from chatpilot.tools.session_context import get_session_context
 
 logger = logging.getLogger(__name__)
 
@@ -121,7 +124,11 @@ async def _edit_docx(data: bytes, instruction: str, edit_data: str | None) -> by
     return await asyncio.to_thread(_do_edit)
 
 
-def create_document_edit_tool(adapters: dict, r2_storage: Any) -> ToolDefinition:
+def create_document_edit_tool(
+    adapters: dict,
+    r2_storage: Any,
+    file_handle_center: FileHandleCenter | None = None,
+) -> ToolDefinition:
     """Create document_edit tool for editing uploaded files."""
 
     async def handler(invocation: ToolInvocation) -> ToolResult:
@@ -146,15 +153,31 @@ def create_document_edit_tool(adapters: dict, r2_storage: Any) -> ToolDefinition
         except ValueError as e:
             return ToolResult(textResultForLlm=str(e), resultType="failure")
 
-        # Download file
-        adapter = adapters.get(platform)
-        if adapter is None:
-            return ToolResult(
-                textResultForLlm=f"未知的平台: {platform}",
-                resultType="failure",
-            )
+        file_bytes: bytes | None = None
+        if file_handle_center is not None:
+            try:
+                session_context = get_session_context(invocation)
+            except RuntimeError:
+                session_context = None
+            if session_context is not None:
+                handle = await file_handle_center.find_source_handle(
+                    route_id=session_context.route_id,
+                    platform=platform,
+                    native_locator=message_id,
+                )
+                if handle is not None:
+                    local_path = await file_handle_center.ensure_local(handle.file_id)
+                    file_bytes = Path(local_path).read_bytes()
+                    filename = filename or handle.filename or ""
 
-        file_bytes = await adapter.download_media(message_id)
+        if file_bytes is None:
+            adapter = adapters.get(platform)
+            if adapter is None:
+                return ToolResult(
+                    textResultForLlm=f"未知的平台: {platform}",
+                    resultType="failure",
+                )
+            file_bytes = await adapter.download_media(message_id)
         if file_bytes is None:
             return ToolResult(
                 textResultForLlm="無法下載檔案，可能已過期，請重新上傳",
