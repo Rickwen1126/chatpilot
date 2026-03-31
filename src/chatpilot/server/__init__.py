@@ -73,6 +73,11 @@ def _init_adapters(config: GatewayConfig) -> dict[str, ChannelAdapter]:
                 )
                 adapters[adapter.platform] = adapter
         else:
+            logger.error(
+                "Legacy LINE adapter fallback enabled: config.adapters.line[] "
+                "is missing or empty. This path should only be used for "
+                "migration/debug catch-up."
+            )
             adapters["line"] = LineAdapter()
     except Exception:
         logger.warning("LINE adapter not available (missing env vars?)")

@@ -60,6 +60,11 @@ async def webhook_handler(platform: str, request: Request) -> JSONResponse:
                 try:
                     await candidate.verify_request(request)
                     adapter = candidate
+                    if getattr(candidate, "platform", "") == "line":
+                        logger.error(
+                            "Legacy unnamed LINE adapter selected for webhook dispatch. "
+                            "Expected named adapter key such as line:webric."
+                        )
                     break
                 except AdapterError:
                     continue

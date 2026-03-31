@@ -59,6 +59,25 @@ async def test_line_adapter_named_channel_passes_platform_to_parser(monkeypatch)
     assert captured["events"] == ["event-1"]
 
 
+@pytest.mark.asyncio
+async def test_legacy_line_adapter_logs_error_on_parse(monkeypatch, caplog):
+    class FakeParser:
+        def parse(self, body: str, signature: str):
+            return []
+
+    monkeypatch.setattr(line_adapter_module, "parse_line_events", lambda events, platform: [])
+
+    adapter = LineAdapter(secret="secret", token="")
+    adapter._parser = FakeParser()
+
+    with caplog.at_level("ERROR"):
+        await adapter.parse_messages(
+            _request(body=b'{"events":[]}', headers={"X-Line-Signature": "sig-1"})
+        )
+
+    assert "Legacy unnamed LINE adapter path used" in caplog.text
+
+
 def test_parse_line_events_uses_named_platform_for_text_and_media_refs(monkeypatch):
     class FakeMessageEvent:
         def __init__(self, source, message, reply_token="reply-1", timestamp=1000):

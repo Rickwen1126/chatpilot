@@ -83,6 +83,7 @@ class LineAdapter:
         else:
             self._api = None
             self._blob_api = None
+        self._legacy_mode_logged_ops: set[str] = set()
 
     @property
     def platform(self) -> str:
@@ -96,7 +97,19 @@ class LineAdapter:
             "用純文字、換行、和符號（→、•、★、─）來排版。"
         )
 
+    def _log_legacy_mode(self, operation: str) -> None:
+        if self._name is not None or operation in self._legacy_mode_logged_ops:
+            return
+        self._legacy_mode_logged_ops.add(operation)
+        logger.error(
+            "Legacy unnamed LINE adapter path used: operation=%s platform=%s. "
+            "Expected named channel identity via config.adapters.line[].",
+            operation,
+            self.platform,
+        )
+
     async def verify_request(self, request: Request) -> bool:
+        self._log_legacy_mode("verify_request")
         signature = request.headers.get("X-Line-Signature", "")
         body = await request.body()
         if not signature or not self._secret:
@@ -118,6 +131,7 @@ class LineAdapter:
             raise AdapterError("Signature verification failed", cause=e) from e
 
     async def parse_messages(self, request: Request) -> list[Message]:
+        self._log_legacy_mode("parse_messages")
         if self._parser is None:
             return []
         body = await request.body()
@@ -131,6 +145,7 @@ class LineAdapter:
 
     async def send_reply(self, message: Message, response: Response) -> None:
         """Reply to a message. Falls back to push if reply token expired or text is long."""
+        self._log_legacy_mode("send_reply")
         if self._api is None:
             raise AdapterError("LINE API not initialized")
 
@@ -165,6 +180,7 @@ class LineAdapter:
 
     async def push_message(self, route_id: str, response: Response) -> None:
         """Push message to a conversation, splitting long text into chunks."""
+        self._log_legacy_mode("push_message")
         if self._api is None:
             raise AdapterError("LINE API not initialized")
         conversation_id = route_id.rsplit(":", 1)[1]
@@ -181,6 +197,7 @@ class LineAdapter:
 
     async def download_media(self, media_id: str) -> bytes | None:
         """Download media from LINE by message ID."""
+        self._log_legacy_mode("download_media")
         if self._blob_api is None:
             return None
         try:

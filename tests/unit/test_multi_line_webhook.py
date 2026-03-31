@@ -109,6 +109,23 @@ def test_webhook_line_returns_401_when_no_named_adapter_matches():
     assert hub.received == []
 
 
+def test_webhook_line_logs_error_when_legacy_adapter_selected(caplog):
+    client, hub = _build_test_client({
+        "line": _StubLineAdapter("line", "sig-legacy"),
+    })
+
+    with caplog.at_level("ERROR"):
+        response = client.post(
+            "/webhook/line",
+            content=b'{"events":[]}',
+            headers={"X-Line-Signature": "sig-legacy"},
+        )
+
+    assert response.status_code == 200
+    assert [msg.platform for msg, _ in hub.received] == ["line"]
+    assert "Legacy unnamed LINE adapter selected for webhook dispatch" in caplog.text
+
+
 @pytest.mark.asyncio
 async def test_download_media_accepts_multi_part_platform_key():
     adapter = _StubLineAdapter("line:webric", "sig-a")

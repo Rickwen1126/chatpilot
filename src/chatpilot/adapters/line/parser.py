@@ -26,6 +26,11 @@ def parse_line_events(events: list, platform: str = "line") -> list[Message]:
     Handles text messages and image messages.
     Images are represented as text with ref: [圖片 ref:line:{message_id}]
     """
+    if platform == "line":
+        logger.error(
+            "Legacy unnamed LINE platform emitted by parse_line_events. "
+            "Expected named platform key such as line:webric."
+        )
     messages: list[Message] = []
     ts = TimeService.get()
     received_at = ts.utc_now()
