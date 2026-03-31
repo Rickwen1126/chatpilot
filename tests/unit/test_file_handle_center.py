@@ -133,3 +133,104 @@ async def test_cleanup_expired_removes_local_asset_but_keeps_row(tmp_path):
     assert stored["local_path"] is None
 
     await store.close()
+
+
+@pytest.mark.asyncio
+async def test_route_lookup_and_notes_survive_asset_expiry(tmp_path):
+    store = SqliteFileStore(str(tmp_path / "files.db"))
+    await store.initialize()
+    adapter = _FakeAdapter()
+    center = FileHandleCenter(
+        store,
+        {adapter.platform: adapter},
+        asset_root=tmp_path / "assets",
+    )
+
+    handle = await center.register(
+        SourceHandleInput(
+            route_id="line:webric:C999",
+            platform=adapter.platform,
+            kind=FileKind.image,
+            native_locator="img-999",
+            filename="photo.jpg",
+            mime_type="image/jpeg",
+        )
+    )
+    await center.download_now(handle.file_id)
+    await center.add_note(
+        handle.file_id,
+        note_type="summary",
+        content="昨天那張圖偏暗，但構圖不錯。",
+        created_by="vision-agent",
+    )
+    await store.update_file(handle.file_id, expires_at="2000-01-01T00:00:00+00:00")
+
+    cleaned = await center.cleanup_expired()
+    route_files = await center.list_route_files("line:webric:C999")
+    notes = await center.list_notes(handle.file_id)
+
+    assert cleaned == 1
+    assert route_files[0]["file_id"] == handle.file_id
+    assert route_files[0]["fetch_status"] == "expired"
+    assert notes == [{
+        "note_id": notes[0]["note_id"],
+        "file_id": handle.file_id,
+        "note_type": "summary",
+        "content": "昨天那張圖偏暗，但構圖不錯。",
+        "metadata_json": {},
+        "created_at": notes[0]["created_at"],
+        "created_by": "vision-agent",
+    }]
+
+    await store.close()
+
+
+@pytest.mark.asyncio
+async def test_register_local_file_creates_governed_asset_and_relations(tmp_path):
+    store = SqliteFileStore(str(tmp_path / "files.db"))
+    await store.initialize()
+    adapter = _FakeAdapter()
+    center = FileHandleCenter(
+        store,
+        {adapter.platform: adapter},
+        asset_root=tmp_path / "assets",
+    )
+
+    source_handle = await center.register(
+        SourceHandleInput(
+            route_id="line:webric:C777",
+            platform=adapter.platform,
+            kind=FileKind.file,
+            native_locator="source-777",
+            filename="source.xlsx",
+        )
+    )
+
+    generated_path = tmp_path / "generated.xlsx"
+    generated_path.write_bytes(b"excel-bytes")
+
+    generated_handle = await center.register_local_file(
+        route_id="line:webric:C777",
+        local_path=generated_path,
+        kind=FileKind.file,
+        filename="整理後.xlsx",
+        mime_type=(
+            "application/vnd.openxmlformats-officedocument."
+            "spreadsheetml.sheet"
+        ),
+        derived_from_file_id=source_handle.file_id,
+        generated_by_tool="document_edit",
+    )
+
+    local_path = await center.ensure_local(generated_handle.file_id)
+    relations = await center.list_relations(from_file_id=generated_handle.file_id)
+
+    assert Path(local_path).read_bytes() == b"excel-bytes"
+    assert {relation["relation_type"] for relation in relations} == {
+        "derived_from",
+        "generated_by_tool",
+    }
+    assert any(relation["to_file_id"] == source_handle.file_id for relation in relations)
+    assert any(relation["subject_id"] == "document_edit" for relation in relations)
+
+    await store.close()

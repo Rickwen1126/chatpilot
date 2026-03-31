@@ -80,6 +80,91 @@ class FileHandleCenter:
         )
         return handle
 
+    async def register_local_file(
+        self,
+        *,
+        route_id: str,
+        local_path: str | Path,
+        kind: str,
+        filename: str | None = None,
+        mime_type: str | None = None,
+        retention_class: RetentionClass | str = RetentionClass.default,
+        is_pinned: bool = False,
+        derived_from_file_id: str | None = None,
+        generated_by_tool: str | None = None,
+        generated_by_pipeline: str | None = None,
+    ) -> CanonicalFileHandle:
+        source_path = Path(local_path)
+        if not source_path.exists():
+            raise FileNotFoundError(source_path)
+
+        handle = await self.register(
+            SourceHandleInput(
+                route_id=route_id,
+                platform="internal",
+                kind=kind,
+                native_locator=f"generated:{uuid.uuid4()}",
+                filename=filename or source_path.name,
+                mime_type=mime_type,
+                platform_context={"origin_type": "local_import"},
+            ),
+            retention_class=retention_class,
+            is_pinned=is_pinned,
+        )
+
+        now = TimeService.get().utc_now()
+        asset = self._persist_local_asset(
+            handle,
+            SourceFetchResult(
+                data=source_path.read_bytes(),
+                filename=filename or source_path.name,
+                mime_type=mime_type,
+            ),
+            now=now,
+            expires_at=(await self._require_file(handle.file_id)).get("expires_at"),
+        )
+        await self._store.update_file(
+            handle.file_id,
+            fetch_status=FetchStatus.ready,
+            storage_backend=StorageBackend.local,
+            local_path=asset.local_path,
+            sha256=asset.sha256,
+            size_bytes=asset.size_bytes,
+            materialized_at=asset.materialized_at,
+            last_accessed_at=asset.materialized_at,
+            source_filename=asset.filename,
+            source_mime_type=asset.mime_type,
+        )
+
+        if derived_from_file_id:
+            await self.add_relation(
+                from_file_id=handle.file_id,
+                relation_type="derived_from",
+                to_file_id=derived_from_file_id,
+            )
+        if generated_by_tool:
+            await self.add_relation(
+                from_file_id=handle.file_id,
+                relation_type="generated_by_tool",
+                subject_type="tool",
+                subject_id=generated_by_tool,
+            )
+        if generated_by_pipeline:
+            await self.add_relation(
+                from_file_id=handle.file_id,
+                relation_type="generated_by_pipeline",
+                subject_type="pipeline",
+                subject_id=generated_by_pipeline,
+            )
+
+        logger.info(
+            "[file] register local file_id=%s route=%s source=%s",
+            handle.file_id,
+            route_id,
+            source_path,
+        )
+        return handle
+
     async def download_now(self, file_id: str) -> MaterializedAsset:
         row = await self._require_file(file_id)
         asset = build_asset_from_row(row)
@@ -168,6 +253,72 @@ class FileHandleCenter:
         if row is None:
             return None
         return build_asset_from_row(row)
+
+    async def get_handle(self, file_id: str) -> CanonicalFileHandle | None:
+        row = await self._store.get_file(file_id)
+        if row is None:
+            return None
+        return build_handle_from_row(row)
+
+    async def list_route_files(self, route_id: str) -> list[dict]:
+        return await self._store.list_files_for_route(route_id)
+
+    async def add_note(
+        self,
+        file_id: str,
+        *,
+        note_type: str,
+        content: str,
+        metadata: dict | None = None,
+        created_by: str | None = None,
+    ) -> str:
+        return await self._store.add_note(
+            file_id=file_id,
+            note_type=note_type,
+            content=content,
+            metadata=metadata,
+            created_by=created_by,
+        )
+
+    async def list_notes(
+        self,
+        file_id: str,
+        *,
+        note_type: str | None = None,
+    ) -> list[dict]:
+        return await self._store.list_notes(file_id, note_type=note_type)
+
+    async def add_relation(
+        self,
+        *,
+        from_file_id: str,
+        relation_type: str,
+        to_file_id: str | None = None,
+        subject_type: str | None = None,
+        subject_id: str | None = None,
+        metadata: dict | None = None,
+    ) -> str:
+        return await self._store.add_relation(
+            from_file_id=from_file_id,
+            relation_type=relation_type,
+            to_file_id=to_file_id,
+            subject_type=subject_type,
+            subject_id=subject_id,
+            metadata=metadata,
+        )
+
+    async def list_relations(
+        self,
+        *,
+        from_file_id: str | None = None,
+        subject_type: str | None = None,
+        subject_id: str | None = None,
+    ) -> list[dict]:
+        return await self._store.list_relations(
+            from_file_id=from_file_id,
+            subject_type=subject_type,
+            subject_id=subject_id,
+        )
 
     async def ensure_local(self, file_id: str) -> str:
         asset = await self.get_asset(file_id)
