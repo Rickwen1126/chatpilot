@@ -55,6 +55,10 @@ def _load_gateway_config(config_path: Path) -> GatewayConfig:
 
 def _init_adapters(config: GatewayConfig) -> dict[str, ChannelAdapter]:
     adapters: dict[str, ChannelAdapter] = {}
+    from chatpilot.adapters.cli import CliAdapter
+
+    adapters["cli"] = CliAdapter()
+
     try:
         from chatpilot.adapters.line.adapter import LineAdapter
 

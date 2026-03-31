@@ -1,0 +1,22 @@
+{
+  "$schema": "https://aka.ms/codetour-schema",
+  "title": "Code Review: cli-async-push-e2e 2026-04-01",
+  "steps": [
+    {
+      "title": "Review Summary",
+      "description": "## Review Summary\n\n🔴 Critical: 0\n🟡 Suggestions: 1\n✅ Good Practices: 1\n\n### Scope\nReview the final reminder/E2E follow-up covering startup registration of `CliAdapter` and route-scoped reminder verification in the self-contained E2E script.\n\n### Focus\nCheck whether the fix addresses the real async push break without over-expanding the runtime model."
+    },
+    {
+      "file": "src/chatpilot/server/__init__.py",
+      "line": 52,
+      "title": "🟡 CLI push is now connected, but still only a local runtime affordance",
+      "description": "## Problem\nRegistering `CliAdapter` fixes the broken async push path, but it does not turn CLI into a durable external channel. `push_message()` still just prints to stdout, which is fine for local/testing workflows but should not be mistaken for a production notification path.\n\n## Fix\n```python\n# Follow-up direction\n# Keep CliAdapter as a local/testing runtime adapter.\n# If CLI ever needs durable async delivery, design that explicitly instead of\n# stretching stdout semantics.\n```\n\n## Rationale\nThis is not a bug in the current fix. It is a boundary reminder so the new working async path is interpreted correctly."
+    },
+    {
+      "file": "tests/e2e/run_e2e.sh",
+      "line": 433,
+      "title": "✅ The E2E query now validates the correct reminder row",
+      "description": "## Problem\nNo issue here. The query scope is now correct.\n\n## Fix\n```bash\n# Reuse this pattern for future L4 checks:\n# make DB assertions route-/scenario-scoped,\n# not broad LIKE + LIMIT 1 lookups.\n```\n\n## Rationale\nThis is exactly the sort of data-level tightening that keeps E2E meaningful. It turns a flaky assertion into a true scenario-specific validation."
+    }
+  ]
+}

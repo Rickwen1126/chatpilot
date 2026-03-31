@@ -1,0 +1,28 @@
+{
+  "$schema": "https://aka.ms/codetour-schema",
+  "title": "12 - CLI Async Push E2E Fix: ChatPilot",
+  "steps": [
+    {
+      "title": "Context",
+      "description": "## 這條 tour 在看什麼\n\n這是一個很小但很值錢的收尾 milestone：透過真正跑起來的 E2E，我們抓到 `general-agent` reminder 任務雖然成功執行，卻無法把結果 push 回 `cli:*` route。根因不是 file-center，而是 server startup 根本沒有註冊 `CliAdapter`。\n\n## 為什麼值得讀\n\n因為它示範了一件很重要的事：E2E 的價值不是把測試跑綠，而是把『前面所有 unit/integration 都看不到的真實斷鏈』抓出來。"
+    },
+    {
+      "file": "src/chatpilot/server/__init__.py",
+      "line": 52,
+      "title": "Startup 現在正式註冊 CliAdapter",
+      "description": "## Insight\n\n**機制**：`_init_adapters()` 現在會先把 `CliAdapter()` 放進 runtime adapter map。這讓 `hub.push(route_id, ...)` 在碰到 `cli:*` route 時，不再因為找不到 adapter 而直接報 `No adapter for platform 'cli'`。\n\n**故障模式**：如果 `cli` 只存在於同步 request/response 的 capture adapter，而不在 runtime adapter map 內，任何 background reminder / pipeline result / async push 到 `cli:*` route 都會在真正要回推時斷掉。\n\n**設計取捨**：這裡沒有重做 CLI channel 模型，只是把既有 `CliAdapter` 補回正式 startup。好處是修補面小且準確；代價是 CLI push 仍然只是本機 stdout 行為，不是完整互動介面。"
+    },
+    {
+      "file": "tests/e2e/run_e2e.sh",
+      "line": 433,
+      "title": "E2E 的 L4 reminder 驗證改成 route-scoped query",
+      "description": "## Insight\n\n**機制**：原本 E2E 用 `text LIKE '%L4%推播%' LIMIT 1` 去查 reminder 狀態，會被前面其他 reminder row 汙染。現在改成 `route_id='cli:$REM4_USER' ORDER BY created_at DESC LIMIT 1`，讓這段驗證對準真正這次 scenario 的 reminder。\n\n**故障模式**：如果 data-level 驗證本身 query 太鬆，E2E 就可能在系統沒壞時誤報失敗，或在系統壞掉時誤判通過。這和不做 side-effect 驗證一樣危險。\n\n**設計取捨**：這裡不是在放水，而是在把驗證範圍收準。好處是 L4 reminder 檢查終於真的驗到該驗的 row；代價是之後每個 scenario 都要更有意識地設計自己的 query 範圍。"
+    },
+    {
+      "file": "tests/e2e/run_e2e.sh",
+      "line": 420,
+      "title": "這次修的是 E2E 揭露出的真實 async 斷鏈",
+      "description": "## Insight\n\n**機制**：這次真正被 E2E 抓到的 log 是 `No adapter for platform 'cli'`。也就是說，reminder enqueue、general-agent 執行、task 完成其實都沒問題，斷的是最後 `hub.receive_pipeline_result(...) -> push(...)` 這一步。\n\n**故障模式**：如果只看 task status 或 reminder status，不看整個 async push path，就會以為系統大致正常。這正是 E2E 標準裡『不能只看 process status』的原因。\n\n**設計取捨**：這次沒有擴大改 scheduler/hub，只用最小修補把 runtime adapter map 補齊。好處是低 side effect；代價是 CLI push 的 UX 本身仍很簡單，但至少 async chain 已經接回來了。"
+    }
+  ]
+}

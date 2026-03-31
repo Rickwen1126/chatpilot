@@ -431,7 +431,7 @@ assert_log "reminder enqueued" "Reminder.*enqueued as general-agent"
 
 # L4: verify reminder marked completed in DB
 REM_STATUS=$(sqlite3 "$E2E_DB" \
-    "SELECT status FROM memory_reminders WHERE text LIKE '%L4%推播%' LIMIT 1" 2>/dev/null)
+    "SELECT status FROM memory_reminders WHERE route_id='cli:$REM4_USER' ORDER BY created_at DESC LIMIT 1" 2>/dev/null)
 if [ "$REM_STATUS" = "completed" ]; then
     pass "reminder completed in DB [L4]"
 else
