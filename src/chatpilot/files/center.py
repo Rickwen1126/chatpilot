@@ -114,7 +114,12 @@ class FileHandleCenter:
                 )
 
             now = TimeService.get().utc_now()
-            asset = self._persist_local_asset(handle, result, now=now)
+            asset = self._persist_local_asset(
+                handle,
+                result,
+                now=now,
+                expires_at=row.get("expires_at"),
+            )
             await self._store.update_file(
                 file_id,
                 fetch_status=FetchStatus.ready,
@@ -144,6 +149,14 @@ class FileHandleCenter:
         self._prefetch_tasks[task_id] = task
 
         def _cleanup(_task: asyncio.Task[MaterializedAsset]) -> None:
+            try:
+                _task.result()
+            except Exception:
+                logger.exception(
+                    "[file] prefetch failed file_id=%s task=%s",
+                    file_id,
+                    task_id,
+                )
             self._prefetch_tasks.pop(task_id, None)
 
         task.add_done_callback(_cleanup)
@@ -199,6 +212,7 @@ class FileHandleCenter:
         result: SourceFetchResult,
         *,
         now: datetime,
+        expires_at: str | None,
     ) -> MaterializedAsset:
         paths = build_asset_paths(
             handle.route_id,
@@ -218,7 +232,7 @@ class FileHandleCenter:
             size_bytes=result.normalized_size_bytes(),
             scan_status=default_scan_status(),
             materialized_at=now,
-            expires_at=None,
+            expires_at=datetime.fromisoformat(expires_at) if expires_at else None,
             filename=filename,
             mime_type=mime_type,
         )
