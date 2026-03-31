@@ -9,6 +9,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field, field_validator
 
 from chatpilot.core.time_service import TimeService
+from chatpilot.files.models import CanonicalFileHandle, SourceHandleInput
 
 # ── Enums ─────────────────────────────────────────────────────────────
 
@@ -44,6 +45,8 @@ class Message(BaseModel):
     group_id: str | None = None
     conversation_id: str
     is_mention: bool = False
+    source_handles: list[SourceHandleInput] = Field(default_factory=list)
+    file_handles: list[CanonicalFileHandle] = Field(default_factory=list)
     platform_context: dict[str, Any] = Field(default_factory=dict)
     timestamp: datetime = Field(
         default_factory=lambda: TimeService.get().utc_now()

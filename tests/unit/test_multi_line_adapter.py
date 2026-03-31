@@ -114,3 +114,5 @@ def test_parse_line_events_uses_named_platform_for_text_and_media_refs(monkeypat
 
     assert [m.platform for m in messages] == ["line:webric", "line:webric"]
     assert messages[1].text == "[圖片 ref:line:webric:img1]"
+    assert messages[1].source_handles[0].route_id == "line:webric:C456"
+    assert messages[1].source_handles[0].native_locator == "img1"

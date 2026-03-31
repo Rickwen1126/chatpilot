@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
+from enum import Enum
 
 from chatpilot.files.models import FileKind, RetentionClass, ScanStatus, SourceHandleInput
 
@@ -30,12 +31,20 @@ def default_scan_status() -> ScanStatus:
     return ScanStatus.unscanned
 
 
-def should_prefetch(source: SourceHandleInput) -> bool:
-    """Default ingress prefetch policy.
+class IngressAction(str, Enum):
+    register_only = "register_only"
+    download_now = "download_now"
+    prefetch = "prefetch"
 
-    v1 keeps the policy intentionally small: audio is worth prefetching because
-    STT is a known eager consumer. Other kinds stay lazy until explicitly
-    requested by a later workflow.
+
+def decide_ingress_action(source: SourceHandleInput) -> IngressAction:
+    """Default ingress action policy.
+
+    v1 keeps the policy intentionally small: audio should be available before
+    STT runs, so it downloads immediately. Other kinds stay lazy until
+    explicitly requested by a later workflow.
     """
 
-    return source.kind == FileKind.audio
+    if source.kind == FileKind.audio:
+        return IngressAction.download_now
+    return IngressAction.register_only

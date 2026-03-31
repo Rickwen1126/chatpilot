@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+from pathlib import Path
 from typing import Any, Callable, Coroutine, Literal
 
 from chatpilot.adapters.protocol import ChannelAdapter
@@ -14,6 +15,9 @@ from chatpilot.core.types import (
     Message,
     Response,
 )
+from chatpilot.files.center import FileHandleCenter
+from chatpilot.files.ingress import InboundFilePreprocessor
+from chatpilot.files.models import FileKind
 from chatpilot.hub.context_buffer import ContextBuffer
 from chatpilot.hub.mention_filter import is_mention, match_auto_trigger
 from chatpilot.stt.transcriber import SttTranscriber
@@ -64,10 +68,14 @@ class InMemoryMessageHub:
         resolve_binding: ResolveBindingCallback | None = None,
         on_observer_batch: OnObserverBatchCallback | None = None,
         stt_transcriber: SttTranscriber | None = None,
+        file_ingress: InboundFilePreprocessor | None = None,
+        file_handle_center: FileHandleCenter | None = None,
     ) -> None:
         self._context_buffer = context_buffer
         self._adapters = adapters
         self._stt = stt_transcriber
+        self._file_ingress = file_ingress
+        self._file_handle_center = file_handle_center
         self._busy: dict[str, bool] = {}
         self._on_proceed = on_proceed
         self._on_command = on_command
@@ -106,6 +114,15 @@ class InMemoryMessageHub:
 
     async def receive(self, message: Message, adapter: ChannelAdapter) -> None:
         """Process inbound message through mention filter + busy/idle gate."""
+        if self._file_ingress is not None:
+            try:
+                message = await self._file_ingress.process(message, adapter)
+            except Exception:
+                logger.exception(
+                    "[file] ingress preprocessing failed for %s:%s",
+                    message.platform,
+                    message.conversation_id,
+                )
         route_id = f"{message.platform}:{message.conversation_id}"
         logger.info(
             "[hub] receive route=%s user=%s mention=%s text=%s",
@@ -397,6 +414,50 @@ class InMemoryMessageHub:
         """Detect audio refs in message, transcribe, and update message.text."""
         if not self._stt or not self._stt.enabled:
             return
+
+        if self._file_handle_center is not None:
+            audio_handles = [
+                handle for handle in message.file_handles
+                if handle.kind == FileKind.audio
+            ]
+            if audio_handles:
+                file_handle = audio_handles[0]
+                try:
+                    local_path = await self._file_handle_center.ensure_local(
+                        file_handle.file_id
+                    )
+                except Exception:
+                    logger.exception(
+                        "[stt] ensure_local failed for file_id=%s",
+                        file_handle.file_id,
+                    )
+                    return
+
+                audio_bytes = Path(local_path).read_bytes()
+                logger.info(
+                    "[stt] using canonical audio asset file_id=%s bytes=%d",
+                    file_handle.file_id,
+                    len(audio_bytes),
+                )
+                text = await self._stt.transcribe(
+                    audio_bytes,
+                    filename=file_handle.filename or "audio.m4a",
+                )
+                if not text:
+                    logger.warning(
+                        "[stt] transcription returned empty for file_id=%s",
+                        file_handle.file_id,
+                    )
+                    return
+
+                ref_tag = f"[音檔 ref:{file_handle.platform}:{file_handle.native_locator}]"
+                message.text = f"{ref_tag}（轉錄：{text}）"
+                logger.info(
+                    "[stt] transcribed canonical file_id=%s → %d chars",
+                    file_handle.file_id,
+                    len(text),
+                )
+                return
 
         match = _AUDIO_REF_PATTERN.search(message.text)
         if not match:

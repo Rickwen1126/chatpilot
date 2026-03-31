@@ -17,6 +17,7 @@ from chatpilot.chatbot.manager import ChatbotManager
 from chatpilot.core.config import GatewayConfig, load_config, watch_config
 from chatpilot.core.types import Message, Response
 from chatpilot.files.center import FileHandleCenter
+from chatpilot.files.ingress import InboundFilePreprocessor
 from chatpilot.files.store import SqliteFileStore
 from chatpilot.hub.context_buffer import ContextBuffer
 from chatpilot.hub.hub import InMemoryMessageHub
@@ -97,12 +98,16 @@ def _init_hub(
     chatbot_manager: ChatbotManager,
     response_injector=None,
     stt_transcriber=None,
+    file_ingress: InboundFilePreprocessor | None = None,
+    file_handle_center: FileHandleCenter | None = None,
 ) -> InMemoryMessageHub:
     hub = InMemoryMessageHub(
         context_buffer=context_buffer,
         adapters=adapters,
         resolve_binding=binding_router.resolve,
         stt_transcriber=stt_transcriber,
+        file_ingress=file_ingress,
+        file_handle_center=file_handle_center,
     )
 
     async def on_proceed(
@@ -371,8 +376,10 @@ async def lifespan(app: FastAPI):
             "data/file_assets",
         ),
     )
+    file_ingress = InboundFilePreprocessor(file_center)
     app.state.file_store = file_store
     app.state.file_handle_center = file_center
+    app.state.file_ingress = file_ingress
 
     # Routing + chatbot
     binding_router = BindingRouter(config.bindings, config.match_weights)
@@ -416,6 +423,7 @@ async def lifespan(app: FastAPI):
     hub = _init_hub(
         ContextBuffer(), adapters, binding_router, chatbot_manager,
         response_injector, stt_transcriber=stt,
+        file_ingress=file_ingress, file_handle_center=file_center,
     )
     app.state.hub = hub
     app.state.chatbot_manager = chatbot_manager

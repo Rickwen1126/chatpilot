@@ -16,8 +16,28 @@ from linebot.v3.webhooks import (
 
 from chatpilot.core.time_service import TimeService
 from chatpilot.core.types import Message
+from chatpilot.files.models import FileKind, SourceHandleInput
 
 logger = logging.getLogger(__name__)
+
+
+def _build_source_handle(
+    *,
+    platform: str,
+    conversation_id: str,
+    kind: FileKind,
+    native_locator: str,
+    filename: str | None = None,
+    mime_type: str | None = None,
+) -> SourceHandleInput:
+    return SourceHandleInput(
+        route_id=f"{platform}:{conversation_id}",
+        platform=platform,
+        kind=kind,
+        native_locator=native_locator,
+        filename=filename,
+        mime_type=mime_type,
+    )
 
 
 def parse_line_events(events: list, platform: str = "line") -> list[Message]:
@@ -94,6 +114,14 @@ def parse_line_events(events: list, platform: str = "line") -> list[Message]:
                 group_id=group_id,
                 conversation_id=conversation_id,
                 is_mention=False,
+                source_handles=[
+                    _build_source_handle(
+                        platform=platform,
+                        conversation_id=conversation_id,
+                        kind=FileKind.image,
+                        native_locator=event.message.id,
+                    )
+                ],
                 timestamp=event_ts,
                 platform_context={
                     "reply_token": event.reply_token,
@@ -117,6 +145,14 @@ def parse_line_events(events: list, platform: str = "line") -> list[Message]:
                 group_id=group_id,
                 conversation_id=conversation_id,
                 is_mention=False,
+                source_handles=[
+                    _build_source_handle(
+                        platform=platform,
+                        conversation_id=conversation_id,
+                        kind=FileKind.audio,
+                        native_locator=event.message.id,
+                    )
+                ],
                 timestamp=event_ts,
                 platform_context={
                     "reply_token": event.reply_token,
@@ -140,6 +176,14 @@ def parse_line_events(events: list, platform: str = "line") -> list[Message]:
                 group_id=group_id,
                 conversation_id=conversation_id,
                 is_mention=False,
+                source_handles=[
+                    _build_source_handle(
+                        platform=platform,
+                        conversation_id=conversation_id,
+                        kind=FileKind.video,
+                        native_locator=event.message.id,
+                    )
+                ],
                 timestamp=event_ts,
                 platform_context={
                     "reply_token": event.reply_token,
@@ -163,6 +207,15 @@ def parse_line_events(events: list, platform: str = "line") -> list[Message]:
                 group_id=group_id,
                 conversation_id=conversation_id,
                 is_mention=False,
+                source_handles=[
+                    _build_source_handle(
+                        platform=platform,
+                        conversation_id=conversation_id,
+                        kind=FileKind.file,
+                        native_locator=event.message.id,
+                        filename=fname,
+                    )
+                ],
                 timestamp=event_ts,
                 platform_context={
                     "reply_token": event.reply_token,
