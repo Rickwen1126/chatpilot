@@ -12,6 +12,7 @@ from copilot.types import ToolInvocation, ToolResult
 
 from chatpilot.core.types import AccessLevel, ToolDefinition
 from chatpilot.files.center import FileHandleCenter
+from chatpilot.files.models import FileKind
 from chatpilot.tools.session_context import get_session_context
 
 logger = logging.getLogger(__name__)
@@ -154,21 +155,25 @@ def create_document_edit_tool(
             return ToolResult(textResultForLlm=str(e), resultType="failure")
 
         file_bytes: bytes | None = None
+        session_context = None
+        source_handle = None
         if file_handle_center is not None:
             try:
                 session_context = get_session_context(invocation)
             except RuntimeError:
                 session_context = None
             if session_context is not None:
-                handle = await file_handle_center.find_source_handle(
+                source_handle = await file_handle_center.find_source_handle(
                     route_id=session_context.route_id,
                     platform=platform,
                     native_locator=message_id,
                 )
-                if handle is not None:
-                    local_path = await file_handle_center.ensure_local(handle.file_id)
+                if source_handle is not None:
+                    local_path = await file_handle_center.ensure_local(
+                        source_handle.file_id
+                    )
                     file_bytes = Path(local_path).read_bytes()
-                    filename = filename or handle.filename or ""
+                    filename = filename or source_handle.filename or ""
 
         if file_bytes is None:
             adapter = adapters.get(platform)
@@ -221,6 +226,20 @@ def create_document_edit_tool(
             "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         }
+        out_name = filename or f"edited.{ext}"
+        generated_handle = None
+        if file_handle_center is not None and session_context is not None:
+            generated_handle = await file_handle_center.register_bytes_file(
+                route_id=session_context.route_id,
+                data=output,
+                kind=FileKind.file,
+                filename=out_name,
+                mime_type=content_types[ext],
+                derived_from_file_id=(
+                    source_handle.file_id if source_handle is not None else None
+                ),
+                generated_by_tool="document_edit",
+            )
         url = await r2_storage.upload(
             data=output,
             content_type=content_types[ext],
@@ -228,16 +247,27 @@ def create_document_edit_tool(
         )
         if url is None:
             return ToolResult(
-                textResultForLlm="檔案處理完成但上傳失敗，請稍後再試",
+                textResultForLlm=(
+                    "檔案處理完成但上傳失敗，請稍後再試"
+                    + (
+                        f"\n已納管 file_id: {generated_handle.file_id}"
+                        if generated_handle is not None
+                        else ""
+                    )
+                ),
                 resultType="failure",
             )
 
-        out_name = filename or f"edited.{ext}"
         return ToolResult(
             textResultForLlm=(
                 f"已完成編輯並上傳: {out_name}\n"
                 f"下載連結: {url}\n"
                 f"（連結 7 天內有效）"
+                + (
+                    f"\nfile_id: {generated_handle.file_id}"
+                    if generated_handle is not None
+                    else ""
+                )
             ),
             resultType="success",
         )

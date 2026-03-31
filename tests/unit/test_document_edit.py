@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import io
 import json
+from pathlib import Path
 
 import docx
 import openpyxl
@@ -317,6 +318,62 @@ async def test_handler_prefers_center_lookup_when_session_context_present(tmp_pa
     assert ext == "xlsx"
     rows = _read_xlsx_rows(uploaded_data)
     assert len(rows) == 3
+
+    await store.close()
+
+
+async def test_handler_registers_generated_output_into_file_center(tmp_path):
+    xlsx_bytes = _make_xlsx([["品名", "數量"], ["水泥漆", 10]])
+    adapter = MockAdapter(xlsx_bytes)
+    store = SqliteFileStore(str(tmp_path / "files.db"))
+    await store.initialize()
+    center = FileHandleCenter(
+        store,
+        {"mock": adapter},
+        asset_root=tmp_path / "assets",
+    )
+    source_handle = await center.register(
+        SourceHandleInput(
+            route_id="mock:C999",
+            platform="mock",
+            kind=FileKind.file,
+            native_locator="msg_999",
+            filename="report.xlsx",
+            mime_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+    )
+    await center.download_now(source_handle.file_id)
+
+    r2 = MockR2("https://r2.example.com/edited-governed.xlsx")
+    tool = create_document_edit_tool({"mock": adapter}, r2, center)
+    result = await tool.handler({
+        "session_id": "sid-2",
+        "session_context": {
+            "sdk_session_id": "sid-2",
+            "route_id": "mock:C999",
+            "platform": "mock",
+            "conversation_id": "C999",
+            "chatbot_name": "buddy",
+        },
+        "arguments": {
+            "file_ref": "mock:msg_999:report.xlsx",
+            "instruction": "追加出貨紀錄",
+            "data": json.dumps([["乳膠漆", 5]]),
+        },
+    })
+
+    assert result["resultType"] == "success"
+    generated_file_id = result["textResultForLlm"].split("file_id: ", 1)[1].strip()
+    local_path = await center.ensure_local(generated_file_id)
+    rows = _read_xlsx_rows(Path(local_path).read_bytes())
+    relations = await center.list_relations(from_file_id=generated_file_id)
+
+    assert len(rows) == 3
+    assert {relation["relation_type"] for relation in relations} == {
+        "derived_from",
+        "generated_by_tool",
+    }
+    assert any(relation["to_file_id"] == source_handle.file_id for relation in relations)
 
     await store.close()
 

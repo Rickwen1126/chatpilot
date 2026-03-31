@@ -98,15 +98,47 @@ class FileHandleCenter:
         if not source_path.exists():
             raise FileNotFoundError(source_path)
 
+        return await self.register_bytes_file(
+            route_id=route_id,
+            data=source_path.read_bytes(),
+            kind=kind,
+            filename=filename or source_path.name,
+            mime_type=mime_type,
+            retention_class=retention_class,
+            is_pinned=is_pinned,
+            derived_from_file_id=derived_from_file_id,
+            generated_by_tool=generated_by_tool,
+            generated_by_pipeline=generated_by_pipeline,
+            origin_type="local_import",
+        )
+
+    async def register_bytes_file(
+        self,
+        *,
+        route_id: str,
+        data: bytes,
+        kind: str,
+        filename: str | None = None,
+        mime_type: str | None = None,
+        retention_class: RetentionClass | str = RetentionClass.default,
+        is_pinned: bool = False,
+        derived_from_file_id: str | None = None,
+        generated_by_tool: str | None = None,
+        generated_by_pipeline: str | None = None,
+        origin_type: str = "generated",
+    ) -> CanonicalFileHandle:
+        if not data:
+            raise ValueError("generated file data must not be empty")
+
         handle = await self.register(
             SourceHandleInput(
                 route_id=route_id,
                 platform="internal",
                 kind=kind,
-                native_locator=f"generated:{uuid.uuid4()}",
-                filename=filename or source_path.name,
+                native_locator=f"{origin_type}:{uuid.uuid4()}",
+                filename=filename,
                 mime_type=mime_type,
-                platform_context={"origin_type": "local_import"},
+                platform_context={"origin_type": origin_type},
             ),
             retention_class=retention_class,
             is_pinned=is_pinned,
@@ -116,8 +148,8 @@ class FileHandleCenter:
         asset = self._persist_local_asset(
             handle,
             SourceFetchResult(
-                data=source_path.read_bytes(),
-                filename=filename or source_path.name,
+                data=data,
+                filename=filename,
                 mime_type=mime_type,
             ),
             now=now,
@@ -136,32 +168,18 @@ class FileHandleCenter:
             source_mime_type=asset.mime_type,
         )
 
-        if derived_from_file_id:
-            await self.add_relation(
-                from_file_id=handle.file_id,
-                relation_type="derived_from",
-                to_file_id=derived_from_file_id,
-            )
-        if generated_by_tool:
-            await self.add_relation(
-                from_file_id=handle.file_id,
-                relation_type="generated_by_tool",
-                subject_type="tool",
-                subject_id=generated_by_tool,
-            )
-        if generated_by_pipeline:
-            await self.add_relation(
-                from_file_id=handle.file_id,
-                relation_type="generated_by_pipeline",
-                subject_type="pipeline",
-                subject_id=generated_by_pipeline,
-            )
+        await self._link_generated_file(
+            handle.file_id,
+            derived_from_file_id=derived_from_file_id,
+            generated_by_tool=generated_by_tool,
+            generated_by_pipeline=generated_by_pipeline,
+        )
 
         logger.info(
-            "[file] register local file_id=%s route=%s source=%s",
+            "[file] register internal file_id=%s route=%s origin=%s",
             handle.file_id,
             route_id,
-            source_path,
+            origin_type,
         )
         return handle
 
@@ -372,6 +390,35 @@ class FileHandleCenter:
         if cleaned:
             logger.info("[file] cleanup expired count=%d", cleaned)
         return cleaned
+
+    async def _link_generated_file(
+        self,
+        file_id: str,
+        *,
+        derived_from_file_id: str | None = None,
+        generated_by_tool: str | None = None,
+        generated_by_pipeline: str | None = None,
+    ) -> None:
+        if derived_from_file_id:
+            await self.add_relation(
+                from_file_id=file_id,
+                relation_type="derived_from",
+                to_file_id=derived_from_file_id,
+            )
+        if generated_by_tool:
+            await self.add_relation(
+                from_file_id=file_id,
+                relation_type="generated_by_tool",
+                subject_type="tool",
+                subject_id=generated_by_tool,
+            )
+        if generated_by_pipeline:
+            await self.add_relation(
+                from_file_id=file_id,
+                relation_type="generated_by_pipeline",
+                subject_type="pipeline",
+                subject_id=generated_by_pipeline,
+            )
 
     def _persist_local_asset(
         self,

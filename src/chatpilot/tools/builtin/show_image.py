@@ -3,31 +3,24 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from typing import Any
 
 from copilot.types import ToolInvocation, ToolResult
 
 from chatpilot.core.types import AccessLevel, ToolDefinition
+from chatpilot.files.center import FileHandleCenter
+from chatpilot.files.ref_lookup import parse_media_ref
+from chatpilot.tools.session_context import get_session_context
 
 logger = logging.getLogger(__name__)
-
-
-def _parse_ref(ref: str, adapters: dict) -> tuple[str, str]:
-    for platform in sorted(adapters.keys(), key=len, reverse=True):
-        prefix = f"{platform}:"
-        if ref.startswith(prefix):
-            return platform, ref[len(prefix):]
-
-    parts = ref.split(":", 1)
-    if len(parts) != 2:
-        raise ValueError(f"無效的 ref 格式: {ref}")
-    return parts[0], parts[1]
 
 
 def create_show_image_tool(
     adapters: dict,
     r2_storage: Any,
     response_injector: Any,
+    file_handle_center: FileHandleCenter | None = None,
 ) -> ToolDefinition:
     """Create show_image tool.
 
@@ -62,20 +55,36 @@ def create_show_image_tool(
 
         # Mode 2: download from platform ref → upload R2 → inject
         try:
-            platform, media_id = _parse_ref(ref, adapters)
+            platform, media_id, _ = parse_media_ref(ref, adapters)
         except ValueError:
             return ToolResult(
                 textResultForLlm=f"無效的 ref 格式: {ref}",
                 resultType="failure",
             )
         adapter = adapters.get(platform)
-        if adapter is None or not hasattr(adapter, "download_media"):
-            return ToolResult(
-                textResultForLlm=f"平台 {platform} 不支援媒體下載",
-                resultType="failure",
-            )
+        data: bytes | None = None
+        if file_handle_center is not None:
+            try:
+                session_context = get_session_context(invocation)
+            except RuntimeError:
+                session_context = None
+            if session_context is not None:
+                handle = await file_handle_center.find_source_handle(
+                    route_id=session_context.route_id,
+                    platform=platform,
+                    native_locator=media_id,
+                )
+                if handle is not None:
+                    local_path = await file_handle_center.ensure_local(handle.file_id)
+                    data = Path(local_path).read_bytes()
 
-        data = await adapter.download_media(media_id)
+        if data is None:
+            if adapter is None or not hasattr(adapter, "download_media"):
+                return ToolResult(
+                    textResultForLlm=f"平台 {platform} 不支援媒體下載",
+                    resultType="failure",
+                )
+            data = await adapter.download_media(media_id)
         if data is None:
             return ToolResult(
                 textResultForLlm=f"無法下載 {ref}（可能已過期）",

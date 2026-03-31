@@ -234,3 +234,34 @@ async def test_register_local_file_creates_governed_asset_and_relations(tmp_path
     assert any(relation["subject_id"] == "document_edit" for relation in relations)
 
     await store.close()
+
+
+@pytest.mark.asyncio
+async def test_register_bytes_file_creates_governed_asset_and_relations(tmp_path):
+    store = SqliteFileStore(str(tmp_path / "files.db"))
+    await store.initialize()
+    center = FileHandleCenter(
+        store,
+        {},
+        asset_root=tmp_path / "assets",
+    )
+
+    handle = await center.register_bytes_file(
+        route_id="line:webric:C888",
+        data=b"generated-bytes",
+        kind=FileKind.file,
+        filename="整理後.xlsx",
+        mime_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        generated_by_tool="document_edit",
+    )
+
+    local_path = await center.ensure_local(handle.file_id)
+    relations = await center.list_relations(from_file_id=handle.file_id)
+
+    assert Path(local_path).read_bytes() == b"generated-bytes"
+    assert {relation["relation_type"] for relation in relations} == {
+        "generated_by_tool",
+    }
+    assert relations[0]["subject_id"] == "document_edit"
+
+    await store.close()

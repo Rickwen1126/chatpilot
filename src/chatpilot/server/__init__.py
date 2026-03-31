@@ -290,7 +290,12 @@ def _register_tools(
         from chatpilot.tools.builtin.show_image import create_show_image_tool
 
         tool_factory.register(
-            create_show_image_tool(adapters, r2_storage, response_injector)
+            create_show_image_tool(
+                adapters,
+                r2_storage,
+                response_injector,
+                file_handle_center,
+            )
         )
 
     # Memory tools
