@@ -354,6 +354,58 @@ class FileHandleCenter:
             subject_id=subject_id,
         )
 
+    async def can_expose_to_route(
+        self,
+        *,
+        file_id: str,
+        route_id: str,
+    ) -> bool:
+        """Check whether a file can be exposed back to the given route.
+
+        Exposure is intentionally stricter than local use:
+        - platform-native files may be shown back to their owning route
+        - internal/generated files must also carry governed lineage relations
+        - cross-route exposure requires an explicit route-scoped relation
+        """
+        handle = await self.get_handle(file_id)
+        if handle is None:
+            return False
+
+        route_relations = await self.list_relations(
+            from_file_id=file_id,
+            subject_type="route",
+            subject_id=route_id,
+        )
+        explicit_route_share = any(
+            relation["relation_type"] in {
+                "attached_to_route",
+                "shared_with_route",
+                "shown_in_response",
+            }
+            for relation in route_relations
+        )
+        same_route = handle.route_id == route_id
+        if not same_route and not explicit_route_share:
+            return False
+
+        if handle.platform != "internal":
+            return True
+
+        relations = await self.list_relations(from_file_id=file_id)
+        return any(
+            relation["relation_type"]
+            in {
+                "generated_by_tool",
+                "generated_by_pipeline",
+                "derived_from",
+                "imported_from_cli",
+                "attached_to_route",
+                "shared_with_route",
+                "shown_in_response",
+            }
+            for relation in relations
+        )
+
     async def ensure_local(self, file_id: str) -> str:
         asset = await self.get_asset(file_id)
         if asset is None or not asset.local_path or not Path(asset.local_path).exists():

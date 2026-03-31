@@ -48,7 +48,7 @@ All tasks use the required checklist format:
 - [x] T017 [US2] Implement generated-file registration and relation write helpers in `src/chatpilot/files/center.py` and `src/chatpilot/files/store.py`
 - [x] T018 [US2] Add `generated_by_tool`, `generated_by_pipeline`, and `derived_from` relation helpers in `src/chatpilot/files/store.py`
 - [x] T019 [P] [US2] Add file-note support for summary / analysis / transcript / annotation in `src/chatpilot/files/store.py` and `src/chatpilot/files/models.py`
-- [ ] T020 [P] [US2] Add integration tests for generated-file registration, relation lineage, and note persistence in `tests/integration/test_file_store.py`
+- [x] T020 [P] [US2] Add integration tests for generated-file registration, relation lineage, and note persistence in `tests/integration/test_file_store.py`
 
 ## Phase 5: User Story 3 — Ingress Policy for Vision / STT / Document Workflows
 
@@ -71,7 +71,7 @@ All tasks use the required checklist format:
 - [x] T026 [US4] Refactor `src/chatpilot/tools/builtin/download_media.py` to use `FileHandleCenter` records instead of direct adapter ref parsing as the primary path
 - [x] T027 [US4] Refactor `src/chatpilot/tools/builtin/document_edit.py` to use `FileHandleCenter.ensure_local(...)` and canonical file records
 - [x] T028 [US4] Wire `FileHandleCenter` into tool registration / dependency setup in `src/chatpilot/server/__init__.py`
-- [ ] T029 [P] [US4] Add integration tests for `download_media` and `document_edit` using canonical file records in `tests/integration/test_file_tools.py`
+- [x] T029 [P] [US4] Add integration tests for `download_media` and `document_edit` using canonical file records in `tests/integration/test_file_tools.py`
 
 ## Phase 7: User Story 5 — Cross-Agent File Memory and Controlled Exposure
 
@@ -79,11 +79,11 @@ All tasks use the required checklist format:
 
 **Independent Test Criteria**: `show_image` 與 vision pipeline 會依 file origin / relation lineage / route scope 使用 canonical file records；vision model 可透過 local file attachment 真正讀圖。
 
-- [ ] T030 [US5] Refactor `src/chatpilot/tools/builtin/show_image.py` to resolve file exposure through `FileHandleCenter` metadata and relation/route checks
+- [x] T030 [US5] Refactor `src/chatpilot/tools/builtin/show_image.py` to resolve file exposure through `FileHandleCenter` metadata and relation/route checks
 - [x] T031 [US5] Update `src/chatpilot/sdk/session.py` to support message `attachments` for local file delivery to the SDK
 - [x] T032 [US5] Rewrite `src/chatpilot/pipeline/samples/batch_vision.py` to use local file attachments instead of `download_media -> binaryResultsForLlm`
 - [x] T033 [P] [US5] Add vision POC / integration tests for local image attachment delivery in `tests/integration/test_file_vision.py`
-- [ ] T034 [P] [US5] Add relation-driven exposure tests for `show_image` in `tests/integration/test_file_tools.py`
+- [x] T034 [P] [US5] Add relation-driven exposure tests for `show_image` in `tests/integration/test_file_tools.py`
 
 ## Phase 8: Polish & Cross-Cutting
 

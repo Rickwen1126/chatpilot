@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 from copilot.types import ToolInvocation, ToolResult
 
@@ -14,6 +15,41 @@ from chatpilot.files.ref_lookup import parse_media_ref
 from chatpilot.tools.session_context import get_session_context
 
 logger = logging.getLogger(__name__)
+
+
+def _guess_upload_format(
+    *,
+    filename: str | None,
+    mime_type: str | None,
+    fallback_url: str | None = None,
+) -> tuple[str, str]:
+    if mime_type:
+        mime_type = mime_type.lower()
+    if filename:
+        suffix = Path(filename).suffix.lower()
+        if suffix == ".png":
+            return ("image/png", "png")
+        if suffix in {".jpg", ".jpeg"}:
+            return ("image/jpeg", "jpg")
+        if suffix == ".gif":
+            return ("image/gif", "gif")
+        if suffix == ".webp":
+            return ("image/webp", "webp")
+    if mime_type == "image/png":
+        return ("image/png", "png")
+    if mime_type == "image/gif":
+        return ("image/gif", "gif")
+    if mime_type == "image/webp":
+        return ("image/webp", "webp")
+    if fallback_url:
+        suffix = Path(urlparse(fallback_url).path).suffix.lower()
+        if suffix == ".png":
+            return ("image/png", "png")
+        if suffix == ".gif":
+            return ("image/gif", "gif")
+        if suffix == ".webp":
+            return ("image/webp", "webp")
+    return ("image/jpeg", "jpg")
 
 
 def create_show_image_tool(
@@ -34,11 +70,12 @@ def create_show_image_tool(
         session_id = invocation.get("session_id", "")
         url = args.get("url", "")
         ref = args.get("ref", "")
+        file_id = args.get("file_id", "")
         caption = args.get("caption", "")
 
-        if not url and not ref:
+        if not url and not ref and not file_id:
             return ToolResult(
-                textResultForLlm="需要提供 url 或 ref",
+                textResultForLlm="需要提供 url、file_id 或 ref",
                 resultType="failure",
             )
 
@@ -53,28 +90,68 @@ def create_show_image_tool(
                 textResultForLlm=result, resultType="success"
             )
 
-        # Mode 2: download from platform ref → upload R2 → inject
-        try:
-            platform, media_id, _ = parse_media_ref(ref, adapters)
-        except ValueError:
-            return ToolResult(
-                textResultForLlm=f"無效的 ref 格式: {ref}",
-                resultType="failure",
-            )
-        adapter = adapters.get(platform)
-        data: bytes | None = None
+        session_context = None
         if file_handle_center is not None:
             try:
                 session_context = get_session_context(invocation)
             except RuntimeError:
                 session_context = None
-            if session_context is not None:
+
+        # Mode 2: governed file_id / ref → local asset → upload R2 → inject
+        data: bytes | None = None
+        handle = None
+
+        if file_id:
+            if file_handle_center is None:
+                return ToolResult(
+                    textResultForLlm="FileHandleCenter 未設定，無法使用 file_id",
+                    resultType="failure",
+                )
+            if session_context is None:
+                return ToolResult(
+                    textResultForLlm="缺少 session context，無法驗證 file_id 暴露權限",
+                    resultType="failure",
+                )
+            handle = await file_handle_center.get_handle(file_id)
+            if handle is None:
+                return ToolResult(
+                    textResultForLlm=f"找不到 file_id: {file_id}",
+                    resultType="failure",
+                )
+            if not await file_handle_center.can_expose_to_route(
+                file_id=handle.file_id,
+                route_id=session_context.route_id,
+            ):
+                return ToolResult(
+                    textResultForLlm="此圖片未被允許對目前 route 暴露",
+                    resultType="failure",
+                )
+            local_path = await file_handle_center.ensure_local(handle.file_id)
+            data = Path(local_path).read_bytes()
+        else:
+            try:
+                platform, media_id, _ = parse_media_ref(ref, adapters)
+            except ValueError:
+                return ToolResult(
+                    textResultForLlm=f"無效的 ref 格式: {ref}",
+                    resultType="failure",
+                )
+            adapter = adapters.get(platform)
+            if file_handle_center is not None and session_context is not None:
                 handle = await file_handle_center.find_source_handle(
                     route_id=session_context.route_id,
                     platform=platform,
                     native_locator=media_id,
                 )
                 if handle is not None:
+                    if not await file_handle_center.can_expose_to_route(
+                        file_id=handle.file_id,
+                        route_id=session_context.route_id,
+                    ):
+                        return ToolResult(
+                            textResultForLlm="此圖片未被允許對目前 route 暴露",
+                            resultType="failure",
+                        )
                     local_path = await file_handle_center.ensure_local(handle.file_id)
                     data = Path(local_path).read_bytes()
 
@@ -97,8 +174,13 @@ def create_show_image_tool(
                 resultType="failure",
             )
 
+        upload_mime, upload_ext = _guess_upload_format(
+            filename=(handle.filename if handle is not None else None),
+            mime_type=(handle.mime_type if handle is not None else None),
+            fallback_url=url or None,
+        )
         try:
-            img_url = await r2_storage.upload(data, "image/jpeg", "jpg")
+            img_url = await r2_storage.upload(data, upload_mime, upload_ext)
         except Exception as e:
             logger.error("R2 upload failed: %s", e)
             return ToolResult(
@@ -114,6 +196,22 @@ def create_show_image_tool(
 
         if response_injector:
             response_injector.add(session_id, "image", img_url)
+        if (
+            file_handle_center is not None
+            and handle is not None
+            and session_context is not None
+        ):
+            await file_handle_center.add_relation(
+                from_file_id=handle.file_id,
+                relation_type="shown_in_response",
+                subject_type="route",
+                subject_id=session_context.route_id,
+                metadata={
+                    "session_id": session_id,
+                    "url": img_url,
+                    "caption": caption,
+                },
+            )
 
         result = "已準備回傳圖片給使用者"
         if caption:
@@ -127,8 +225,9 @@ def create_show_image_tool(
         description=(
             "回傳一張圖片給使用者。兩種用法：\n"
             "1. url: 已有圖片網址（如位置圖 URL）→ 直接回傳\n"
-            "2. ref: 平台媒體（如 line:msg_123）→ 下載後回傳\n"
-            "提供 url 或 ref 其中一個即可。"
+            "2. file_id: 已納管的 canonical file → 驗證暴露權限後回傳\n"
+            "3. ref: 平台媒體（如 line:msg_123）→ 下載後回傳\n"
+            "提供 url、file_id 或 ref 其中一個即可。"
         ),
         parameters={
             "type": "object",
@@ -136,6 +235,10 @@ def create_show_image_tool(
                 "url": {
                     "type": "string",
                     "description": "圖片網址（直接回傳）",
+                },
+                "file_id": {
+                    "type": "string",
+                    "description": "已納管的 canonical file_id",
                 },
                 "ref": {
                     "type": "string",

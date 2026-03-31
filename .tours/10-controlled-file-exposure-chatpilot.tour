@@ -1,0 +1,28 @@
+{
+  "$schema": "https://aka.ms/codetour-schema",
+  "title": "10 - Controlled File Exposure: ChatPilot FileHandleCenter",
+  "steps": [
+    {
+      "title": "Context",
+      "description": "## 這條 tour 在看什麼\n\n這輪不是再做一次 data-path 遷移，而是把 `show_image` 從『只要拿得到 bytes 就能推給使用者』，往『只有受治理的 canonical file 才能被暴露』推進一步。\n\n## 先抓住核心\n\n這條路徑要回答的問題是：當圖片可能來自外部平台、tool 產物、pipeline 產物甚至之後的 CLI import 時，系統怎麼判斷它能不能回推給目前這條 route？\n\n## 為什麼值得讀\n\n因為這是 `FileHandleCenter` 從單純下載/納管，開始接觸真正 exposure boundary 的第一步。你會看到 route、relation、canonical file_id 三者怎麼一起構成最小可用的受控暴露模型。"
+    },
+    {
+      "file": "src/chatpilot/files/center.py",
+      "line": 350,
+      "title": "FileHandleCenter 開始承擔 route-aware exposure policy",
+      "description": "## Insight\n\n**機制**：`can_expose_to_route()` 把『這個 file 能不能對這條 route 暴露』變成中心服務的正式判斷，而不是每個 tool 自己隨便 decide。它先看 route ownership / explicit route-share relation，再對 internal/generated file 加上一層 lineage relation 檢查。\n\n**故障模式**：如果 show_image 只靠 `ensure_local()` 或 `download_media()` 成功與否來決定可不可以推圖，那 generated file、cross-route sharing、之後的 CLI import 都會長成沒有一致治理的旁路。\n\n**設計取捨**：這裡刻意只做最小 gate，不嘗試一次解完整安全模型。好處是把『暴露判斷應屬於中心』這條責任線先立起來；代價是 relation vocabulary 還會繼續長，未來 CLI import / sharing policy 仍要再細化。"
+    },
+    {
+      "file": "src/chatpilot/tools/builtin/show_image.py",
+      "line": 43,
+      "title": "show_image 現在接受 canonical file_id，而不是只懂 url/ref",
+      "description": "## Insight\n\n**機制**：`show_image` 新增 `file_id` mode，讓 system/tool/generated file 可以不經過平台 ref，直接走 canonical file record。對 `file_id` 與命中的 canonical ref，它都會先經過 `can_expose_to_route()`，成功後才 `ensure_local()`、upload 到 R2，再記 `shown_in_response` relation。\n\n**故障模式**：如果 show_image 還只接受 url/ref，那 internal/generated file 想回推給使用者時，就會逼整個系統重新長出另一條 hardcoded path。這正是未來 file governance 最容易失守的地方。\n\n**設計取捨**：這裡保留 `url` 與 legacy `ref` 相容路徑，但把 canonical `file_id` 提升為一等入口。好處是 generated file 現在終於能從中心世界直接進入 user-facing response；代價是 `url` mode 仍然是較弱治理路徑，之後若要更嚴格還得補來源分類。"
+    },
+    {
+      "file": "tests/integration/test_file_tools.py",
+      "line": 1,
+      "title": "整合測試把『治理過的 file 才能穩定再利用』鎖成 invariant",
+      "description": "## Insight\n\n**機制**：這組 integration tests 不只驗單一 tool 還能 work，而是把三條關鍵 invariant 一次鎖住：\n1. `download_media` 命中 canonical file 後不應回退到 adapter download。\n2. `document_edit` 產出的新檔必須成為 governed file 並帶 lineage relation。\n3. `show_image` 只能暴露具 governance lineage 的 internal file，且成功後要留下 `shown_in_response`。\n\n**故障模式**：如果只驗 happy path 回傳成功，很容易在未來維護時重新掉回『功能有做出來，但治理邊界沒守住』。這類 regression 一旦出現在 agent/file 系統裡，後續只會越修越亂。\n\n**設計取捨**：這一輪還不是 full E2E，而是高信號 integration。好處是能準確打在 file governance invariant；代價是更大的安全邊界與 CLI import sharing 情境仍要後續補場景。"
+    }
+  ]
+}

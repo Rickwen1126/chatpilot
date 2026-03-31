@@ -1,0 +1,28 @@
+{
+  "$schema": "https://aka.ms/codetour-schema",
+  "title": "Code Review: controlled-file-exposure 2026-03-31",
+  "steps": [
+    {
+      "title": "Review Summary",
+      "description": "## Review Summary\n\n🔴 Critical: 0\n🟡 Suggestions: 2\n✅ Good Practices: 1\n\n### Scope\nReview the controlled-file-exposure milestone covering `FileHandleCenter.can_expose_to_route(...)`, `show_image` file_id support and exposure recording, plus file-tools integration tests.\n\n### Focus\nCheck whether `show_image` now uses relation/route-aware gating without reopening side paths or weakening the canonical file model."
+    },
+    {
+      "file": "src/chatpilot/files/center.py",
+      "line": 350,
+      "title": "🟡 Internal import flows still need explicit lineage semantics",
+      "description": "## Problem\n`can_expose_to_route()` intentionally requires governed lineage for `platform=\"internal\"` files. That is good for generated files, but it also means future local-import / CLI-import flows must remember to add an explicit relation, otherwise perfectly valid internal files will be non-exposable by default.\n\n## Fix\n```python\n# Follow-up direction\n# When CLI/local import lands, add an explicit relation such as\n# imported_from_cli / attached_to_route during registration,\n# rather than loosening the exposure gate.\n```\n\n## Rationale\nThe current behavior is safe and consistent. The risk is not a bug today; it is that future import paths may forget to establish lineage and then look mysteriously unusable."
+    },
+    {
+      "file": "src/chatpilot/tools/builtin/show_image.py",
+      "line": 53,
+      "title": "🟡 url mode is still a weaker governance boundary",
+      "description": "## Problem\n`show_image(url=...)` still bypasses canonical file governance entirely. That is acceptable for compatibility and known-system URLs, but it remains a separate trust path from `file_id` / canonical-ref exposure.\n\n## Fix\n```python\n# Follow-up direction\n# If url mode becomes broader than curated system URLs,\n# classify/route it through the file center or an explicit trust policy.\n```\n\n## Rationale\nThis is not a regression introduced by this milestone. Calling it out prevents the new governed file_id path from creating a false impression that all image exposure is now equally governed."
+    },
+    {
+      "file": "tests/integration/test_file_tools.py",
+      "line": 1,
+      "title": "✅ The new integration tests protect the right invariants",
+      "description": "## Problem\nNo issue here. The tests are protecting the correct boundary.\n\n## Fix\n```python\n# Reuse this pattern for future file-producing/exposing tools:\n# assert canonical lookup, relation lineage, and exposure recording,\n# not just response success.\n```\n\n## Rationale\nThis milestone is about controlled reuse of governed files. The tests verify precisely that, including the failure case for ungoverned internal files. That is the right kind of regression net."
+    }
+  ]
+}
