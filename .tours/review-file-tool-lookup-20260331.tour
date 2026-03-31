@@ -1,0 +1,22 @@
+{
+  "$schema": "https://aka.ms/codetour-schema",
+  "title": "Code Review: file-tool-lookup 2026-03-31",
+  "steps": [
+    {
+      "title": "Review Summary",
+      "description": "## Review Summary\n\n🔴 Critical: 0\n🟡 Suggestions: 1\n✅ Good Practices: 1\n\n### Scope\nReview the tool-side FileHandleCenter lookup integration in commit `7d92864`, covering store source lookup, `download_media`, `document_edit`, server wiring, and targeted tests.\n\n### Focus\nCheck whether legacy refs are now routed through the canonical file center without breaking existing tool behavior."
+    },
+    {
+      "file": "src/chatpilot/files/store.py",
+      "line": 165,
+      "title": "🟡 Duplicate source rows now directly affect tool lookup semantics",
+      "description": "## Problem\nThe new `find_file_by_source()` lookup orders by `created_at DESC` and returns the latest row for a given `(route_id, source_platform, source_native_locator)`. That is a pragmatic migration choice, but it also means the previously known duplicate-registration behavior now sits directly on the primary tool lookup path. Tools will work, but their selected `file_id` depends on latest-row semantics rather than a true deduped source identity.\n\n## Fix\n```python\n# Follow-up direction\n# 1. Add an explicit unique or upsert policy for source rows, or\n# 2. Add a dedupe job / stable canonical-pointer model\n# so tools do not rely forever on implicit latest-row selection.\n```\n\n## Rationale\nThis is not a blocker for the current milestone, because the lookup is deterministic and tested. But now that tools rely on it, duplicate source rows are no longer just storage noise; they shape real runtime behavior."
+    },
+    {
+      "file": "tests/unit/test_document_edit.py",
+      "line": 273,
+      "title": "✅ The migration invariant is tested at the right boundary",
+      "description": "## Problem\nNo issue here. The new tests are scoped well.\n\n## Fix\n```python\n# Keep adding tests in this style:\n# - build canonical file through center\n# - invoke tool with legacy ref + session context\n# - assert center path wins over adapter fallback\n```\n\n## Rationale\nThe tests do not merely check success. They pin the exact migration rule we care about: once a canonical file exists for the current route, tools should prefer the center path. That is the right boundary to protect while the system is still carrying both canonical and legacy flows."
+    }
+  ]
+}

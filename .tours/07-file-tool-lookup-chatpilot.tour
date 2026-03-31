@@ -1,0 +1,38 @@
+{
+  "$schema": "https://aka.ms/codetour-schema",
+  "title": "07 - File Tool Lookup: ChatPilot FileHandleCenter",
+  "steps": [
+    {
+      "title": "Context",
+      "description": "## 這條 tour 其實是在看\n\n這條 tour 其實是在看：當 message text 裡還是 legacy ref（例如 `line:webric:img123`）時，tool 怎麼不改提示格式也能先回到 `FileHandleCenter` 的 canonical file world。\n\n如果先記不住細節，先抓住每個 step 只是在回答「legacy ref 要怎麼被平順嫁接回 `file_id`，而不是讓每個 tool 永遠自己跟 adapter 要 bytes？」\n\n## ChatPilot 是什麼\n\nChatPilot 是一個 local-first agent runtime，重點不是一次對話把工具 call 完，而是把 route、task、pipeline、tool 都收斂到一致的治理邊界。\n\n## 錨定已知\n\n如果你熟悉 session context registry，那這條線很像同一件事：runtime 還拿著舊格式，但中心服務可以根據結構化 context 把它還原成 canonical identity。\n\n## 這條路徑在解決什麼問題\n\n目前大量 tool 還吃 legacy ref。若每個 tool 都自己 parse 平台字串、自己找 adapter 下載，`FileHandleCenter` 就永遠只是旁路。這條路徑是在讓 tool 先以 route-scoped lookup 回中心，再 fallback 舊路，做到低 side effect 遷移。\n\n## 這條路徑展示什麼 mental model\n\n走完後應該能建立：`legacy ref` 不是要立刻消失，而是要被中心化 lookup 吸收；真正的 canonical ownership 仍然是 `file_id`。\n\n## 為什麼值得讀\n\n因為這是從「FileHandleCenter 存在」走到「工具真的開始用它」的第一步。沒有這一步，前面的 DB、relation、retention 都只是基礎設施，還沒進主流程。"
+    },
+    {
+      "file": "src/chatpilot/files/store.py",
+      "line": 165,
+      "ref": "7d92864140db67ce943e1fd43a0856b7c261c211",
+      "title": "Route + Source Lookup 是 legacy ref 回正軌的橋",
+      "description": "## Insight\n\n**機制**：`find_file_by_source(route_id, platform, native_locator)` 把 legacy ref lookup 明確收斂成 store 能做的一個查詢：同一條 route、同一平台、同一 native locator，取最新的 canonical file row。這讓上層 tool 可以先回到中心世界，再決定要不要 fallback 舊 adapter 路。\n\n**故障模式**：如果沒有這個 lookup，tool 要嘛永遠直接走 adapter，要嘛自己重寫 SQL / parser / in-memory mapping。那樣 `FileHandleCenter` 永遠進不了主鏈，後面的 retention / notes / relations 也無法被工具自然使用。\n\n**設計取捨**：目前採用 `ORDER BY created_at DESC LIMIT 1`，這是低成本遷移手法。好處是不用先解 duplicate registration 問題就能跑；代價是 source dedupe 還沒真正解，lookup 現在只是有明確選擇規則。\n\n## 白話解析\n\n這段在整條鏈上扮演的是『把舊 ref 翻回新身分』的橋樑。它其實就是在說：工具手上如果還只有 `line:webric:img123`，那也沒關係，先拿 route context 去資料庫問現在這個 ref 對應到哪個 `file_id`。如果這裡沒有統一路徑，後面每個 tool 都會長自己的一套還原邏輯。\n\n## Code Detail\n\n這段在幹嘛：\n- 用 `route_id + source_platform + source_native_locator` 查 canonical file row。\n- 取最新一筆做過渡 lookup。\n\n為什麼這樣寫：\n- 好處：不用先大改 LLM-facing ref 格式，就能把工具主路徑拉回 center。\n- 好處：查詢條件與 file ownership model 對齊，避免跨 route 混線。\n- 壞處：duplicate registration 目前只是被 latest-row 規則壓住，不是被真正消除。\n\n思考問題：\n1. 什麼時候 `find_file_by_source` 會逼出真正的 dedupe / upsert 設計？\n2. 如果未來一個 source file 被多條 route 共用，這個 lookup contract 應該怎麼演化？"
+    },
+    {
+      "file": "src/chatpilot/tools/builtin/download_media.py",
+      "line": 46,
+      "ref": "7d92864140db67ce943e1fd43a0856b7c261c211",
+      "title": "download_media 先回中心，再 fallback 舊 adapter",
+      "description": "## Insight\n\n**機制**：`download_media` 現在不是一 parse 完 ref 就直接找 adapter，而是先從 `session_context.route_id` 出發，用 center lookup 找到 canonical handle；找到了就 `ensure_local(file_id)`，找不到才退回舊 `adapter.download_media()`。這就是典型的低 side effect migration shape。\n\n**故障模式**：如果工具維持原本『ref → adapter → bytes』直通路，系統雖然有 `FileHandleCenter`，但 tool 並不會使用其 route scope、retention、lineage 或 notes，最後還是兩個平行世界。\n\n**設計取捨**：這裡刻意保留 fallback，目的是不中斷現有使用方式；代價是 tool 還同時背著 canonical 路與 legacy 路，等 vision attachment 遷移完成後，才有機會繼續收窄舊路。\n\n## 白話解析\n\n這段在整條鏈上扮演的是『把最常見的 file tool 從舊世界拉回中心』的角色。它其實就是在做一件事：如果這張圖其實已經被 ingress register 過了，就不要再重新靠平台抓一次，而是直接拿既有的 canonical file。這裡做對了，後面 show_image / vision / document flow 才會順著同樣的 pattern 收斂。\n\n## Code Detail\n\n這段在幹嘛：\n- 解析 legacy ref。\n- 從 session context 拿 route。\n- 優先中心 lookup + ensure_local。\n- 找不到才 fallback adapter。\n\n為什麼這樣寫：\n- 好處：讓工具開始真正消費 `FileHandleCenter`。\n- 好處：不需要先修改模型 prompt 或 ref 文法。\n- 壞處：目前還保留 `binaryResultsForLlm` 舊行為，vision 真正修好還要再做下一輪 attachment 遷移。\n\n思考問題：\n1. 等 attachment 路徑完成後，`download_media` 還需要是 vision 的核心工具嗎？\n2. `file_id` 是否值得逐步出現在 prompt/context，讓模型直接用 canonical identity？"
+    },
+    {
+      "file": "src/chatpilot/tools/builtin/document_edit.py",
+      "line": 127,
+      "ref": "7d92864140db67ce943e1fd43a0856b7c261c211",
+      "title": "document_edit 現在能吃治理過的檔案，而不是只吃平台檔案",
+      "description": "## Insight\n\n**機制**：`document_edit` 的 file ingress 也改成同樣模式：先用 route-scoped source lookup 找 canonical handle，若已有中心管理的 local asset 就直接讀；只有找不到時才回退到原本的 adapter download。這讓 document tool 的輸入開始從『平台上的檔』轉向『系統內受治理的檔』。\n\n**故障模式**：如果 document_edit 永遠只認平台檔案，那之後 tool/pipeline/agent 產出的 Excel 或 DOCX 仍然會回不來，只能留在 workpath 或臨時 URL；generated file governance 立刻破功。\n\n**設計取捨**：這裡還沒有強制所有 `file_ref` 變成 `file_id`，因為先保留 legacy ref 能讓遷移更平順。代價是 tool 內仍保留少量 ref parser 邏輯，之後等更多 consumer 完成 center 化再收斂。\n\n## 白話解析\n\n這段在整條鏈上扮演的是『讓文件工具真正吃到 FileHandleCenter』的角色。它其實就是在把 document_edit 的輸入定義從『幫我去平台拿這個檔』轉成『幫我處理這個 route 裡已經存在的檔案資產』。這一步很關鍵，因為未來使用者請 bot 整理 Excel，最終一定會牽涉 generated file lineage。\n\n## Code Detail\n\n這段在幹嘛：\n- 保留 legacy `file_ref` parser。\n- 若有 session context，就先 route-scoped lookup canonical handle。\n- 命中後直接 `ensure_local` 讀治理後的 local asset。\n- 否則 fallback 到原 adapter download path。\n\n為什麼這樣寫：\n- 好處：generated/local-governed files 之後也能被 document_edit 再次使用。\n- 好處：不需要一次改掉所有 prompt 與工具用法。\n- 壞處：目前讀 local bytes 仍直接在 handler 內做，之後若要再抽純 consumer helper 還有空間。\n\n思考問題：\n1. 哪些 document 類工具之後應該直接接受 `file_id`，而不是靠 ref 過渡？\n2. tool 產生的新檔回推到 route 時，什麼 relation 最值得先補？"
+    },
+    {
+      "file": "tests/unit/test_document_edit.py",
+      "line": 273,
+      "ref": "7d92864140db67ce943e1fd43a0856b7c261c211",
+      "title": "測試在釘住『優先中心、不是優先 adapter』",
+      "description": "## Insight\n\n**機制**：新增測試不是只驗功能沒壞，而是直接釘住新的遷移 invariant：當 route-scoped canonical file 已存在時，`document_edit` 與 `download_media` 必須優先走 center，而不是偷偷掉回 `adapter.download_media()`。\n\n**故障模式**：如果這個 invariant 沒被測住，工具很容易在未來維護時悄悄回退成『反正先直接抓平台 bytes』，那整個 FileHandleCenter 會再次被降格為旁路快取。\n\n**設計取捨**：測試仍然是 targeted unit/integration hybrid，而不是 full E2E。好處是定位很準；代價是還沒證明 vision attachment 與 show_image 等更遠的 consumer 也都吃同樣 pattern。\n\n## 白話解析\n\n這段在整條鏈上扮演的是『把新的使用規矩鎖住』。它其實就是在防止我們只是把中心接進去了，但工具還是把它當 optional。等到後面 tool 越來越多，這種測試會是防止回歸最重要的護欄。\n\n## Code Detail\n\n這段在幹嘛：\n- 先用 center register/download 建好 canonical file。\n- tool invocation 提供 session context + legacy ref。\n- 驗證 handler 成功，而且不會再碰 legacy adapter download path。\n\n為什麼這樣寫：\n- 好處：直接驗證新舊世界交會處的最重要 invariant。\n- 好處：之後 show_image / vision 跟進時可以沿用同一種測法。\n- 壞處：目前只覆蓋單一 route / source 命中情況，duplicate-source 與 miss-path 還要靠別的測試補。\n\n思考問題：\n1. 下一輪哪個 consumer 最適合沿用這個測試模式：show_image 還是 batch_vision？\n2. 當 duplicate source rows 真的存在時，應該補哪種測試來鎖住 lookup policy？"
+    }
+  ]
+}
