@@ -1,0 +1,45 @@
+{
+  "$schema": "https://aka.ms/codetour-schema",
+  "title": "05 - File Ingress Into Hub: ChatPilot Runtime Wiring",
+  "steps": [
+    {
+      "title": "Context",
+      "description": "## 白話導讀\n\n這條 tour 其實是在看：FileHandleCenter 第一次真正嫁接進 runtime 主流程，讓 inbound message 不只是帶文字，而是能帶著 canonical file context 一起進 hub。\n\n如果先記不住細節，先抓住每個 step 只是在回答「平台檔案事件怎麼變成 message 內的 source/file handles，最後又怎麼被 STT 用掉」。\n\n## 這條路徑在解決什麼問題\n\n第一個 milestone只把 file foundation 立起來。這一輪真正往前推的是：當 LINE image/audio/file 進來時，不再只是產出 `[圖片 ref:...]` 這種文字，而是同步帶出 source handle、在 hub 入口 register、按 policy 處理，並讓 STT 優先走 canonical local asset。\n\n## 這條路徑展示什麼 mental model\n\n這條路徑展示的是一個很重要的 pattern：`adapter parse -> message enrich -> ingress preprocessor -> hub consumer`。也就是檔案不直接被 tool 或 hub 特判，而是先被轉成 message 上的結構化 context，再由中心服務治理。\n\n## 為什麼值得讀\n\n讀完後你會清楚知道 ChatPilot 從 file foundation 過渡到真實 message flow 的第一個嫁接點，之後 vision、document、generated file 與 tool convergence 都會沿這條 pattern 長下去。"
+    },
+    {
+      "file": "src/chatpilot/core/types.py",
+      "line": 38,
+      "ref": "56f28bf02ec95fa60a16ec4370b417fd68224aab",
+      "title": "Step 1: Message 正式攜帶 file context，不再只是一段文字",
+      "description": "## Insight\n\n**機制**：`Message` 現在多了 `source_handles` 與 `file_handles` 兩層欄位。這代表 inbound message 在進 hub 前，就可以先帶著平台翻譯後的 source descriptors；經過 ingress preprocessor 後，再被 enrich 成真正可持續使用的 canonical file handles。\n\n**故障模式**：如果 message 仍然只靠文字 ref 傳 file context，後續 hub、tool、pipeline 就只能反覆 regex parse，一旦格式變更或平台增加，整條線又會回到 scattered parser 的舊問題。\n\n**設計取捨**：這裡選的是漸進式雙層欄位，而不是一次把 text ref 全砍掉。好處是能在既有 runtime 上平滑嫁接；代價是過渡期 `message.text` 與 `message.file_handles` 會同時存在，需要清楚知道哪一層才是 canonical。\n\n## 白話解析\n\n這段在整條鏈上扮演「讓檔案正式進入 message world」的角色。它其實就是在說：之後 hub 不再只讀一串 `[音檔 ref:...]` 字樣，而是能看到這條訊息真實掛了哪些 source handle、哪些已註冊的 file handle。你會在 STT、vision、document 類流程第一次感受到這個差別。\n\n## Code Detail\n\n**這段在幹嘛**：\n\n在 `Message` model 中加入 `source_handles` 與 `file_handles`，保留原本文字與 platform context 的同時，允許後續 preprocessor 直接 enrich 這個 message。\n\n**為什麼這樣寫**：\n\n好處：\n- 不需要額外 side table 就能把 file context 隨 message 往下帶。\n- 未來 hub consumer 可以優先走結構化欄位，再逐步淡出 text ref。\n- 保留向下相容，現有沒有 file handle 的 message 仍可工作。\n\n壞處：\n- core `Message` 現在直接依賴 files models，核心型別的耦合寬度變大。\n- 過渡期要小心 `text` 與 `file_handles` 的雙軌狀態不要互相矛盾。\n\n**思考問題**：\n- 未來 text ref 退役時，哪些 flow 還需要保留 human-readable file mention？\n- `source_handles` 與 `file_handles` 何時可以合併或簡化？"
+    },
+    {
+      "file": "src/chatpilot/adapters/line/parser.py",
+      "line": 24,
+      "ref": "56f28bf02ec95fa60a16ec4370b417fd68224aab",
+      "title": "Step 2: LINE parser 開始同時產出文字 ref 與 source handle",
+      "description": "## Insight\n\n**機制**：LINE parser 現在在 image/audio/video/file 分支除了保留原本的文字 ref，還會同步建立 `SourceHandleInput`。這表示 file context 仍由 adapter-owned code 產出，但下游第一次能以統一 schema 看到它。\n\n**故障模式**：如果這一步沒有做，hub 入口就沒有可 register 的 source handle，只能繼續解析文字 ref；那 FileHandleCenter 即使存在，也只是旁觀者，無法進入主流程。\n\n**設計取捨**：這裡維持 text ref 與 source handle 並存，是刻意的 staged rollout。好處是先不炸現有 tool / STT fallback；代價是 parser 短期內會有一點 duplication，需要未來 converged path 收斂掉。\n\n## 白話解析\n\n這段在整條鏈上扮演「把平台事件翻成 message-level file context」的角色。它其實就是在讓 LINE 的圖片、音檔、檔案從『一串看得懂的人類標記』升級成『同時可被系統治理的 source descriptor』。你實際看到的效果就是 hub 入口終於有東西可以 register，而不只是一段字串。\n\n## Code Detail\n\n**這段在幹嘛**：\n\n新增 `_build_source_handle(...)` helper，並在各 media 分支把 `SourceHandleInput` 塞進 `Message.source_handles`。\n\n**為什麼這樣寫**：\n\n好處：\n- route/platform/native locator 在 adapter 邊界就被組成，主流程不必再猜。\n- 檔案類型用 `FileKind` 明確化，policy 可直接判斷。\n- 既有文字 ref 仍保留，過渡期更安全。\n\n壞處：\n- 現在 parser 內有兩份表達：text ref 與 source handle。\n- `mime_type` 目前多數平台事件仍拿不到，descriptor 還比較薄。\n\n**思考問題**：\n- 哪個時間點適合讓下游完全不再依賴 text ref？\n- 如果未來某平台 parser 不能直接知道 `route_id`，source handle 應由誰補完？"
+    },
+    {
+      "file": "src/chatpilot/files/ingress.py",
+      "line": 11,
+      "ref": "56f28bf02ec95fa60a16ec4370b417fd68224aab",
+      "title": "Step 3: Ingress preprocessor 把 source handle 正式 canonicalize",
+      "description": "## Insight\n\n**機制**：`InboundFilePreprocessor` 是 file 進 message flow 的固定掛點。它遍歷 `message.source_handles`，逐一 `register()` 成 canonical handles，並依 policy 決定 `register_only / download_now / prefetch`。這讓 eager/lazy 成為 policy，而不是 adapter/hub/tool 自己決定。\n\n**故障模式**：如果沒有這一步，哪怕 parser 已經帶出 source handles，它們仍然只是附在 message 上的 inert data，不會被賦予 `file_id`、不會有 asset lifecycle，也不會留下 route-scoped memory。\n\n**設計取捨**：這一版 policy 很小，只把 audio 設成 `download_now`。好處是 STT 這個已知 eager consumer 能立刻吃到 canonical local asset；代價是其他 kinds 目前仍偏保守，未來 vision/document/generated file 需要更細的 policy map。\n\n## 白話解析\n\n這段在整條鏈上扮演「把平台來源變成系統內正式檔案單位」的角色。它其實就是在做三件事：配 `file_id`、決定要不要現在抓、把結果塞回 message 讓後面的 hub consumer 直接拿。你之後看到的效果就是 STT 不必再自己回平台拿音檔。\n\n## Code Detail\n\n**這段在幹嘛**：\n\n在 `process(...)` 裡對每個 source handle 做 register，根據 `decide_ingress_action(...)` 執行 `download_now` 或 `prefetch`，最後把 `message.file_handles` 與 `platform_context[\"file_ids\"]` 補齊。\n\n**為什麼這樣寫**：\n\n好處：\n- 讓所有 file ingress 都先經過同一個 gate。\n- audio 直接 eager download，立刻服務 STT。\n- message enrichment 保持在主流程內，不用 adapter side-channel。\n\n壞處：\n- 目前任何單一 source 失敗都會讓這次 preprocessor 整體丟例外，還沒有 per-source isolation。\n- `platform_context[\"file_ids\"]` 目前只是過渡期 convenience data，還不是正式穩定介面。\n\n**思考問題**：\n- future generated files 是否也應走同一個 preprocessor，還是另一種 register 入口？\n- 當 policy 變複雜時，這裡應該繼續 if/else，還是抽成可配置規則引擎？"
+    },
+    {
+      "file": "src/chatpilot/hub/hub.py",
+      "line": 115,
+      "ref": "56f28bf02ec95fa60a16ec4370b417fd68224aab",
+      "title": "Step 4: Hub 入口先跑 file preprocessing，再進原本的 message gate",
+      "description": "## Insight\n\n**機制**：`hub.receive()` 現在在 route 判定與 STT 前先跑 `_file_ingress.process(...)`。這讓所有 inbound path 不論來自 webhook 還是 CLI，只要最後都進 hub，就能吃到同一套 file canonicalization 規則。\n\n**故障模式**：如果把這一步放在 webhook 或 adapter 外面，就會很容易出現某些入口有 register、某些入口沒有 register 的分裂狀態，最後 route-level file memory 只在部分 flow 存在。\n\n**設計取捨**：這裡選擇 fail-open：ingress preprocessing 出錯時記 log 但仍讓訊息繼續進 hub。好處是現階段不讓 file 問題全面阻斷聊天；代價是 file context 可能失敗但整條對話仍前進，因此 observability 與後續 fallback 必須清楚。\n\n## 白話解析\n\n這段在整條鏈上扮演「file 先進系統秩序，再進對話秩序」的角色。它其實就是在把 file governance 固定安在 hub 入口，而不是讓每條入口自己決定要不要處理檔案。你最直接看到的效果，是同一條 route 的 file memory 開始有機會真正一致。\n\n## Code Detail\n\n**這段在幹嘛**：\n\n把 `InboundFilePreprocessor` 與 `FileHandleCenter` 注入 hub，並在 `receive(...)` 最前面執行 preprocessor，再沿用原本的 mention/busy/context buffer 流程。\n\n**為什麼這樣寫**：\n\n好處：\n- 把 file canonicalization 放在真正的統一入口，而不是某個 transport-specific layer。\n- 仍保留原有 hub 心智模型，改動邊界清楚。\n- fail-open 策略讓 staged rollout 風險更低。\n\n壞處：\n- ingress 失敗時目前只靠 log，不會回寫到 message/file state。\n- `hub.receive()` 的責任又增加了一層 orchestration，未來要小心不要讓 hub 再次變肥。\n\n**思考問題**：\n- 什麼情況下 fail-open 應升級成 fail-closed？\n- 當 generated file 也需要回灌進 hub 時，這個入口是否仍然是最佳位置？"
+    },
+    {
+      "file": "src/chatpilot/hub/hub.py",
+      "line": 411,
+      "ref": "56f28bf02ec95fa60a16ec4370b417fd68224aab",
+      "title": "Step 5: STT 正式優先走 canonical local asset，legacy regex 只剩 fallback",
+      "description": "## Insight\n\n**機制**：`_transcribe_audio(...)` 現在先看 `message.file_handles` 是否有 audio handle，如果有就透過 `FileHandleCenter.ensure_local(...)` 取得 canonical local asset，再把 bytes 丟進 transcriber。只有 file path 不存在或 preprocessor 沒跑到時，才退回舊的 regex + adapter.download_media fallback。\n\n**故障模式**：如果 STT 仍然只靠文字 ref 和 adapter.download_media，就算 file center 已在主流程裡，音檔也還是沒有真的走 canonical file lifecycle，後續 route memory、retention 與 generated transcript 會斷鏈。\n\n**設計取捨**：這裡保留 legacy fallback，是一個非常典型的過渡期折衷。好處是 staged rollout 安全，不會一次炸掉舊 flow；代價是短期內 hub 裡會同時存在 canonical path 與 regex fallback，直到更多 consumer 收斂完為止。\n\n## 白話解析\n\n這段在整條鏈上扮演「第一個真正吃到 canonical file asset 的 consumer」的角色。它其實就是在宣告：STT 不再直接碰平台下載，而是把拿檔這件事交給 center。你會在這裡第一次看到 file center 從基礎設施變成真正在功能上生效的能力。\n\n## Code Detail\n\n**這段在幹嘛**：\n\n若 message 有 audio `file_handle`，就 `ensure_local()` → `Path.read_bytes()` → `transcribe()` → 改寫 `message.text`；沒有才沿用舊 `_AUDIO_REF_PATTERN`。\n\n**為什麼這樣寫**：\n\n好處：\n- 音檔正式走 route-scoped canonical file path。\n- STT 成為第一個被成功收斂的 consumer，驗證整條架構是可用的。\n- fallback 還在，降低 rollout side effect。\n\n壞處：\n- 目前只處理第一個 audio handle，多音檔 message 還未定義策略。\n- local read 仍是 sync `Path.read_bytes()`，之後若音檔變大可能要再調整。\n\n**思考問題**：\n- vision、document flows 下一步是否也應採取同樣的『canonical first, regex fallback second』策略？\n- 當 transcript 本身要成為 file note 或 derived file 時，最合理的掛點在哪？"
+    }
+  ]
+}

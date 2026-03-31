@@ -1,0 +1,22 @@
+{
+  "$schema": "https://aka.ms/codetour-schema",
+  "title": "Code Review: file-ingress-hub 2026-03-31",
+  "steps": [
+    {
+      "title": "Review Summary",
+      "description": "## Review Summary\n\n🔴 Critical: 0\n🟡 Suggestions: 1\n✅ Good Practices: 1\n\n### Scope\nReview of the hub-ingress milestone: `Message` file fields, LINE parser source-handle emission, ingress preprocessing, hub wiring, and canonical STT integration.\n\n### Focus\nRuntime integration safety, fallback behavior, and whether the new path keeps side effects controlled while starting to replace legacy regex/media-download flows."
+    },
+    {
+      "file": "src/chatpilot/files/ingress.py",
+      "line": 34,
+      "title": "🟡 One Failing Source Handle Currently Aborts Registration of All Siblings in the Same Message",
+      "description": "## Problem\n`InboundFilePreprocessor.process(...)` loops through `message.source_handles`, but any exception during `register()` or policy-driven download aborts the entire method. `hub.receive()` then catches that outer exception and continues the chat flow, meaning later handles in the same message are silently skipped. A multi-file message with one bad attachment will therefore lose the remaining valid attachments for this pass.\n\n## Fix\n```python\nfor source in message.source_handles:\n    try:\n        handle = await self._center.register(source)\n        ...\n    except Exception as exc:\n        logger.exception(\"[file] register failed route=%s locator=%s\", source.route_id, source.native_locator)\n        failures.append({\"locator\": source.native_locator, \"error\": str(exc)})\n        continue\nmessage.platform_context[\"file_ingress_failures\"] = failures\n```\nHandle errors per-source so one bad attachment does not suppress the rest.\n\n## Rationale\nThis is not a blocking bug for the current milestone, but it becomes important as soon as users send multiple files or future generated-file batches reuse the same ingress path. Per-source isolation will make the system far more predictable and easier to debug."
+    },
+    {
+      "file": "src/chatpilot/hub/hub.py",
+      "line": 411,
+      "title": "✅ Canonical-First STT With Legacy Fallback Is the Right Staged-Rollout Shape",
+      "description": "## Problem\nThere is no problem here; this is the strongest integration decision in the milestone.\n\n## Fix\n```python\n# Keep consumers migrating in this order:\n# 1. prefer message.file_handles + FileHandleCenter\n# 2. retain a temporary legacy fallback\n# 3. remove regex/media-download path only after targeted tests prove parity\n```\n\n## Rationale\nThe code proves the new file architecture can actually power a real runtime consumer without forcing an all-at-once rewrite. Canonical local assets are now used for STT, yet the old regex path still exists as a safety net. That is exactly the kind of low-side-effect migration shape this feature needs."
+    }
+  ]
+}
