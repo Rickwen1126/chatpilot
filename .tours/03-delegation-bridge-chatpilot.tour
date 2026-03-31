@@ -1,0 +1,45 @@
+{
+  "$schema": "https://aka.ms/codetour-schema",
+  "title": "03 - Delegation Bridge: Chatpilot Dual Session Async",
+  "steps": [
+    {
+      "title": "Context",
+      "description": "## 這條 tour 在看什麼\n\n這條 tour 其實是在看：Chatpilot 怎麼把 async pipeline 從「冒充原 chatbot session」改成「帶著 target route 執行委託」。\n\n如果先記不住細節，先抓住每個 step 只是在回答「delegate actor 怎麼沿用原 route context，但又不假裝自己就是原 session？」\n\n## Chatpilot 是什麼\n\nChatpilot 是一個多平台 chat gateway，把 webhook、routing、chatbot、tool、scheduler 和 pipeline 串成同一條訊息處理鏈。\n\n## 錨定已知\n\n可以把這條路徑想成 job worker 的 delegated execution：worker 不是原本的 web request，但它需要帶著 original tenant / account / trace context 去做事。\n\n## 這條路徑在解決什麼問題\n\n先前 `SessionContext` 補上了 chatbot path 的 runtime bridge，但 schedule-agent 這種 disposable pipeline actor 仍然拿不到 target route。結果是 route-scoped tools 一進 async path 就會斷鏈，甚至把 runtime session 當成 domain identity。\n\n## 這條路徑展示什麼 mental model\n\n真正的 mental model 是：`sdk_session_id` 是 runtime actor 的錨點，`route_id` 是 target identity；async task / reminder / schedule 是 delegation，不是 session continuation。\n\n## 為什麼值得讀\n\n看完後你會更容易辨認一個系統何時需要把 actor 和 target 分開建模，也更能看懂 tool 權限、scheduler、admin view 這些看似分散的問題其實都卡在同一個 delegation bridge。"
+    },
+    {
+      "file": "src/chatpilot/core/types.py",
+      "line": 101,
+      "ref": "8f94711c2a5caecf95086aac010b66fd7393b17b",
+      "title": "先把 SessionContext 和 TaskInfo 的語意講正",
+      "description": "## Insight\n\n**機制**：這裡先把兩個最容易被誤讀的型別定義清楚。`SessionContext` 不再只是 generic session metadata，而是 runtime actor 指向 target route 的 bridge；`TaskInfo.chat_route_id` 也明確定義成 task 所屬的 target route。\n\n**故障模式**：如果型別層還保留曖昧語意，後面就很自然地把 pipeline session 當成原 chat session，然後又把 `session_id` 當成 route 來拆。\n\n**設計取捨**：這一步主要是命名/註解對齊，不碰 schema rename。代價是欄位名像 `chat_route_id` 暫時不完美，但先把 mental model 寫進 code，避免大範圍 churn。\n\n## 白話解析\n\n這一步扮演的是「定義遊戲規則」。它其實就是先宣布：後面所有 async 與 pipeline 路徑，都要把 `route_id` 看成 target，不要再把 runtime session 誤當 domain identity。你之後看到 executor 跟 schedule-agent 的改動，都是在落實這個定義。\n\n## Code Detail\n\n這段在幹嘛：用 docstring 把 actor / target 分離寫進 `SessionContext` 與 `TaskInfo`。\n\n為什麼這樣寫：\n- 好處：後面每個模組都有共同語言可對齊。\n- 好處：避免為了語意潔癖先做一輪高成本 rename。\n- 壞處：欄位名仍保留歷史包袱，需要靠註解輔助。\n\n思考問題：\n- 哪些欄位真的是 domain truth，哪些只是 runtime bridge？\n- 之後若要 rename，哪些地方最值得優先動？"
+    },
+    {
+      "file": "src/chatpilot/pipeline/executor.py",
+      "line": 38,
+      "ref": "8f94711c2a5caecf95086aac010b66fd7393b17b",
+      "title": "PipelineExecutor 是 target route 注入點",
+      "description": "## Insight\n\n**機制**：executor 在每次 node 執行前，都把 canonical `task.chat_route_id` 注入 `current_input[\"route_id\"]`。這讓 pipeline 每一段都能拿到同一條 target route，而不是依賴上游 input 剛好有帶或沒被覆蓋掉。\n\n**故障模式**：如果這裡不強制注入，delegate actor 的 target identity 就會變成 best effort。某個 node 掉了 `route_id`，下游 tools 又會回頭 parser `session_id`。\n\n**設計取捨**：把注入放在 executor 是最小且最穩的解法，因為它已經握有 `TaskInfo`。代價是 node input 會被系統補欄位，不能把 input 視為完全使用者自帶 payload。\n\n## 白話解析\n\n這一步扮演的是「把委託目標一路帶著走」。它其實就是在說：不管 pipeline 中間怎麼轉，這個 task 最終是替哪條 route 做事，executor 都要重新蓋回去。你會在測試裡看到就算 input 自己帶了錯誤 route，最後仍以 task 的 canonical route 為準。\n\n## Code Detail\n\n這段在幹嘛：新增 `_with_task_context()`，統一在 pipeline 起點與每次 node output 後重新注入 target route。\n\n為什麼這樣寫：\n- 好處：route identity 不再依賴 node 實作細節。\n- 好處：把 delegation context 的責任收斂到 executor。\n- 壞處：若未來要注入更多欄位，這層可能慢慢長成 context composer。\n\n思考問題：\n- 哪些 pipeline context 應該像 `route_id` 一樣由系統強制注入？\n- 如果某個 node 故意想改 target route，系統應該允許嗎？"
+    },
+    {
+      "file": "src/chatpilot/pipeline/samples/schedule_agent.py",
+      "line": 60,
+      "ref": "8f94711c2a5caecf95086aac010b66fd7393b17b",
+      "title": "schedule-agent 是 delegate actor，不是原 chatbot session",
+      "description": "## Insight\n\n**機制**：schedule-agent 在建立 disposable SDK session 前，先用 `route_id` 和 `chatbot_name` 註冊一份 ephemeral `SessionContext`，讓這個 pipeline actor 在執行期間能 lookup 回 target route；執行完後立即 unregister。\n\n**故障模式**：如果沒有這層 bridge，route-scoped `GLOBAL` tools 一進 schedule-agent 就會直接缺 context；如果把它持久化，又會把短命 pipeline session 汙染進 known-routes/admin 視角。\n\n**設計取捨**：這裡接受一份短生命週期的 in-memory context，換取 tool runtime 可以沿用 chatbot path 的同一套 resolver。代價是 schedule-agent 現在要理解「delegated_by chatbot」和「current runtime actor」是兩件事。\n\n## 白話解析\n\n這一步扮演的是「委託代理的上線與下線」。它其實就是在說：這個 session 雖然是隨機新建的，但它活著的這段時間，應該知道自己是替哪條 route、哪個原 chatbot 做事；任務做完後，這個身份橋就一起回收。這正是 dual-session async 最核心的橋接點。\n\n## Code Detail\n\n這段在幹嘛：重新命名本地變數為 `target_route_id` / `origin_chatbot_name`，註冊 `persist_metadata=False` 的 context，並在 finally 中 cleanup。\n\n為什麼這樣寫：\n- 好處：tool invocation 不需要再分 chatbot path / pipeline path 寫兩套規則。\n- 好處：把「delegate actor != target route owner」直接寫進程式與 log。\n- 壞處：schedule-agent 對 session-context 機制有顯式耦合，未來若抽出通用 delegate agent base class，這段會再往上搬。\n\n思考問題：\n- 哪些 pipeline 也應該沿用這個 delegate bridge？\n- tool access level 之後是否還需要再加一層 target-scope 判斷？"
+    },
+    {
+      "file": "src/chatpilot/tools/session_context.py",
+      "line": 68,
+      "ref": "8f94711c2a5caecf95086aac010b66fd7393b17b",
+      "title": "Registry 同時區分 persistent known routes 與 ephemeral delegates",
+      "description": "## Insight\n\n**機制**：`register()` 新增 `persist_metadata`，讓 chatbot 主 session 繼續落 metadata，而 pipeline delegate session 只存在於 runtime memory。`list_contexts()` 也改成只列 persisted/known contexts，避免 admin view 把短命 delegate actor 當成已知 route。\n\n**故障模式**：如果 registry 對所有 session 一視同仁，`/cli/routes` 在某些時刻就會看到一堆 schedule-agent runtime 噪音；如果完全不支援 ephemeral，pipeline tools 又沒 context 可用。\n\n**設計取捨**：這裡刻意把 resolve 與 admin listing 的語意分開。代價是 registry 不再只是單純 dict wrapper，而是開始承擔 lifecycle/visibility policy。\n\n## 白話解析\n\n這一步扮演的是「同一套 bridge，但兩種壽命」。它其實就是在把 chatbot session 和 pipeline delegate session 分成 persistent 與 ephemeral 兩種 context。你之後看 `/cli/routes` 不會被 schedule-agent 洗版，但工具在執行當下又能正常取到 route，靠的就是這裡的分流。\n\n## Code Detail\n\n這段在幹嘛：`persist_metadata=False` 時只註冊 memory；`list_contexts()` 只回傳 persisted/known contexts。\n\n為什麼這樣寫：\n- 好處：admin semantics 與 runtime semantics 不再混在一起。\n- 好處：不用新增第二個 registry 或第二套路徑。\n- 壞處：registry 現在要同時處理 lookup 與可見性規則，語意比之前更重。\n\n思考問題：\n- 還有哪些 view 應該只看 persisted contexts，而不是當下 memory？\n- 是否需要把 persistent/ephemeral 明確做成 enum，而不是 bool？"
+    },
+    {
+      "file": "src/chatpilot/server/webhook.py",
+      "line": 187,
+      "ref": "8f94711c2a5caecf95086aac010b66fd7393b17b",
+      "title": "Admin view 明確回到 known-routes 語意",
+      "description": "## Insight\n\n**機制**：`/cli/routes` 的 docstring 與欄位註解明確定義成 known-routes/admin view，`sessions` 表示已知 chatbot context，而不是活的 runtime actors。\n\n**故障模式**：如果這裡繼續語意模糊，使用者會自然把它看成 live session list，然後又把 pipeline actor 和 chatbot actor 混成同一種東西。\n\n**設計取捨**：這次先修語意，不改回傳欄位名，避免 API churn。代價是欄位名像 `current_chatbot` / `sessions` 仍然帶著歷史包袱，需要靠 docstring 和 README/AGENTS 對齊。\n\n## 白話解析\n\n這一步扮演的是把管理面跟新 mental model 對齊。它其實就是在說：`/cli/routes` 看的是「我們認識哪些 route、綁過哪些 chatbot」，不是「現在有哪些 SDK session 正在活著」。這讓 pipeline delegate session 不會再被誤認成一條新的聊天室身份。\n\n## Code Detail\n\n這段在幹嘛：補齊 endpoint docstring 與 enrich comment，讓 admin path 的設計意圖直接寫在 code 上。\n\n為什麼這樣寫：\n- 好處：不改 API 也能先把語意定錨。\n- 好處：和 README/AGENTS 的 operator 說明保持一致。\n- 壞處：欄位名仍可能誤導新讀者，之後如果要進一步整理，還是可能需要 rename。\n\n思考問題：\n- 之後如果真的需要 live actor view，應該新增新 endpoint 還是擴充現有欄位？\n- 哪些 admin surface 需要顯示 actor，哪些只需要 target route？"
+    }
+  ]
+}
