@@ -1,0 +1,31 @@
+{
+  "$schema": "https://aka.ms/codetour-schema",
+  "title": "08 - Vision Attachments: ChatPilot Batch Vision Migration",
+  "steps": [
+    {
+      "title": "Context",
+      "description": "## 這條 tour 其實是在看\n\n這條 tour 其實是在看：ChatPilot 怎麼把已確認壞掉的 vision 路徑，從 `download_media -> binaryResultsForLlm`，改成真正可工作的 local file attachment flow。\n\n如果先記不住細節，先抓住每個 step 只是在回答「模型要看圖片時，系統應該在哪一層把 canonical file 變成 SDK attachment？」\n\n## ChatPilot 是什麼\n\nChatPilot 是一個 local-first agent runtime，不只要會調工具，還要能把檔案、route、pipeline、session 之間的責任收乾淨。\n\n## 錨定已知\n\n如果你熟悉 `FileHandleCenter.ensure_local(...)`，可以把這條路看成它第一次真正變成『模型輸入能力』：不是只有工具或 STT 會用，vision 也直接吃這個 local asset。\n\n## 這條路徑在解決什麼問題\n\n先前 Python Copilot SDK 這條 transport 根本不會把 tool 的 `binaryResultsForLlm` 往上送，所以模型其實沒有真的拿到圖片。這條路徑是在用 SDK 原生 attachments，改走一條 transport 真能到模型手上的線。\n\n## 這條路徑展示什麼 mental model\n\n走完後應該能建立：`FileHandleCenter` 不只服務 tool，也服務模型輸入；canonical file 一旦 localize 之後，就能被不同 consumer 重複利用。\n\n## 為什麼值得讀\n\n因為這是第一個把 file center 真正接到模型能力，而不是只接到工具與本機處理的 milestone。"
+    },
+    {
+      "file": "src/chatpilot/sdk/session.py",
+      "line": 65,
+      "ref": "dad34d2c1cc26d05981de275f3982c6f1b3d55f7",
+      "title": "SDK Wrapper 正式支援 attachments",
+      "description": "## Insight\n\n**機制**：`SdkSession` 不再只有純文字 `send_and_wait()`，而是新增 `send_and_wait_with_attachments()`，最後都收斂到同一個 `_send_and_wait_impl()`。這把 attachments 變成 SDK wrapper 的正式能力，而不是 pipeline 自己私下拼 payload。\n\n**故障模式**：如果 attachments 仍然只停留在下層 SDK 原始 API，ChatPilot 上層 consumer 就只能各自繞過 wrapper，最後 session logging、error shape、未來統一擴充點都會裂開。\n\n**設計取捨**：這裡沒有直接把現有 `send_and_wait()` 改成多參數大雜燴，而是補一個明確的 attachment 入口。好處是呼叫意圖清楚；代價是 API surface 多了一個方法，之後若 attachment usage 變普遍，可能值得再收斂。\n\n## 白話解析\n\n這段在整條鏈上扮演的是『把 SDK 原生 attachment 能力帶進 ChatPilot 的正式外觀』。它其實就是在說：如果模型要看本機檔案，別再偷偷組 payload，直接走 wrapper 提供的正規入口。這一步沒做好，後面的 batch vision 就算 local file 都準備好了，也沒有地方可以穩定送進模型。\n\n## Code Detail\n\n這段在幹嘛：\n- 保留原本純文字 `send_and_wait()`。\n- 新增 `send_and_wait_with_attachments()`。\n- 底層共用 `_send_and_wait_impl()` 組裝 payload。\n\n為什麼這樣寫：\n- 好處：attachment 能力有正式接口，後面 pipeline/chatbot 都能共用。\n- 好處：logging 與 response handling 還是走同一層。\n- 壞處：短期內 API surface 稍微擴大，還沒完全收斂成單一呼叫形式。\n\n思考問題：\n1. attachment 用量若越來越高，是否應該把 `send_and_wait()` 本身升級成支援 attachments 的統一入口？\n2. 未來 chatbot 主對話若也要直接吃圖片，attachment 應該在哪個 orchestration boundary 被注入？"
+    },
+    {
+      "file": "src/chatpilot/pipeline/samples/batch_vision.py",
+      "line": 48,
+      "ref": "dad34d2c1cc26d05981de275f3982c6f1b3d55f7",
+      "title": "Batch Vision 從 refs 回到 canonical files，再變成 attachments",
+      "description": "## Insight\n\n**機制**：`BatchImageVisionNode.execute()` 現在不再請模型自己用 `download_media` 工具抓圖，而是先把 `refs` 透過 `route_id + parse_media_ref + find_source_handle()` 還原成 canonical file，再用 `ensure_local()` 取得本機路徑，最後一次性用 attachments 丟給 SDK session。\n\n**故障模式**：如果 batch vision 還維持 tool-binary 路線，模型其實看不到圖；如果它直接重抓平台檔案而不經 center，又會和整個 canonical file lifecycle 脫節。\n\n**設計取捨**：這裡接受一個務實過渡：batch_image_analyze 仍提交 legacy refs，batch vision node 內部再還原成 canonical files。好處是不用一次改 prompt/tool 介面；代價是 ref parser 還沒完全消失，等更多 consumer center 化後還可以再收窄。\n\n## 白話解析\n\n這段在整條鏈上扮演的是『把 file center 真正接到模型眼睛』的角色。它其實就是在把一串 legacy 圖片 ref，先變成 route 裡真正受治理的 file，再把這些 file 轉成 SDK 能吃的附件。之後如果這裡故障，你會看到 batch vision 不是找不到 canonical file，就是模型雖然回話但其實沒看圖。\n\n## Code Detail\n\n這段在幹嘛：\n- 驗證 `route_id` 與 refs 存在。\n- 將每個 ref parse 成 platform/native locator。\n- 回中心找 canonical handle。\n- `ensure_local()` 取得 attachment path。\n- 建立不帶 tools 的 vision prompt，直接送 attachments。\n\n為什麼這樣寫：\n- 好處：真正走通了 SDK 可用的 vision transport。\n- 好處：圖片來源、retention、route scope 全回到 center 邊界。\n- 壞處：目前仍依賴 legacy ref 作為任務輸入，後續若全面升級成 `file_id` 會更乾淨。\n\n思考問題：\n1. 哪個 consumer 下一個最適合沿用這條 attachment 路：show_image 還是聊天中的少量圖片分析？\n2. batch_image_analyze 何時值得改成直接提交 `file_ids` 而不是 refs？"
+    },
+    {
+      "file": "tests/integration/test_file_vision.py",
+      "line": 59,
+      "ref": "dad34d2c1cc26d05981de275f3982c6f1b3d55f7",
+      "title": "測試直接證明 transport 真的換了",
+      "description": "## Insight\n\n**機制**：這組測試不是只驗 pipeline 成功，而是直接證明兩個關鍵事實：batch vision 真的送出 local file attachments，且 canonical file 缺失時會明確報錯，不會靜默退回錯誤的 legacy path。\n\n**故障模式**：如果這裡只驗最後得到『vision ok』，那很可能只是 fake session 回了字串，卻沒驗證 attachment 是否真的被送出。那就會重演之前 binary path 的假綠燈。\n\n**設計取捨**：這裡先用 fake SDK client/session 做 integration-style proof，而不是一開始就跑整條真實 SDK / 真模型。好處是能準確鎖住 transport contract；代價是之後仍需要更靠近真實 runtime 的驗證來補最後一哩。\n\n## 白話解析\n\n這段在整條鏈上扮演的是『證明現在模型真的拿得到圖片』的角色。它其實就是在做一件比單純 pass 更重要的事：驗證 attachments payload 的內容與缺失時的 failure mode。這種測試是避免 vision 類功能再次出現假成功的關鍵。\n\n## Code Detail\n\n這段在幹嘛：\n- 建立 canonical image file 並 localize。\n- 驗證 batch vision 送出 `attachments=[{\"type\":\"file\",\"path\":...}]`。\n- 驗證 canonical file 缺失時會直接 error。\n\n為什麼這樣寫：\n- 好處：釘住真正的 transport invariant，不只是最終字串回應。\n- 好處：未來可以很自然擴充成更接近真實 SDK 的測試。\n- 壞處：目前還沒涵蓋真實模型 capability / provider side behavior。\n\n思考問題：\n1. 進一步的 E2E 應該驗哪個 data-level side effect，才能證明圖片真的被看過而不是只被附上？\n2. 如果未來 attachment 很大或很多，center/policy 應在哪一層做 batching/limits？"
+    }
+  ]
+}

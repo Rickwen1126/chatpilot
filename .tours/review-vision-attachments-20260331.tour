@@ -1,0 +1,22 @@
+{
+  "$schema": "https://aka.ms/codetour-schema",
+  "title": "Code Review: vision-attachments 2026-03-31",
+  "steps": [
+    {
+      "title": "Review Summary",
+      "description": "## Review Summary\n\n🔴 Critical: 0\n🟡 Suggestions: 1\n✅ Good Practices: 1\n\n### Scope\nReview the vision attachment migration in commit `dad34d2`, covering SDK attachment support, batch vision canonical-file lookup, and integration tests.\n\n### Focus\nVerify that the confirmed broken binary tool-result path has been replaced with a real SDK attachment path."
+    },
+    {
+      "file": "src/chatpilot/pipeline/samples/batch_vision.py",
+      "line": 61,
+      "title": "🟡 Batch vision still depends on legacy refs as task input",
+      "description": "## Problem\nThe runtime path is now correct once `refs` reach `BatchImageVisionNode`, but the task payload still carries legacy refs instead of canonical `file_id`s. That means the node must continue parsing refs and doing lookup on every execution, and duplicate-source semantics still sit on the hot path.\n\n## Fix\n```python\n# Follow-up direction\n# enqueue canonical file_ids once the upstream tool/context can supply them,\n# and let batch vision consume file_ids directly.\n```\n\n## Rationale\nThis is not a blocker for the current milestone because the transport bug is fixed and the migration path is intentionally incremental. But `file_id`-native task inputs would simplify the node and remove another layer of ref compatibility from the hot path."
+    },
+    {
+      "file": "tests/integration/test_file_vision.py",
+      "line": 59,
+      "title": "✅ The tests verify the real transport invariant",
+      "description": "## Problem\nNo issue here. The tests are focused on the right thing.\n\n## Fix\n```python\n# Keep extending from this shape:\n# verify attachment payloads and missing-canonical-file failures,\n# not just final pipeline success text.\n```\n\n## Rationale\nThe old bug existed precisely because the system looked successful while the model never actually received image data. These tests protect the real invariant: local files are attached to the SDK payload, and missing canonical files fail loudly instead of silently degrading."
+    }
+  ]
+}
