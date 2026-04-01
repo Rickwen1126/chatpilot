@@ -1,5 +1,5 @@
 ---
-description: Run chatpilot E2E tests. Default path uses the self-contained test runner; live localhost:2999 validation is a secondary mode when explicitly needed.
+description: Run chatpilot E2E tests. Default path uses the self-contained test runner; live localhost:2999 and Android real-device LINE smoke are higher-fidelity secondary modes when explicitly needed.
 ---
 
 ## E2E Test Runner
@@ -30,6 +30,51 @@ Run the self-contained E2E test script:
 ```bash
 bash tests/e2e/run_e2e.sh
 ```
+
+### Live `localhost:2999` Validation
+
+Use this mode when you need to validate the exact running server and runtime
+state of the current worktree.
+
+Recommended checks:
+
+```bash
+curl -s http://localhost:2999/health
+curl -s http://localhost:2999/cli/routes
+```
+
+Then verify:
+- the server is really serving the intended worktree code/config
+- logs show the intended callstack and route identity
+- no unexpected legacy fallback / unnamed LINE path is hit
+- DB / `files.db` / local file side effects match intent
+
+### Android Real-Device LINE Smoke
+
+Use this mode for high-value realistic verification with a real Android device
+and the real LINE app. This is a smoke / audit layer, not the main coverage
+source.
+
+Prerequisites:
+- Android device connected via `adb`
+- LINE installed and signed in
+- test private chat / group prepared
+- running chatpilot server reachable from the LINE webhook
+
+Recommended scenarios:
+- Private text message → named route resolves correctly → reply visible in LINE UI
+- Group non-trigger → no response, only context buffer
+- Group trigger keyword (for example `bot ...`) → chatbot responds
+- Private image-only message → file register + context buffer
+- Private image + follow-up question → drain buffer + image analysis
+- Optional: STT, `show_image`, observer mode
+
+For every real-device smoke, confirm both:
+- user-visible result in LINE UI
+- server-side proof in logs / DB / `files.db`
+
+Always note prompt / tool misuse discovered during real-device smoke, even when
+the main feature works. Realistic odd behavior is part of E2E learning.
 
 ### E2E Checklist
 
