@@ -65,6 +65,10 @@
 - 本 feature 採 staged rollout：先證明 center 本體與 DB/schema 正確，再逐段嫁接到 adapter、hub、tool、pipeline。
 - 已完成的嫁接路徑，必須優先補 targeted integration / E2E；不可用「功能還沒全部做完」當作忽略失敗的理由。
 - 目前已完成並測過的高價值路徑包括：audio ingress/STT、canonical file recall、generated file governance、vision local attachment、以及 `download_media` / `document_edit` / `show_image` 的 canonical file path。
+- 自動化 E2E 已新增 file-center 行為驗證：
+  - mock image ingress → canonical file row register-only
+  - mock audio ingress → policy `download_now` → local asset materialized
+  - 驗證層級包含 log、`files.db`、以及 local asset path existence
 - 真正需要 localhost:2999 與 tunnel/webhook 的 E2E 階段，必須先停止現有本機 chatpilot 服務，避免 runtime state 與 port 干擾。
 
 ## Architecture

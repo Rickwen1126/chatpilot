@@ -11,6 +11,8 @@ BASE_URL="http://localhost:$E2E_PORT"
 E2E_DIR="/tmp/chatpilot-e2e-$$"
 E2E_DB="$E2E_DIR/chatpilot.db"
 E2E_TASK_DB="$E2E_DIR/tasks.db"
+E2E_FILES_DB="$E2E_DIR/files.db"
+E2E_ASSETS_DIR="$E2E_DIR/file_assets"
 E2E_LOG="$E2E_DIR/server.log"
 ROUTES="config/routes.example.yaml"
 TICK_INTERVAL=5
@@ -75,6 +77,18 @@ assert_db_not_exists() {
     fi
 }
 
+# L3: assert file DB row exists
+assert_file_db_exists() {
+    local label="$1" query="$2"
+    local count
+    count=$(sqlite3 "$E2E_FILES_DB" "$query" 2>/dev/null)
+    if [ "$count" -gt 0 ] 2>/dev/null; then
+        pass "$label [L3: file DB row exists]"
+    else
+        fail "$label [L3: file DB row missing]" "query: $query → $count"
+    fi
+}
+
 # L2: assert log contains pattern
 assert_log() {
     local label="$1" pattern="$2"
@@ -103,6 +117,8 @@ start_server() {
     ROUTES_PATH="$ROUTES" \
     CHATPILOT_DB="$E2E_DB" \
     CHATPILOT_TASK_DB="$E2E_TASK_DB" \
+    CHATPILOT_FILES_DB="$E2E_FILES_DB" \
+    CHATPILOT_FILE_ASSETS_DIR="$E2E_ASSETS_DIR" \
     CHATPILOT_TICK_INTERVAL="$TICK_INTERVAL" \
     uv run uvicorn chatpilot.server:create_app --factory \
         --port "$E2E_PORT" --host 0.0.0.0 > "$E2E_LOG" 2>&1 &
@@ -128,7 +144,9 @@ stop_server() {
     fi
     # Keep log for review, clean DB
     rm -f "$E2E_DB" "$E2E_TASK_DB" "$E2E_DB-shm" "$E2E_DB-wal" \
-          "$E2E_TASK_DB-shm" "$E2E_TASK_DB-wal"
+          "$E2E_TASK_DB-shm" "$E2E_TASK_DB-wal" \
+          "$E2E_FILES_DB" "$E2E_FILES_DB-shm" "$E2E_FILES_DB-wal"
+    rm -rf "$E2E_ASSETS_DIR"
     echo "Server stopped. Log at: $E2E_LOG"
 }
 
@@ -282,6 +300,53 @@ async def test():
 print(asyncio.run(test()))
 " 2>/dev/null)
 [ "$DOC_RESULT" = "OK" ] && pass "xlsx + docx round-trip [L3]" || fail "document edit: $DOC_RESULT"
+
+# ─── FileHandleCenter Ingress [L2+L3+L4] ───────────────────────
+header "FileHandleCenter Ingress"
+
+FILE_IMG_USER="e2e-file-img-$(date +%s)"
+mock_webhook "{
+  \"platform\": \"mock\",
+  \"user_id\": \"$FILE_IMG_USER\",
+  \"is_mention\": false,
+  \"source_handles\": [
+    {
+      \"kind\": \"image\",
+      \"native_locator\": \"img-e2e-1\",
+      \"mime_type\": \"image/png\"
+    }
+  ]
+}" > /dev/null
+sleep 3
+assert_log "image ingress registered" "\\[file\\] ingress route=mock:$FILE_IMG_USER locator=img-e2e-1 kind=image action=register_only file_id="
+assert_file_db_exists "image canonical file row" \
+    "SELECT count(*) FROM file_assets WHERE route_id='mock:$FILE_IMG_USER' AND source_platform='mock' AND source_native_locator='img-e2e-1' AND source_kind='image' AND fetch_status='registered' AND storage_backend='none'"
+
+FILE_AUDIO_USER="e2e-file-audio-$(date +%s)"
+mock_webhook "{
+  \"platform\": \"mock\",
+  \"user_id\": \"$FILE_AUDIO_USER\",
+  \"is_mention\": false,
+  \"source_handles\": [
+    {
+      \"kind\": \"audio\",
+      \"native_locator\": \"aud-e2e-1\",
+      \"filename\": \"voice.m4a\",
+      \"mime_type\": \"audio/m4a\"
+    }
+  ]
+}" > /dev/null
+sleep 5
+assert_log "audio ingress eager download" "\\[file\\] ingress route=mock:$FILE_AUDIO_USER locator=aud-e2e-1 kind=audio action=download_now file_id="
+assert_file_db_exists "audio materialized row" \
+    "SELECT count(*) FROM file_assets WHERE route_id='mock:$FILE_AUDIO_USER' AND source_platform='mock' AND source_native_locator='aud-e2e-1' AND source_kind='audio' AND fetch_status='ready' AND storage_backend='local' AND local_path IS NOT NULL"
+AUDIO_LOCAL_PATH=$(sqlite3 "$E2E_FILES_DB" \
+    "SELECT local_path FROM file_assets WHERE route_id='mock:$FILE_AUDIO_USER' AND source_native_locator='aud-e2e-1' ORDER BY created_at DESC LIMIT 1" 2>/dev/null)
+if [ -n "$AUDIO_LOCAL_PATH" ] && [ -f "$AUDIO_LOCAL_PATH" ]; then
+    pass "audio local asset exists [L4]"
+else
+    fail "audio local asset missing [L4]" "$AUDIO_LOCAL_PATH"
+fi
 
 # ─── Observer Mode [L2+L3] ──────────────────────────────────────
 header "Observer Mode"
@@ -505,12 +570,17 @@ green "Passed: $PASS"
 echo ""
 echo "Log: $E2E_LOG"
 echo "DB:  $E2E_DB"
+echo "Files DB: $E2E_FILES_DB"
 echo ""
 
 # Dump DB summary for review
 echo "─── DB State ───"
 for table in memory_memos memory_reminders memory_schedules memory_observations trigger_keywords; do
     count=$(sqlite3 "$E2E_DB" "SELECT count(*) FROM $table" 2>/dev/null || echo "?")
+    echo "  $table: $count rows"
+done
+for table in file_assets file_relations file_notes; do
+    count=$(sqlite3 "$E2E_FILES_DB" "SELECT count(*) FROM $table" 2>/dev/null || echo "?")
     echo "  $table: $count rows"
 done
 echo ""

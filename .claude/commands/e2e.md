@@ -1,14 +1,20 @@
 ---
-description: Run chatpilot E2E tests against localhost:2999. Triggers on /e2e, "跑 E2E", "E2E 測試".
+description: Run chatpilot E2E tests. Default path uses the self-contained test runner; live localhost:2999 validation is a secondary mode when explicitly needed.
 ---
 
 ## E2E Test Runner
 
-Run all E2E tests against a running chatpilot server.
+Run all E2E tests with data-level verification. Default mode uses the
+self-contained `tests/e2e/run_e2e.sh` runner, which boots its own temp server,
+temp DBs, and temp file-assets root. Live `localhost:2999` validation is only
+needed when explicitly verifying a long-running local server.
 
 ### Prerequisites
 
-Server must be running. Check with:
+Default mode: no pre-started server required. The runner starts its own server.
+
+Live-server mode only: if you explicitly need to validate a running
+`localhost:2999` instance, check with:
 ```bash
 curl -s http://localhost:2999/health
 ```
@@ -20,7 +26,7 @@ uv run uvicorn chatpilot.server:create_app --factory --host 0.0.0.0 --port 2999
 
 ### Execution
 
-Run the E2E test script:
+Run the self-contained E2E test script:
 ```bash
 bash tests/e2e/run_e2e.sh
 ```
@@ -95,6 +101,12 @@ Each item maps to a test scenario. All must pass before release.
 - [ ] ≤5 張照片 chatbot 自己 download_media 看（不觸發 batch tool）
 - [ ] >5 張照片 chatbot 呼叫 batch_image_analyze（不自己重複 download）
 - [ ] Pipeline 結果 push 格式化分析文字（非 raw dict）
+
+**FileHandleCenter**
+- [ ] mock image ingress → register canonical file row（`file_assets.fetch_status=registered`，不 eager download）
+- [ ] mock audio ingress → policy `download_now` → local asset materialized（`storage_backend=local` 且 local file 存在）
+- [ ] STT canonical path 走 `ensure_local` / canonical file asset，而不是 legacy ref-only fallback
+- [ ] file-related E2E 必須同時驗證 log、`files.db`、local asset path，不只看回應文字
 
 **Pipeline Result Routing (Hub)**
 - [ ] receive_pipeline_result(direct) → immediate push (no busy gate)

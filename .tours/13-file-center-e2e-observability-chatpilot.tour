@@ -1,0 +1,34 @@
+{
+  "$schema": "https://aka.ms/codetour-schema",
+  "title": "13 - File Center E2E + Observability: ChatPilot",
+  "steps": [
+    {
+      "title": "Context",
+      "description": "## 這條 tour 在看什麼\n\n這個 milestone 不是再擴功能，而是把 file-center 已落地的行為驗證補齊到 E2E 標準，並把 log/DB/asset 三層的可見性收進同一套流程。\n\n## 為什麼值得讀\n\n因為這一步把『unit/integration 都過了』提升成『真正在 server flow 裡看見 canonical file ingress 與 eager download data flow』，也順手修正了 `e2e` skill/command 與實際腳本的語意不一致。"
+    },
+    {
+      "file": "src/chatpilot/adapters/mock/__init__.py",
+      "line": 29,
+      "title": "Mock adapter 現在能模擬 canonical source-handle ingress",
+      "description": "## Insight\n\n**機制**：`MockAdapter.parse_messages()` 現在可直接接受 request body 裡的 `source_handles`，並在缺少文字時自動生成對應的 media/file ref tag。這讓 E2E 能透過真實 `/webhook/mock` 路徑，把 image/audio/file 交給 hub 入口與 `InboundFilePreprocessor` 處理。\n\n**故障模式**：如果 mock adapter 只能收純文字，file-center 的 ingress policy 就永遠只能靠 unit/integration 測，無法在真正 server flow 裡驗證。\n\n**設計取捨**：這裡沒有新增測試專用 API，只是讓既有 mock webhook 能承載 canonical source handles。好處是驗證入口乾淨；代價是 mock payload 契約多了一點能力，但仍限定在測試 adapter 邊界。"
+    },
+    {
+      "file": "tests/e2e/run_e2e.sh",
+      "line": 14,
+      "title": "E2E runner 現在完整隔離 files.db 與 file_assets root",
+      "description": "## Insight\n\n**機制**：self-contained E2E 現在除了 temp `chatpilot.db` / `tasks.db`，也會建立 temp `files.db` 與 temp asset root，並在結束時一併清理。這讓 file-center 的 DB 與 local asset 驗證真正成為可重複、可隔離的 scenario。\n\n**故障模式**：如果 `files.db` 仍落在 repo 預設路徑，E2E 就可能被歷史 file state 汙染，造成假綠或假紅。\n\n**設計取捨**：隔離會多幾個 env var，但換來的是 file-related E2E 可以開始驗 `files.db` 與 local asset path，而不是只看 log。"
+    },
+    {
+      "file": "tests/e2e/run_e2e.sh",
+      "line": 304,
+      "title": "新增 file-center ingress 的 L2/L3/L4 驗證",
+      "description": "## Insight\n\n**機制**：腳本現在新增兩條 file-center scenario：\n1. mock image ingress → 驗證 canonical register-only row\n2. mock audio ingress → 驗證 policy `download_now`、`files.db` 狀態與 local asset 實體存在\n\n**故障模式**：如果只看 response 或只看有沒有 log，無法證明 `FileHandleCenter` 真的在 server flow 裡建立了 canonical file row、跑了 eager download、並把檔案落地。\n\n**設計取捨**：這次先挑現在已確實接回主流程的兩條路，沒有硬把還沒 user-facing 的 generated-file / governed exposure 全塞進 E2E。好處是驗證真且穩；代價是 coverage 還是 staged rollout，而不是一步到位。"
+    },
+    {
+      "file": ".claude/commands/e2e.md",
+      "line": 1,
+      "title": "e2e command/skill 語意現在和實際 runner 對齊",
+      "description": "## Insight\n\n**機制**：repo-local `e2e` command/skill 現在明確定義：預設走 self-contained runner；只有在明確要求 live-server 驗證時才需要 `localhost:2999`。\n\n**故障模式**：文件若仍寫成『預設驗 localhost:2999』，很容易讓開發者誤判目前驗證覆蓋範圍，或在不必要的情況下把常駐服務攪進來。\n\n**設計取捨**：這不是放棄 live validation，而是把 default 與 exceptional mode 分清楚。好處是驗證流程更一致；代價是之後若要驗 live 2999，必須明確標示為另一個模式。"
+    }
+  ]
+}

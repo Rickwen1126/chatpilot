@@ -318,13 +318,20 @@ class FileHandleCenter:
         metadata: dict | None = None,
         created_by: str | None = None,
     ) -> str:
-        return await self._store.add_note(
+        note_id = await self._store.add_note(
             file_id=file_id,
             note_type=note_type,
             content=content,
             metadata=metadata,
             created_by=created_by,
         )
+        logger.info(
+            "[file] note file_id=%s type=%s created_by=%s",
+            file_id,
+            note_type,
+            created_by or "unknown",
+        )
+        return note_id
 
     async def list_notes(
         self,
@@ -344,7 +351,7 @@ class FileHandleCenter:
         subject_id: str | None = None,
         metadata: dict | None = None,
     ) -> str:
-        return await self._store.add_relation(
+        relation_id = await self._store.add_relation(
             from_file_id=from_file_id,
             relation_type=relation_type,
             to_file_id=to_file_id,
@@ -352,6 +359,16 @@ class FileHandleCenter:
             subject_id=subject_id,
             metadata=metadata,
         )
+        logger.info(
+            "[file] relation id=%s from=%s type=%s to=%s subject=%s:%s",
+            relation_id,
+            from_file_id,
+            relation_type,
+            to_file_id or "-",
+            subject_type or "-",
+            subject_id or "-",
+        )
+        return relation_id
 
     async def list_relations(
         self,

@@ -218,6 +218,12 @@ def create_show_image_tool(
                     "caption": caption,
                 },
             )
+            logger.info(
+                "[file] expose file_id=%s route=%s url=%s",
+                handle.file_id,
+                session_context.route_id,
+                img_url,
+            )
 
         result = "已準備回傳圖片給使用者"
         if caption:

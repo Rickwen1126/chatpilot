@@ -5,7 +5,7 @@ from __future__ import annotations
 from fastapi import Request
 
 from chatpilot.core.types import Message, Response
-from chatpilot.files.models import SourceFetchResult, SourceHandleInput
+from chatpilot.files.models import FileKind, SourceFetchResult, SourceHandleInput
 
 
 class MockAdapter:
@@ -29,15 +29,51 @@ class MockAdapter:
     async def parse_messages(self, request: Request) -> list[Message]:
         body = await request.json()
         platform = body.get("platform", "mock")
+        user_id = body.get("user_id", "mock-user")
+        group_id = body.get("group_id")
+        conversation_id = group_id or user_id
+
+        source_handles = []
+        for item in body.get("source_handles", []):
+            source_handles.append(
+                SourceHandleInput(
+                    route_id=item.get("route_id", f"{platform}:{conversation_id}"),
+                    platform=item.get("platform", platform),
+                    kind=item["kind"],
+                    native_locator=item["native_locator"],
+                    filename=item.get("filename"),
+                    mime_type=item.get("mime_type"),
+                    platform_context=dict(item.get("platform_context", {})),
+                )
+            )
+
+        text = body.get("text", "")
+        if not text and source_handles:
+            tags = []
+            for source in source_handles:
+                if source.kind == FileKind.image:
+                    tags.append(f"[圖片 ref:{source.platform}:{source.native_locator}]")
+                elif source.kind == FileKind.audio:
+                    tags.append(f"[音檔 ref:{source.platform}:{source.native_locator}]")
+                elif source.kind == FileKind.video:
+                    tags.append(f"[影片 ref:{source.platform}:{source.native_locator}]")
+                else:
+                    filename = source.filename or "file.bin"
+                    tags.append(
+                        f"[檔案 ref:{source.platform}:{source.native_locator}:{filename}]"
+                    )
+            text = "\n".join(tags)
+
         return [
             Message(
-                text=body["text"],
-                user_id=body.get("user_id", "mock-user"),
+                text=text,
+                user_id=user_id,
                 user_name=body.get("user_name", "MockUser"),
                 platform=platform,
-                group_id=body.get("group_id"),
-                conversation_id=body.get("group_id", body.get("user_id", "mock-user")),
+                group_id=group_id,
+                conversation_id=conversation_id,
                 is_mention=body.get("is_mention", True),
+                source_handles=source_handles,
             )
         ]
 

@@ -1,0 +1,28 @@
+{
+  "$schema": "https://aka.ms/codetour-schema",
+  "title": "Code Review: file-center-e2e-observability 2026-04-01",
+  "steps": [
+    {
+      "title": "Review Summary",
+      "description": "## Review Summary\n\n🔴 Critical: 0\n🟡 Suggestions: 1\n✅ Good Practices: 2\n\n### Scope\nReview the E2E/observability follow-up for FileHandleCenter: mock ingress support, temp `files.db` isolation, new file-center E2E scenarios, and command/skill wording alignment.\n\n### Focus\nCheck whether the new validations prove real data flow correctness without introducing brittle test-only behavior into production paths."
+    },
+    {
+      "file": "src/chatpilot/adapters/mock/__init__.py",
+      "line": 29,
+      "title": "🟡 Mock ingress payload is intentionally narrow; keep it that way",
+      "description": "## Problem\nNo immediate bug here, but this path should remain a thin test harness. If future needs grow, avoid turning `/webhook/mock` into a second full platform contract.\n\n## Rationale\nThe current implementation is appropriate because it only mirrors the minimal source-handle shape needed to exercise the real hub/file-center flow."
+    },
+    {
+      "file": "tests/e2e/run_e2e.sh",
+      "line": 117,
+      "title": "✅ Temp files.db / asset root isolation fixes a real validation blind spot",
+      "description": "## Problem\nNo issue here. This is the right correction.\n\n## Rationale\nBefore this change, file-related E2E could accidentally reuse repo-local `data/files.db` state. Isolating the file DB and asset root makes the new file-center assertions meaningful and repeatable."
+    },
+    {
+      "file": "tests/e2e/run_e2e.sh",
+      "line": 304,
+      "title": "✅ The new file-center checks now validate behavior intent, not just process success",
+      "description": "## Problem\nNo issue here. The added checks match the repo's E2E standard.\n\n## Rationale\nThe new scenarios require all three layers to agree: log (`[file] ingress ... action=...`), `files.db` row state, and actual local asset existence. That is exactly the sort of intent-level proof the AGENTS/CLAUDE standard asks for."
+    }
+  ]
+}
