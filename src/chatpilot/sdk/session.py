@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from typing import Any
 
 from copilot.types import Tool as SdkTool
@@ -105,6 +106,12 @@ class SdkSession:
         payload: dict[str, Any] = {"prompt": message}
         if attachments:
             payload["attachments"] = attachments
+            logger.info(
+                "[SDK] %s attachments count=%d names=%s",
+                self.session_id,
+                len(attachments),
+                [Path(item.get("path", "")).name for item in attachments],
+            )
         result = await self._session.send_and_wait(payload, timeout=timeout)
         logger.info("[SDK] %s got result: %s", self.session_id, type(result))
         if result is None:

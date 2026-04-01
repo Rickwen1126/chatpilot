@@ -1,0 +1,22 @@
+{
+  "$schema": "https://aka.ms/codetour-schema",
+  "title": "Code Review: vision-observability 2026-04-01",
+  "steps": [
+    {
+      "title": "Review Summary",
+      "description": "## Review Summary\n\n🔴 Critical: 0\n🟡 Suggestions: 1\n✅ Good Practices: 1\n\n### Scope\nReview the observability-only follow-up for vision attachments: new batch-vision route/ref/file logs and SDK attachment summary logs.\n\n### Focus\nCheck whether the added logging improves diagnosis without leaking too much path detail or mutating behavior."
+    },
+    {
+      "file": "src/chatpilot/sdk/session.py",
+      "line": 102,
+      "title": "🟡 Attachment basename logging is a good compromise; keep it from drifting to full-path logs",
+      "description": "## Problem\nNo bug here, but this boundary should stay disciplined. Full path logging would be noisier and risk exposing too much filesystem detail.\n\n## Rationale\nThe current basename-only summary gives enough proof that the attachment path exists and was attached, while detailed path tracing remains in the pipeline layer where it belongs."
+    },
+    {
+      "file": "src/chatpilot/pipeline/samples/batch_vision.py",
+      "line": 73,
+      "title": "✅ Vision callstack is now observable at the right abstraction level",
+      "description": "## Problem\nNo issue here. The logging is placed correctly.\n\n## Rationale\nThe pipeline now logs the semantic chain (`route`, original `ref`, resolved `file_id`, and local asset path) before SDK send. That is exactly the missing bridge between file-center canonicalization and SDK attachment delivery."
+    }
+  ]
+}

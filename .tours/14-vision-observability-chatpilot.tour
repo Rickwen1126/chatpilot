@@ -1,0 +1,28 @@
+{
+  "$schema": "https://aka.ms/codetour-schema",
+  "title": "14 - Vision Observability: ChatPilot",
+  "steps": [
+    {
+      "title": "Context",
+      "description": "## 這條 tour 在看什麼\n\n這個 milestone 沒有再改 vision 行為，只補了 runtime observability，讓 `batch-image-vision` 這條線的 callstack/data flow 能被 log 看清楚。\n\n## 為什麼值得讀\n\n因為在 file-center 架構下，真正重要的不只是『可不可以跑』，而是能不能在 log 裡明確看見 `route -> ref -> file_id -> local asset -> SDK attachments` 這條鏈。"
+    },
+    {
+      "file": "src/chatpilot/pipeline/samples/batch_vision.py",
+      "line": 58,
+      "title": "Vision pipeline 現在會記錄 ref 對應到哪個 canonical file",
+      "description": "## Insight\n\n**機制**：`BatchImageVisionNode.execute()` 現在在每張圖 `ensure_local(...)` 後，會記 `route/ref/file_id/local_path`，之後再記一次整批 session 的 attachment 摘要。\n\n**故障模式**：如果未來 vision 行為不對，過去只能知道 pipeline fail 了，卻看不出是哪張 ref 沒被 resolve 成 canonical file、哪個 `file_id` 沒被 materialize、或 attachment 準備階段哪裡斷掉。\n\n**設計取捨**：這裡只補觀測性，不引入新資料流。好處是低風險、高診斷價值；代價是 log 量稍微增加，但只集中在 vision path。"
+    },
+    {
+      "file": "src/chatpilot/sdk/session.py",
+      "line": 102,
+      "title": "SDK session 現在會記 attachment 數量與檔名摘要",
+      "description": "## Insight\n\n**機制**：`SdkSession._send_and_wait_impl()` 現在在 payload 帶 attachments 時，會先印出 attachment count 與 basename 摘要，再送到 SDK。\n\n**故障模式**：如果 vision 沒吃到圖，之前只能從 integration test 或 SDK 黑盒子猜測。現在至少能直接看到『這次 session 送了幾個附件、名稱是什麼』。\n\n**設計取捨**：這裡故意只記 basename，不把完整路徑灑滿 log。好處是足夠診斷又不會讓 log 太髒；代價是若要追完整 local path，仍需回看 batch vision 那一層的 log。"
+    },
+    {
+      "file": "tests/e2e/run_e2e.sh",
+      "line": 304,
+      "title": "這輪驗證重點：確認 observability 沒有破壞既有 E2E",
+      "description": "## Insight\n\n**機制**：這次沒有再擴 E2E scenario，而是重跑全量 `run_e2e.sh`，確認新增的 vision/STT/file logs 不會引入副作用。結果仍維持 `46 passed / 0 failed`。\n\n**故障模式**：log 補錯位置時，很容易不小心影響 payload 組裝、測試 timing 或 self-contained runner 行為。\n\n**設計取捨**：先保守確認『行為不變、可觀測性變強』，之後若要補真正的 vision user-facing E2E，再往前推。"
+    }
+  ]
+}

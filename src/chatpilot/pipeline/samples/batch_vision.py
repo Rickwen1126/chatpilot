@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import uuid
+from pathlib import Path
 
 from chatpilot.core.types import NodeOutput
 from chatpilot.files.center import FileHandleCenter
@@ -58,6 +59,7 @@ class BatchImageVisionNode:
         session_id = f"pipeline-vision-{uuid.uuid4().hex[:12]}"
         attachments: list[dict[str, str]] = []
         refs_list: list[str] = []
+        file_ids: list[str] = []
         for index, ref in enumerate(refs, 1):
             try:
                 platform, native_locator, _ = parse_media_ref(ref, self._adapters)
@@ -75,13 +77,29 @@ class BatchImageVisionNode:
                     error=f"FileHandleCenter missing canonical file for ref: {ref}",
                 )
             local_path = await self._file_handle_center.ensure_local(handle.file_id)
+            logger.info(
+                "[vision] route=%s ref=%s file_id=%s local=%s",
+                route_id,
+                ref,
+                handle.file_id,
+                local_path,
+            )
             attachments.append({"type": "file", "path": local_path})
+            file_ids.append(handle.file_id)
             refs_list.append(f"- 圖片 {index}: {handle.filename or ref}")
 
         full_prompt = (
             f"{prompt or '分析以下照片中的物料'}\n\n"
             f"共 {len(refs)} 張照片附件：\n" + "\n".join(refs_list) + "\n\n"
             "請直接查看附件中的每張照片，彙整分析結果。"
+        )
+        logger.info(
+            "[vision] session=%s route=%s attachments=%d file_ids=%s files=%s",
+            session_id,
+            route_id,
+            len(attachments),
+            file_ids,
+            [Path(item["path"]).name for item in attachments],
         )
 
         try:
@@ -95,6 +113,12 @@ class BatchImageVisionNode:
                     full_prompt,
                     attachments=attachments,
                     timeout=180.0,
+                )
+                logger.info(
+                    "[vision] session=%s completed route=%s total=%d",
+                    session_id,
+                    route_id,
+                    len(refs),
                 )
                 return NodeOutput(
                     status="success",
