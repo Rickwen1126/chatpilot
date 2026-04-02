@@ -5,6 +5,7 @@ These tests cover every possible leak path.
 """
 
 import asyncio
+import logging
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock
 
@@ -131,6 +132,41 @@ async def test_observer_auto_trigger_no_reply():
     adapter.push_message.assert_not_called()
     on_proceed.assert_not_called()
     configure_auto_triggers({})  # cleanup
+
+
+async def test_observer_returns_before_command_pipeline(caplog):
+    """Observer should return before command / proceed logs appear."""
+    hub, adapter, _ = _make_hub()
+    hub.set_on_command(AsyncMock())
+    msg = _msg("/chatbot list", is_mention=True)
+
+    with caplog.at_level(logging.INFO):
+        await hub.receive(msg, adapter)
+
+    log_text = "\n".join(record.getMessage() for record in caplog.records)
+    assert "[observer] line:Uobs123 buffered" in log_text
+    assert "command=/chatbot" not in log_text
+    assert "PROCEED → chatbot" not in log_text
+    assert "is_mention=" not in log_text
+
+
+async def test_observer_returns_before_trigger_pipeline(caplog):
+    """Observer should return before trigger / mention evaluation logs."""
+    from chatpilot.hub.mention_filter import configure
+
+    configure(["bot"])
+    hub, adapter, _ = _make_hub()
+    msg = _msg("bot 查庫存", group_id="Uobs123")
+
+    with caplog.at_level(logging.INFO):
+        await hub.receive(msg, adapter)
+
+    log_text = "\n".join(record.getMessage() for record in caplog.records)
+    assert "[observer] line:Uobs123 buffered" in log_text
+    assert "is_mention=" not in log_text
+    assert "Auto-trigger matched" not in log_text
+    assert "PROCEED → chatbot" not in log_text
+    configure([])  # cleanup
 
 
 async def test_observer_busy_no_reply():
