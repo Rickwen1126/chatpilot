@@ -243,6 +243,8 @@ Each item maps to a test scenario. All must pass before release.
 - [ ] Observer route 訊息 → 不回話（無 chatbot response）
 - [ ] Observer route @mention → 還是不回話（observer 優先）
 - [ ] Observer route trigger keyword（如 `bot ...`）→ 還是不回話（observer 優先）
+- [ ] Observer route 真 LINE `@Bot /chatbot list` → 還是不回話（observer 優先）
+- [ ] Observer route 圖片訊息 → register `file_id` + buffer，但不回話
 - [ ] 訊息進 context_buffer（count 遞增，log: [observer] buffered N/batch）
 - [ ] context_window = max(context_window, observer_batch_size)
 - [ ] 累積未達 batch_size → 不觸發
