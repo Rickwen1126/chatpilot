@@ -109,6 +109,33 @@ assert_log_absent() {
     fi
 }
 
+wait_for_log() {
+    local pattern="$1" timeout="${2:-60}" interval="${3:-2}"
+    local elapsed=0
+    while [ "$elapsed" -lt "$timeout" ]; do
+        if LC_ALL=C grep -a "$pattern" "$E2E_LOG" > /dev/null 2>&1; then
+            return 0
+        fi
+        sleep "$interval"
+        elapsed=$((elapsed + interval))
+    done
+    return 1
+}
+
+wait_for_db_count() {
+    local db_path="$1" query="$2" timeout="${3:-60}" interval="${4:-2}"
+    local elapsed=0 count
+    while [ "$elapsed" -lt "$timeout" ]; do
+        count=$(sqlite3 "$db_path" "$query" 2>/dev/null)
+        if [ "${count:-0}" -gt 0 ] 2>/dev/null; then
+            return 0
+        fi
+        sleep "$interval"
+        elapsed=$((elapsed + interval))
+    done
+    return 1
+}
+
 # ─── Server Lifecycle ────────────────────────────────────────────
 start_server() {
     mkdir -p "$E2E_DIR"
@@ -374,7 +401,13 @@ for msg_json in "${OBS_MSGS[@]}"; do
     mock_webhook "{\"text\": \"$text\", \"user_id\": \"$OBS_ROUTE\", \"user_name\": \"$uname\", \"platform\": \"line\", \"is_mention\": false}" > /dev/null
     sleep 0.2
 done
-sleep 25
+
+# Wait for the observer LLM batch to fully finish and persist.
+if wait_for_log "\\[observer\\].*$OBS_ROUTE.*saved to DB" 90 2; then
+    pass "observer batch persisted [L4: saved to DB log]"
+else
+    fail "observer batch persisted [L4: timeout]" "pattern: [observer] $OBS_ROUTE saved to DB"
+fi
 
 # L2: batch triggered
 assert_log "observer batch triggered" "\[observer\].*$OBS_ROUTE.*batch triggered"
@@ -383,8 +416,13 @@ assert_log "observer batch triggered" "\[observer\].*$OBS_ROUTE.*batch triggered
 assert_log_absent "observer silent (no SDK)" "\[SDK\].*$OBS_ROUTE.*sending"
 
 # L3: observations stored in DB
-assert_db_exists "observation in DB" \
-    "SELECT count(*) FROM memory_observations WHERE route_id LIKE '%$OBS_ROUTE%'"
+if wait_for_db_count "$E2E_DB" \
+    "SELECT count(*) FROM memory_observations WHERE route_id LIKE '%$OBS_ROUTE%'" 15 1; then
+    pass "observation in DB [L3: DB row exists]"
+else
+    fail "observation in DB [L3: DB row missing]" \
+        "query: SELECT count(*) FROM memory_observations WHERE route_id LIKE '%$OBS_ROUTE%'"
+fi
 
 # L3: entries count > 0
 OBS_ENTRIES=$(sqlite3 "$E2E_DB" \
