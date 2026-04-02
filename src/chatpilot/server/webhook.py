@@ -292,18 +292,16 @@ async def cli_route_label(request: Request) -> JSONResponse:
 
 @router.post("/cli/routes/sync")
 async def cli_routes_sync(request: Request) -> JSONResponse:
-    """Sync route labels from platform APIs (LINE group names, etc.)."""
+    """Sync route labels from platform APIs (LINE group names, user profiles)."""
     from pathlib import Path
 
     adapters: dict = request.app.state.adapters
     synced: list[dict] = []
 
-    # LINE: query group summary for group conversations
+    # LINE: query group summary / profile for known conversations
     seen: set[str] = set()
     for context in _load_known_session_contexts(request):
         if not context.platform.startswith("line"):
-            continue
-        if not context.conversation_id.startswith("C"):
             continue
         if context.route_id in seen:
             continue
@@ -312,12 +310,20 @@ async def cli_routes_sync(request: Request) -> JSONResponse:
         if line_adapter is None:
             continue
         try:
-            summary = line_adapter._api.get_group_summary(context.conversation_id)
-            count_resp = line_adapter._api.get_group_member_count(
-                context.conversation_id
-            )
-            count = getattr(count_resp, "count", count_resp)
-            label = f"{summary.group_name}（{count}人）"
+            if context.conversation_id.startswith("C"):
+                summary = line_adapter._api.get_group_summary(
+                    context.conversation_id
+                )
+                count_resp = line_adapter._api.get_group_member_count(
+                    context.conversation_id
+                )
+                count = getattr(count_resp, "count", count_resp)
+                label = f"{summary.group_name}（{count}人）"
+            elif context.conversation_id.startswith("U"):
+                profile = line_adapter._api.get_profile(context.conversation_id)
+                label = f"{profile.display_name}（私訊）"
+            else:
+                continue
             synced.append({
                 "route_id": context.route_id,
                 "label": label,

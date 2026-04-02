@@ -85,6 +85,20 @@ def _build_test_client(adapters: dict[str, object]) -> tuple[TestClient, _StubHu
     return TestClient(app), hub
 
 
+class _StubLineSyncApi:
+    def get_group_summary(self, conversation_id: str):
+        assert conversation_id == "C123"
+        return SimpleNamespace(group_name="Bot 測試群")
+
+    def get_group_member_count(self, conversation_id: str):
+        assert conversation_id == "C123"
+        return SimpleNamespace(count=4)
+
+    def get_profile(self, conversation_id: str):
+        assert conversation_id == "U123"
+        return SimpleNamespace(display_name="Rick")
+
+
 def test_webhook_line_dispatches_to_matching_named_adapter():
     adapter_a = _StubLineAdapter("line:webric", "sig-a")
     adapter_b = _StubLineAdapter("line:shinyipaint", "sig-b")
@@ -215,3 +229,46 @@ def test_audio_ref_pattern_matches_multi_line_platform():
     assert match is not None
     assert match.group(1) == "line:webric"
     assert match.group(2) == "12345"
+
+
+def test_cli_routes_sync_syncs_line_group_and_user_labels(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    contexts = [
+        SimpleNamespace(
+            route_id="line:shinyipaint:C123",
+            platform="line:shinyipaint",
+            conversation_id="C123",
+        ),
+        SimpleNamespace(
+            route_id="line:shinyipaint:U123",
+            platform="line:shinyipaint",
+            conversation_id="U123",
+        ),
+    ]
+    monkeypatch.setattr(
+        "chatpilot.server.webhook._load_known_session_contexts",
+        lambda request: contexts,
+    )
+
+    adapter = SimpleNamespace(_api=_StubLineSyncApi())
+    client, _ = _build_test_client({"line:shinyipaint": adapter})
+
+    response = client.post("/cli/routes/sync")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "synced": [
+            {
+                "route_id": "line:shinyipaint:C123",
+                "label": "Bot 測試群（4人）",
+            },
+            {
+                "route_id": "line:shinyipaint:U123",
+                "label": "Rick（私訊）",
+            },
+        ],
+        "total": 2,
+    }
+    labels = (tmp_path / "data" / "route_labels.json").read_text(encoding="utf-8")
+    assert '"line:shinyipaint:C123": "Bot 測試群（4人）"' in labels
+    assert '"line:shinyipaint:U123": "Rick（私訊）"' in labels
