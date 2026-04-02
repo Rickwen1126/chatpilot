@@ -53,6 +53,15 @@ def _load_gateway_config(config_path: Path) -> GatewayConfig:
         return GatewayConfig()
 
 
+def _is_queryable_observer_platform(platform: str) -> bool:
+    """Return True for platforms that should contribute persisted observer source data.
+
+    `cli` and `mock` are useful ingress/test adapters, but their observations
+    should not be merged into user-facing sources queried from real chats.
+    """
+    return platform not in {"cli", "mock"}
+
+
 def _init_adapters(config: GatewayConfig) -> dict[str, ChannelAdapter]:
     adapters: dict[str, ChannelAdapter] = {}
     from chatpilot.adapters.cli import CliAdapter
@@ -142,7 +151,8 @@ def _refresh_observer_state(
                 batch_size=cfg.observer_batch_size,
                 categories=cfg.observer_categories,
             )
-            all_route_ids.append(route_id)
+            if _is_queryable_observer_platform(platform):
+                all_route_ids.append(route_id)
 
         canonical = f"line:{cid}"
         label = labels.get(canonical, chatbot_name)

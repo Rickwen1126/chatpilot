@@ -255,6 +255,7 @@ Each item maps to a test scenario. All must pass before release.
 - [ ] Drain 後 buffer 清空 → 重新累積第二批
 - [ ] query_observations(source, category) → 回傳觀察紀錄
 - [ ] query_observations(category="請假") → 只回該分類
+- [ ] query_observations 只查真實 observer source route，不混入 `cli/mock` 測試資料
 - [ ] Cross-chat query：buddy chatbot 查 observer 群組資料 → 成功
 - [ ] Cross-chat natural query：fresh session 用自然問句（不明講 tool）也會正確呼叫 `query_observations`
 - [ ] observer_mode=false 的 chatbot → 正常回話不受影響

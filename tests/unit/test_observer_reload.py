@@ -76,9 +76,7 @@ def test_refresh_observer_state_registers_named_adapter_routes() -> None:
         "shinyipaint-observer": {
             "route_id": "line:C123",
             "all_route_ids": [
-                "cli:C123",
                 "line:shinyipaint:C123",
-                "mock:C123",
             ],
             "allowed_consumers": ["line:shinyipaint:Uabc"],
         }
@@ -133,3 +131,6 @@ def test_refresh_observer_state_replaces_old_observer_bindings() -> None:
         "line:shinyipaint:Cnew",
     }
     assert list(observer_sources) == ["new-observer"]
+    assert observer_sources["new-observer"]["all_route_ids"] == [
+        "line:shinyipaint:Cnew",
+    ]
