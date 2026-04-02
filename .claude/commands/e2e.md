@@ -242,6 +242,7 @@ Each item maps to a test scenario. All must pass before release.
 **Observer Mode**
 - [ ] Observer route 訊息 → 不回話（無 chatbot response）
 - [ ] Observer route @mention → 還是不回話（observer 優先）
+- [ ] Observer route trigger keyword（如 `bot ...`）→ 還是不回話（observer 優先）
 - [ ] 訊息進 context_buffer（count 遞增，log: [observer] buffered N/batch）
 - [ ] context_window = max(context_window, observer_batch_size)
 - [ ] 累積未達 batch_size → 不觸發
@@ -253,6 +254,7 @@ Each item maps to a test scenario. All must pass before release.
 - [ ] query_observations(source, category) → 回傳觀察紀錄
 - [ ] query_observations(category="請假") → 只回該分類
 - [ ] Cross-chat query：buddy chatbot 查 observer 群組資料 → 成功
+- [ ] Cross-chat natural query：fresh session 用自然問句（不明講 tool）也會正確呼叫 `query_observations`
 - [ ] observer_mode=false 的 chatbot → 正常回話不受影響
 
 **Pending (not yet automated)**
