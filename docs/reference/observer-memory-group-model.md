@@ -1,5 +1,80 @@
 # Observer Memory / Group Model
 
+## 2026-04-03 高層定案
+
+### 核心結論
+
+- `route_id` 是 **storage unit**
+  - observation / memo / file note 仍以 route 為持久化主單位
+- `route_group` 是 **sharing/query unit**
+  - `route_group` 是一級配置
+  - 但 **不維護 `members`**
+  - membership 完全由 `binding` 上的 observation policy 推導
+- `observation` 應掛在 **`binding`**，不是 `chatbot`
+  - chatbot 是 model / tools / persona 的能力單位
+  - observation 是「這條對話如何使用這個能力」的 route policy
+- `reply_policy` 目前先收成：
+  - `silent`
+  - `addressed`
+  - `smart` 留 future
+
+### `addressed` 的語意
+
+- 私聊 / direct route：
+  - 通常每句話都可視為 addressed to bot
+- 群組 / shared route：
+  - 依 mention / keyword / slash / 平台規則判定是否 addressed
+
+所以 `addressed` 是比 `normal` / `trigger_only` 更穩的通用抽象：
+
+- 在私聊看起來像 `normal`
+- 在群組看起來像 `trigger_only`
+
+### 最小 schema 方向
+
+```yaml
+route_groups:
+  shinyipaint_ops:
+    description: 信益營運背景知識
+
+observation_profiles:
+  warehouse_ops:
+    mode: batch
+    batch_size: 10
+    instructions: |
+      持續整理營運脈絡，忽略純閒聊，保留可回查、可彙總、可同步的背景知識。
+
+bindings:
+  - match: ...
+    chatbot: shinyipaint
+    reply_policy: silent
+    observation:
+      capture:
+        group: shinyipaint_ops
+        profile: warehouse_ops
+
+  - match: ...
+    chatbot: shinyipaint
+    reply_policy: addressed
+    observation:
+      capture:
+        group: shinyipaint_ops
+        profile: warehouse_ops
+      consume:
+        - shinyipaint_ops
+```
+
+### 這版刻意不做的事
+
+- 不先做 bot-level persistent memory
+- 不先做 event schema 細化
+- 不把 `route_group` 做成 members 清單
+- 不把 `follow` / `join` discovery onboarding 跟 observer 核心 refactor 綁成同一個 milestone
+
+一句話：
+
+**observer vNext 不是 bot type，而是 `binding` 上的 observation policy；storage 仍是 route-local，sharing 則提升到 group-level。**
+
 ## 為什麼這份重要
 
 - 目前 `observer` 已經能用，但抽象不穩。
