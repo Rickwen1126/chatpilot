@@ -1,0 +1,38 @@
+{
+  "$schema": "https://aka.ms/codetour-schema",
+  "title": "16 - Observer Query Source Isolation: ChatPilot",
+  "steps": [
+    {
+      "title": "Context",
+      "description": "## 這次 milestone 在解什麼\n\nobserver mode 的 silent collect / batch summarize 本身已經成立，但真機與半真機 smoke 抓到一個更隱性的資料污染 bug：`query_observations` 在 live `line:shinyipaint` 查詢時，會把舊的 `mock:C...` 批次也一起併進來源。\n\n## 根因\n\nobserver route 的 ingress 註冊和 query source aggregation 之前共用同一份 adapter 列表。這讓 `cli` / `mock` 這種測試入口雖然很適合做 silent collect 驗證，卻不該被當成 user-facing 的 persisted source route。"
+    },
+    {
+      "file": "src/chatpilot/server/__init__.py",
+      "line": 56,
+      "ref": "4b31207405be2eb26626bc90ca2cf6558ad90308",
+      "title": "把『可收集』和『可查詢』分成兩個層次",
+      "description": "## Insight\n\n`_is_queryable_observer_platform(...)` 這個小 helper 的價值不是字串判斷本身，而是把 observer world 明確切成兩層：\n\n1. hub ingress 層：`cli` / `mock` / 真平台都可以註冊 observer route，用來驗 silent collect 與 batch pipeline。\n2. query source 層：只有真正 user-facing 的平台 route 應該被 `query_observations` 聚合查詢。\n\n故障模式是：如果兩層不分，live 查詢就會把測試入口資料一起算進來，造成重複、髒資料，甚至讓 LLM 回覆看起來像 hallucination。\n\n設計取捨是先用最小規則排除 `cli/mock`，不提前發明更大的 adapter metadata 系統。"
+    },
+    {
+      "file": "src/chatpilot/server/__init__.py",
+      "line": 146,
+      "ref": "4b31207405be2eb26626bc90ca2cf6558ad90308",
+      "title": "observer 仍全平台註冊，但 source map 只收外部平台",
+      "description": "## Insight\n\n`_refresh_observer_state(...)` 仍然對每個 adapter 都呼叫 `hub.register_observer(...)`，所以測試、CLI、真平台的 silent collect 行為都不會退化；真正改動的是 `all_route_ids` 只收 queryable platform。\n\n白話講，這段其實就是在說：observer 的入口可以很多，但查詢來源要保守。\n\n這樣做的效果是，live `query_observations` 看到的 route 集合會回到真正使用者在意的那條線，不再把 mock 批次當成同一個群組的正式記憶。"
+    },
+    {
+      "file": "tests/unit/test_observer_reload.py",
+      "line": 37,
+      "ref": "4b31207405be2eb26626bc90ca2cf6558ad90308",
+      "title": "測試鎖住新的 contract：註冊不變，聚合變窄",
+      "description": "## Insight\n\n這組單元測試刻意守住兩件事同時成立：\n\n- observer registrations 仍包含 `cli/mock`，代表開發/測試入口沒被拆壞。\n- `observer_sources[*].all_route_ids` 只保留真正 queryable 的平台 route。\n\n這比單純測『不包含 mock』更重要，因為它同時保護了測試便利性與 live data correctness 兩個目標。"
+    },
+    {
+      "file": "docs/todo/20260331.md",
+      "line": 241,
+      "ref": "4b31207405be2eb26626bc90ca2cf6558ad90308",
+      "title": "真機 smoke 的新觀察被收進後續整治清單",
+      "description": "## Insight\n\n這次除了修掉 source contamination，也順手沉澱了兩個後續方向：\n\n- observer query 的 source name 仍偏技術導向\n- `buddy` 在既有 session 下對 observer 問題仍可能腦補答案\n\n前者是資料呈現層，後者是 chatbot behavior / stale session 層。先分開記，才不會把資料 bug 和 prompt 行為 bug 混成同一題。"
+    }
+  ]
+}

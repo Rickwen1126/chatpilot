@@ -1,0 +1,28 @@
+{
+  "$schema": "https://aka.ms/codetour-schema",
+  "title": "Review - Observer Query Source Isolation 2026-04-02",
+  "steps": [
+    {
+      "title": "Review Summary",
+      "description": "## Review Summary\n\n🔴 Critical: 0\n🟡 Suggestions: 1\n✅ Good Practices: 2\n\n### Scope\nobserver source aggregation 修正、reload regression coverage、observer E2E checklist/todo 更新。\n\n### Focus\n確認 `query_observations` 不再混入 `cli/mock` 測試資料，同時不破壞 observer ingress 註冊與既有測試便利性。"
+    },
+    {
+      "file": "src/chatpilot/server/__init__.py",
+      "line": 56,
+      "title": "🟡 平台白名單仍是硬編碼命名規則",
+      "description": "## Problem\n\n`_is_queryable_observer_platform()` 目前直接把 `cli` / `mock` 當成非查詢來源。這次修 bug 很有效，但未來若新增更多 synthetic adapter（例如 replay/debug adapter），仍要記得回頭改這個 helper。\n\n## Fix\n```python\n# 未來如果 synthetic adapters 變多，考慮把這個能力移到 adapter metadata\n# 例如 adapter.is_user_facing_source\n```\n\n## Rationale\n\n這不是現在要 over-design 的事，但已經是明確的延伸點。先記住它，之後平台變多時不會又踩一次資料污染。"
+    },
+    {
+      "file": "src/chatpilot/server/__init__.py",
+      "line": 146,
+      "title": "✅ 註冊與查詢被成功拆開",
+      "description": "## Problem\n\n原本 observer source aggregation 直接重用 ingress adapter 集合，導致 live source 夾帶測試資料。\n\n## Fix\n```python\nhub.register_observer(...)\nif _is_queryable_observer_platform(platform):\n    all_route_ids.append(route_id)\n```\n\n## Rationale\n\n這是這次最小且正確的切分：保留 all-adapter ingress，縮窄 user-facing query。沒有破壞測試入口，也把 live data correctness 拉回來。"
+    },
+    {
+      "file": "tests/unit/test_observer_reload.py",
+      "line": 67,
+      "title": "✅ Regression test 準確守住新 contract",
+      "description": "## Problem\n\n若只測 `mock/cli` 被排除，容易誤把 observer ingress 一起拔掉。\n\n## Fix\n```python\nassert {route_id for route_id, _, _ in hub.registered} == {\n    'cli:C123',\n    'line:shinyipaint:C123',\n    'mock:C123',\n}\nassert observer_sources['shinyipaint-observer']['all_route_ids'] == [\n    'line:shinyipaint:C123',\n]\n```\n\n## Rationale\n\n測試直接鎖住『入口不變、來源變窄』這個核心 contract，剛好對應這次 live bug。"
+    }
+  ]
+}
