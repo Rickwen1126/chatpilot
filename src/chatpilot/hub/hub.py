@@ -112,6 +112,15 @@ class InMemoryMessageHub:
             route_id, batch_size,
         )
 
+    def clear_observers(self) -> None:
+        """Clear all observer registrations.
+
+        Used when config reload changes observer bindings or allowed consumer
+        sets. Context buffer contents are intentionally left untouched.
+        """
+        self._observer_configs.clear()
+        logger.info("Observer registrations cleared")
+
     async def receive(self, message: Message, adapter: ChannelAdapter) -> None:
         """Process inbound message through mention filter + busy/idle gate."""
         if self._file_ingress is not None:

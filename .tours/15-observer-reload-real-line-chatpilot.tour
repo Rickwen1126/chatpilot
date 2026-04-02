@@ -1,0 +1,34 @@
+{
+  "$schema": "https://aka.ms/codetour-schema",
+  "title": "15 - Observer Reload In Live LINE: ChatPilot",
+  "steps": [
+    {
+      "title": "Context",
+      "description": "## 這次 milestone 在解什麼\n\n真機 LINE observer smoke 抓到一個 live-only bug：`/cli/reload` 之後，`/cli/routes` 看起來已經切到 observer，但群組訊息仍走一般 `context buffer`，沒有進 observer pipeline。\n\n## 根因\n\nreload 只更新了 adapters / bindings / chatbot configs，卻沒有同步重建 hub 內部的 observer registrations，也沒有刷新 `query_observations` 使用的 `observer_sources` map。"
+    },
+    {
+      "file": "src/chatpilot/server/__init__.py",
+      "line": 100,
+      "title": "把 observer 狀態重建抽成單一 helper",
+      "description": "## Insight\n\n`_refresh_observer_state(...)` 現在同時負責兩件事：\n\n1. 清掉 hub 舊的 observer registrations\n2. 依最新版 config + adapters 重建 observer route ids 與 `observer_sources`\n\n這樣 startup 與 reload 都走同一套邏輯，不會再出現 binding 已變、hub 還是舊狀態的脫鉤。"
+    },
+    {
+      "file": "src/chatpilot/hub/hub.py",
+      "line": 115,
+      "title": "Hub 需要有明確的 observer reset 能力",
+      "description": "## Insight\n\n以前 hub 只有 `register_observer(...)`，沒有公開的 reset API。這讓 reload 很難正確替換 observer bindings。\n\n這次補 `clear_observers()`，讓 reload 能先清空再重建。\n\n刻意不動 context buffer 內容，避免把 reload 誤變成資料刪除。"
+    },
+    {
+      "file": "tests/unit/test_observer_reload.py",
+      "line": 1,
+      "title": "這次的單元測試只針對真 bug 的 contract",
+      "description": "## Insight\n\n測試不去起整個 FastAPI app，而是直接驗 helper 的兩個 contract：\n\n1. named adapter routes 會被正確註冊成 observer\n2. 第二次 refresh 會取代舊 observer state，而不是殘留舊 route ids / 舊 source map\n\n這樣測得小而準，能直接守住這次 live bug。"
+    },
+    {
+      "file": "docs/todo/20260331.md",
+      "line": 221,
+      "title": "真機 smoke 觀察點也被整理成後續開發依據",
+      "description": "## Insight\n\n除了 reload bug，本次真機 smoke 還補了幾個重要觀察：\n\n- STT 技術鏈是對的，但對話 shaping 不對\n- `query_observations` source name 太技術導向\n- Android/LINE 真機 smoke 需要 foreground package guard 與 selector-based tap\n\n這些不是同一個 patch 要修的東西，但已經值得記進 todo，避免之後重複踩坑。"
+    }
+  ]
+}

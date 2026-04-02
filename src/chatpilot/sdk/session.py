@@ -112,7 +112,25 @@ class SdkSession:
                 len(attachments),
                 [Path(item.get("path", "")).name for item in attachments],
             )
-        result = await self._session.send_and_wait(payload, timeout=timeout)
+        try:
+            result = await self._session.send_and_wait(payload, timeout=timeout)
+        except TimeoutError:
+            logger.warning(
+                "[SDK] %s send_and_wait timeout timeout=%ss attachments=%d",
+                self.session_id,
+                timeout,
+                len(attachments or []),
+            )
+            raise
+        except Exception as exc:
+            logger.exception(
+                "[SDK] %s send_and_wait failed type=%s timeout=%ss attachments=%d",
+                self.session_id,
+                type(exc).__name__,
+                timeout,
+                len(attachments or []),
+            )
+            raise
         logger.info("[SDK] %s got result: %s", self.session_id, type(result))
         if result is None:
             logger.warning("[SDK] %s response is None", self.session_id)
@@ -184,8 +202,8 @@ class SdkClient:
         if working_directory:
             config["working_directory"] = working_directory
         session = await self._client.create_session(config)
-        logger.debug(
-            "Created session %s (model=%s, workdir=%s)",
+        logger.info(
+            "Created SDK session %s (model=%s, workdir=%s)",
             session_id, model, working_directory,
         )
         return SdkSession(session, session_id)
@@ -219,8 +237,8 @@ class SdkClient:
         if working_directory:
             config["working_directory"] = working_directory
         session = await self._client.resume_session(session_id, config)
-        logger.debug(
-            "Resumed session %s (model=%s, workdir=%s)",
+        logger.info(
+            "Resumed SDK session %s (model=%s, workdir=%s)",
             session_id, model, working_directory,
         )
         return SdkSession(session, session_id)

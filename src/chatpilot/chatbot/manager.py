@@ -83,6 +83,13 @@ class ChatbotManager:
             existing = None
 
         if existing:
+            logger.info(
+                "Reuse route=%s chatbot=%s session=%s model=%s",
+                route_id,
+                existing.chatbot_name,
+                existing.session_id,
+                existing.model,
+            )
             return existing
 
         config = self._configs.get(chatbot_name)
@@ -102,8 +109,8 @@ class ChatbotManager:
         tools = self._tool_factory.get_tools_for_chatbot(config.tools)
         tool_names = [t.name for t in tools] if tools else []
         logger.info(
-            "Session setup route=%s chatbot=%s tools=%s workdir=%s",
-            route_id, chatbot_name, tool_names, workdir,
+            "Session setup route=%s chatbot=%s model=%s tools=%s workdir=%s",
+            route_id, chatbot_name, model, tool_names, workdir,
         )
 
         # Try resume (preserves conversation history for same chatbot)
@@ -118,7 +125,14 @@ class ChatbotManager:
             logger.info(
                 "Resumed route=%s chatbot=%s", route_id, chatbot_name
             )
-        except Exception:
+        except Exception as exc:
+            logger.warning(
+                "Resume failed route=%s chatbot=%s session=%s type=%s; creating fresh session",
+                route_id,
+                chatbot_name,
+                sdk_session_id,
+                type(exc).__name__,
+            )
             sdk_session = await self._sdk.create_session(
                 session_id=sdk_session_id,
                 model=model,

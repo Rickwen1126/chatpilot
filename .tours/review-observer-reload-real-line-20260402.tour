@@ -1,0 +1,22 @@
+{
+  "$schema": "https://aka.ms/codetour-schema",
+  "title": "Review - Observer Reload Real LINE 2026-04-02",
+  "steps": [
+    {
+      "title": "Findings",
+      "description": "## Findings\n\n這輪 focused review 沒有再找到新的 critical bug。\n\n## Residual risks\n\n1. `observer_sources` 仍使用 legacy-style canonical `line:{cid}` 作為 source route id。功能上目前靠 `all_route_ids` 補齊，但長期仍和 named route migration 議題綁在一起。\n2. 真機 observer 查詢目前可行，但 source name 仍偏技術 (`shinyipaint-observer`)，後續應補 label / UX 層。"
+    },
+    {
+      "file": "src/chatpilot/server/__init__.py",
+      "line": 100,
+      "title": "Reload 修補範圍是對的",
+      "description": "review 結論：把 observer rebuild 放在 startup/reload 共用 helper，是這次最小且正確的修法。它同時修掉 hub registrations 與 query source map 兩個脫鉤點。"
+    },
+    {
+      "file": "tests/unit/test_observer_reload.py",
+      "line": 1,
+      "title": "Regression coverage 足夠守住本次 bug",
+      "description": "review 結論：新測試沒有過度 mock reload 整體系統，但已經準確守住『第二次 refresh 不能殘留舊 observer state』這個核心 contract。"
+    }
+  ]
+}

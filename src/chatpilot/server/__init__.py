@@ -97,6 +97,62 @@ def _init_adapters(config: GatewayConfig) -> dict[str, ChannelAdapter]:
     return adapters
 
 
+def _refresh_observer_state(
+    *,
+    hub: InMemoryMessageHub,
+    adapters: dict[str, ChannelAdapter],
+    config: GatewayConfig,
+    observer_sources: dict[str, dict],
+) -> None:
+    """Rebuild observer registrations and queryable source metadata.
+
+    This must run at startup and on config reload. Bindings and chatbot config
+    can change independently of runtime sessions, so the hub observer registry
+    and query_observations source map must be kept in sync with the latest
+    config instead of only updating route bindings.
+    """
+    import json as _json
+    from pathlib import Path as _Path
+
+    hub.clear_observers()
+    observer_sources.clear()
+
+    labels: dict = {}
+    labels_path = _Path("data/route_labels.json")
+    if labels_path.exists():
+        labels = _json.loads(labels_path.read_text("utf-8"))
+
+    for binding in config.bindings:
+        chatbot_name = binding.chatbot
+        cfg = config.chatbots.get(chatbot_name)
+        if cfg is None or not cfg.observer_mode:
+            continue
+
+        gid = binding.match.get("group_id", "")
+        uid = binding.match.get("user_id", "")
+        cid = gid or uid
+        if not cid:
+            continue
+
+        all_route_ids: list[str] = []
+        for platform in adapters:
+            route_id = f"{platform}:{cid}"
+            hub.register_observer(
+                route_id,
+                batch_size=cfg.observer_batch_size,
+                categories=cfg.observer_categories,
+            )
+            all_route_ids.append(route_id)
+
+        canonical = f"line:{cid}"
+        label = labels.get(canonical, chatbot_name)
+        observer_sources[label] = {
+            "route_id": canonical,
+            "all_route_ids": all_route_ids,
+            "allowed_consumers": cfg.observer_allowed_consumers,
+        }
+
+
 def _init_hub(
     context_buffer: ContextBuffer,
     adapters: dict[str, ChannelAdapter],
@@ -471,41 +527,12 @@ async def lifespan(app: FastAPI):
 
     # Observer mode — register observer routes + batch callback
     observer_sources: dict[str, dict] = {}
-    for binding in config.bindings:
-        chatbot_name = binding.chatbot
-        cfg = config.chatbots.get(chatbot_name)
-        if cfg and cfg.observer_mode:
-            gid = binding.match.get("group_id", "")
-            uid = binding.match.get("user_id", "")
-            cid = gid or uid
-            if cid:
-                # Register for all adapters
-                for platform in adapters:
-                    rid = f"{platform}:{cid}"
-                    hub.register_observer(
-                        rid,
-                        batch_size=cfg.observer_batch_size,
-                        categories=cfg.observer_categories,
-                    )
-                # Build observer_sources for query tool
-                import json as _json
-                from pathlib import Path as _Path
-
-                labels: dict = {}
-                lp = _Path("data/route_labels.json")
-                if lp.exists():
-                    labels = _json.loads(lp.read_text("utf-8"))
-                # Use line route_id as canonical
-                canonical = f"line:{cid}"
-                label = labels.get(canonical, chatbot_name)
-                # Allow query from any platform
-                observer_sources[label] = {
-                    "route_id": canonical,
-                    "all_route_ids": [
-                        f"{p}:{cid}" for p in adapters
-                    ],
-                    "allowed_consumers": cfg.observer_allowed_consumers,
-                }
+    _refresh_observer_state(
+        hub=hub,
+        adapters=adapters,
+        config=config,
+        observer_sources=observer_sources,
+    )
     app.state.observer_sources = observer_sources
 
     async def on_observer_batch(
@@ -674,6 +701,12 @@ async def lifespan(app: FastAPI):
         adapters.update(_init_adapters(new_config))
         binding_router.update(new_config.bindings, new_config.match_weights)
         chatbot_manager.update_configs(new_config.chatbots)
+        _refresh_observer_state(
+            hub=hub,
+            adapters=adapters,
+            config=new_config,
+            observer_sources=observer_sources,
+        )
         # Rebuild config keyword cache (DB cache untouched)
         configure_keywords(new_config.trigger_keywords)
         configure_auto_triggers({
@@ -681,7 +714,9 @@ async def lifespan(app: FastAPI):
             for name, cfg in new_config.chatbots.items()
             if cfg.auto_trigger_keywords
         })
-        logger.info("Config reloaded successfully (keywords refreshed)")
+        logger.info(
+            "Config reloaded successfully (keywords/observers refreshed)"
+        )
 
     observer = watch_config(config_path, on_config_reload) if config_path.exists() else None
 
