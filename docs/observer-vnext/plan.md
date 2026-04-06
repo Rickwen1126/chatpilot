@@ -78,6 +78,9 @@
   - `consume` 是 group name list
   - `reply_policy` 僅允許 `never | addressed`
   - `processing_policy` 僅允許 `none | interactive`
+  - cross-field constraint：
+    - `reply=never` 只能搭 `processing=none`
+    - `reply=addressed` 只能搭 `processing=interactive`
 
 完成條件：
 
@@ -192,6 +195,7 @@
   - 新 schema parse 正確
   - 舊 observer config fail fast
   - `route_group` 拒收 `members`
+  - 非法 policy 組合會被拒絕
 - runtime membership：
   - source routes 推導正確
   - consumer routes 推導正確

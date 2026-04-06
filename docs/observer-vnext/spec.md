@@ -121,6 +121,21 @@ observer vNext 要把目前「可用但抽象不穩」的 observer mode，重構
 
 `shadow` 保留 future，不進這輪實作。
 
+本輪**不是任意組合都合法**。目前只接受兩種組合：
+
+1. `reply=never + processing=none`
+2. `reply=addressed + processing=interactive`
+
+本輪不接受：
+
+1. `reply=addressed + processing=none`
+   - 會產生 reply intent，但沒有互動 session 去處理
+   - 語意不完整，應直接視為 invalid config
+2. `reply=never + processing=interactive`
+   - 代表「會處理但不回話」
+   - 這其實是未來的 `shadow` 語意
+   - 本輪先不實作，應直接視為 invalid config
+
 ### 5. `never` 與 `addressed` 的語意
 
 - `never` 是 **不建立 reply intent**
@@ -289,6 +304,7 @@ observation:
 
 - `capture` 這輪只支援單一 `group + profile`
 - `consume` 可為空或多個 group
+- `reply_policy` / `processing_policy` 必須符合本輪合法組合矩陣
 
 ## Canonical Example
 
