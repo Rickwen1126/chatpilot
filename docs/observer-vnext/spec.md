@@ -134,6 +134,14 @@ route_groups:
 
 因為這些都應該由 binding 或後續設計推導/擴充。
 
+但本輪實作也**不要把 `route_group` 寫死成永遠只有 `description`**。
+
+要求是：
+
+- 目前只依賴已知最小欄位
+- 不預設 `route_group` 永遠是純 label object
+- 後續若要加入 retention / sync 等 group-level metadata，不應需要推翻本輪抽象
+
 ### `observation_profiles`
 
 `observation_profile` 是 prompt-backed interpretation contract，不是 event schema。
@@ -337,7 +345,9 @@ server wiring / observer registration / query path 直接改用新結構：
 
 這份 spec 刻意保留但不在本輪拍板：
 
-1. `route_group` 未來要不要帶 retention / sync metadata
+1. `route_group` 未來是否加入 retention / sync 等 group-level metadata
+   - 本輪先不做
+   - 但實作不得把 `route_group` 結構寫死成無法擴充
 2. `follow/join` discovery onboarding 之後怎麼把 route attach 到預設 profile
 3. `smart` reply policy 何時引入，以及它與 `addressed` 的優先關係
 
