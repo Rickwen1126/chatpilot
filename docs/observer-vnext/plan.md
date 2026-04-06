@@ -34,6 +34,11 @@
   - chatbot reply 走互動 session
   - observation capture/batch summarize 走獨立 worker session
   - 不可共用同一 session context
+- Message Hub 只保有一份 canonical inbound message，但必須 fan-out 成不同 lane：
+  - reply intent
+  - observation intent
+- observation intent 不可直接共用現有 `ContextBuffer`
+  - 必須有獨立 observation buffer / capture queue
 
 ## Implementation Plan
 
@@ -79,6 +84,9 @@
   - consumer routes：來自 `consume[]`
 - 保留 route-local observation storage：
   - batch summarize 仍存到 `memory_observations.route_id`
+- 建立 observation buffer / capture queue：
+  - 由 Hub fan-out 進 observation lane
+  - 不與互動 `ContextBuffer` 共用 state
 - 建立 observation worker path：
   - 由 profile 啟動獨立 summarize session
   - 不復用互動 chatbot session
@@ -96,12 +104,14 @@
 要做：
 
 - hub `receive()`：
+  - 先建立 canonical inbound message
   - 先套 binding
   - 依 `reply_policy` 決定是否可回話
   - 依 `observation.capture` 決定是否做 capture
 - 當同一路 route 同時有 `addressed` 回話與 `capture`：
   - reply 與 summarize 可以由同一批 inbound message 觸發
-  - 但必須走不同 session path
+  - 但必須先 fan-out 成不同 intent
+  - 並走不同 buffer / session path
 - `silent`：
   - 不進 chatbot reply path
   - 但仍可走 file/STT preprocessing，再進 capture
@@ -166,6 +176,9 @@
 - runtime membership：
   - source routes 推導正確
   - consumer routes 推導正確
+- buffer boundary：
+  - observation capture 不共用互動 `ContextBuffer`
+  - 同一 inbound message 可 fan-out 成兩個 intent
 - session boundary：
   - observation summarize 走 worker session
   - reply path 不復用 summarize session
@@ -189,7 +202,7 @@
    - private route：一般訊息可回
    - group route：只有 addressed 訊息可回
    - 非 addressed 訊息若有 capture 仍會寫 observation
-   - reply 與 summarize log 可分別證明是不同 session path
+   - reply 與 summarize log 可分別證明是不同 buffer / session path
 
 3. `consume -> group query`
    - source route 先寫 observation

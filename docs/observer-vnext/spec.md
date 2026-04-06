@@ -141,6 +141,30 @@ observer vNext 要把目前「可用但抽象不穩」的 observer mode，重構
 
 - 直接復用互動 chatbot session 來做 observation summarize
 
+### 7. Message Hub 只有一份 inbound message，但要 fan-out 成不同 intent
+
+- inbound message 在 Hub 內只有一份 canonical input
+- 這份 canonical input 經過 preprocessing 與 binding 判定後，可同時導出：
+  - reply intent
+  - observation intent
+- 兩個 intent 可以引用同一份原始 message 資料
+- 但 **不能共用同一個 buffer**
+
+這代表：
+
+- 互動回話繼續走現有對話用的 context buffer / interaction path
+- observation capture 必須走獨立的 observation buffer / capture queue
+
+本輪接受：
+
+- 共享 immutable message payload
+- 以 envelope / intent record 的方式 fan-out 到不同 lane
+
+本輪不接受：
+
+- 把同一筆 inbound message 直接混寫進同一個 `ContextBuffer` 兼做 reply 與 capture
+- 讓 observation lane 直接消耗互動 lane 的 buffer state
+
 ## Config Model
 
 ### `route_groups`
@@ -277,6 +301,8 @@ bindings:
 2. binding 決定 chatbot + `reply_policy`
 3. 若 binding 有 `observation.capture`
    - 這條 route 會成為某個 `route_group` 的 source route
+   - Hub 從 canonical inbound message 派生 observation intent
+   - observation intent 進獨立 observation buffer / capture queue
    - 依 profile 做 buffer / batch observe
    - batch summarize 由獨立 observation worker session 處理
 4. observation 仍存到該 route 自己的 `route_id`
@@ -298,6 +324,19 @@ group membership **不是靜態表**，而是 binding 推導結果：
   - 是 group `X` 的 source route
 - 有 `consume = [X]` 的 route
   - 是 group `X` 的 consumer route
+
+### Fan-out semantics
+
+當同一條 route 同時具備 reply 與 capture：
+
+- Hub 先保有一份 canonical inbound message
+- 再派生：
+  - reply intent
+  - observation intent
+- reply intent 走互動 buffer / session
+- observation intent 走 observation buffer / worker session
+- 兩條 lane 可以共享 route_id、message metadata、file refs
+- 但不能共享同一個 buffer state
 
 ## Migration Strategy
 
@@ -356,6 +395,7 @@ reply 與 capture 的 session boundary 必須一次到位：
 - `capture` 與 `consume` membership 推導正確
 - `query_observations(group=...)` 能正確展開 source routes
 - observation summarize 明確走 worker session，不復用互動 chatbot session
+- Hub fan-out 後，reply 與 observation 各自進不同 buffer path
 
 ### E2E
 
