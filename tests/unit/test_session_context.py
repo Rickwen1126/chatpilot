@@ -271,5 +271,60 @@ def test_cli_routes_reads_workspace_session_context_metadata(
         "current_chatbot": "buddy",
         "override": None,
         "default_binding": None,
+        "configured_model": None,
+        "effective_model": None,
+        "session_model": None,
+        "sdk_current_model": None,
+        "sessions": ["buddy"],
+    }]
+
+
+def test_cli_routes_reports_effective_and_runtime_models(monkeypatch):
+    monkeypatch.setattr(
+        "chatpilot.server.webhook._load_known_session_contexts",
+        lambda request: [
+            SimpleNamespace(
+                route_id="line:webric:C123",
+                platform="line:webric",
+                conversation_id="C123",
+                chatbot_name="buddy",
+            )
+        ],
+    )
+
+    class _ActiveSession:
+        model = "gpt-5.4"
+
+        async def get_runtime_model(self) -> str | None:
+            return "gpt-5.4"
+
+    app = FastAPI()
+    app.include_router(router)
+    app.state.chatbot_manager = SimpleNamespace(
+        get_current_chatbot=lambda route_id: None,
+        get_session=lambda route_id: _ActiveSession(),
+        get_configured_model=lambda chatbot_name: "gpt-4.1",
+        get_effective_model=lambda route_id, chatbot_name=None: "gpt-5.4",
+    )
+    app.state.binding_router = SimpleNamespace(
+        _bindings=[SimpleNamespace(match={"platform": "line:webric"}, chatbot="buddy")]
+    )
+
+    client = TestClient(app)
+    response = client.get("/cli/routes")
+
+    assert response.status_code == 200
+    assert response.json()["routes"] == [{
+        "route_id": "line:webric:C123",
+        "label": None,
+        "platform": "line:webric",
+        "conversation_id": "C123",
+        "current_chatbot": "buddy",
+        "override": None,
+        "default_binding": "buddy",
+        "configured_model": "gpt-4.1",
+        "effective_model": "gpt-5.4",
+        "session_model": "gpt-5.4",
+        "sdk_current_model": "gpt-5.4",
         "sessions": ["buddy"],
     }]

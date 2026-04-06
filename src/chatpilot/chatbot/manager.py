@@ -57,6 +57,25 @@ class ChatbotManager:
         """Get the chatbot name for a route (override or None)."""
         return self._route_chatbot_overrides.get(route_id)
 
+    def get_configured_model(self, chatbot_name: str | None) -> str | None:
+        """Get the config-declared model for a chatbot."""
+        if not chatbot_name:
+            return None
+        config = self._configs.get(chatbot_name)
+        return config.model if config else None
+
+    def get_effective_model(
+        self,
+        route_id: str,
+        chatbot_name: str | None = None,
+    ) -> str | None:
+        """Get the effective model for a route after overrides."""
+        chatbot_name = self._route_chatbot_overrides.get(
+            route_id, chatbot_name
+        )
+        configured = self.get_configured_model(chatbot_name)
+        return self._route_model_overrides.get(route_id, configured)
+
     async def get_or_create_session(
         self, route_id: str, chatbot_name: str
     ) -> ChatbotSession:
@@ -144,7 +163,11 @@ class ChatbotManager:
                 "Created route=%s chatbot=%s", route_id, chatbot_name
             )
 
-        session = ChatbotSession(sdk_session, config)
+        session = ChatbotSession(
+            sdk_session,
+            config,
+            effective_model=model,
+        )
         self._sessions[route_id] = session
         platform, conversation_id = split_route_id(route_id)
         # Persist chatbot sessions as known-route metadata for admin views.

@@ -225,6 +225,10 @@ async def cli_routes(request: Request) -> JSONResponse:
     routes = []
     for route_id, info in sorted(known_routes.items()):
         override = chatbot_manager.get_current_chatbot(route_id)
+        active_session = None
+        get_session = getattr(chatbot_manager, "get_session", None)
+        if get_session is not None:
+            active_session = get_session(route_id)
         # Find default binding (check all match dimensions)
         default_binding = None
         for b in binding_router._bindings:
@@ -242,18 +246,40 @@ async def cli_routes(request: Request) -> JSONResponse:
             if match.get("platform") == info["platform"] and not default_binding:
                 default_binding = b.chatbot
 
+        current_chatbot = (
+            override
+            or default_binding
+            or (info["sessions"][0] if info["sessions"] else "unknown")
+        )
+        configured_model = None
+        effective_model = None
+        if hasattr(chatbot_manager, "get_configured_model"):
+            configured_model = chatbot_manager.get_configured_model(
+                current_chatbot
+            )
+        if hasattr(chatbot_manager, "get_effective_model"):
+            effective_model = chatbot_manager.get_effective_model(
+                route_id, current_chatbot
+            )
+        session_model = getattr(active_session, "model", None)
+        sdk_current_model = None
+        if active_session is not None:
+            get_runtime_model = getattr(active_session, "get_runtime_model", None)
+            if get_runtime_model is not None:
+                sdk_current_model = await get_runtime_model()
+
         routes.append({
             "route_id": route_id,
             "label": labels.get(route_id),
             "platform": info["platform"],
             "conversation_id": info["conversation_id"],
-            "current_chatbot": (
-                override
-                or default_binding
-                or (info["sessions"][0] if info["sessions"] else "unknown")
-            ),
+            "current_chatbot": current_chatbot,
             "override": override,
             "default_binding": default_binding,
+            "configured_model": configured_model,
+            "effective_model": effective_model,
+            "session_model": session_model,
+            "sdk_current_model": sdk_current_model,
             "sessions": sorted(set(info["sessions"])),
         })
 

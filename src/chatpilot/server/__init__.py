@@ -249,11 +249,27 @@ def _init_hub(
                     current = route.chatbot_name if route else "unknown"
                 cfg = chatbot_manager._configs.get(current)
                 tools_str = ", ".join(cfg.tools) if cfg else "none"
+                configured_model = chatbot_manager.get_configured_model(
+                    current
+                )
+                effective_model = chatbot_manager.get_effective_model(
+                    route_id, current
+                )
+                runtime_model = None
+                session = chatbot_manager.get_session(route_id)
+                if session is not None:
+                    runtime_model = await session.get_runtime_model()
+                model_lines = [
+                    f"Effective model: {effective_model or '?'}",
+                    f"Configured model: {configured_model or '?'}",
+                ]
+                if runtime_model:
+                    model_lines.append(f"SDK current model: {runtime_model}")
                 await adapter.send_reply(
                     message,
                     Response(
                         text=f"目前: {current}\n"
-                        f"Model: {cfg.model if cfg else '?'}\n"
+                        f"{chr(10).join(model_lines)}\n"
                         f"Tools: {tools_str}"
                     ),
                 )
@@ -575,7 +591,7 @@ async def lifespan(app: FastAPI):
             sid = f"observer-{uuid.uuid4().hex[:8]}"
             sdk_session = await sdk_client.create_session(
                 sid,
-                model="gpt-4.1",
+                model="gpt-5.4",
                 system_message="你是資訊整理助手。只回傳 JSON array。",
             )
             try:

@@ -91,7 +91,7 @@ bindings:                          # Routing rules (highest score wins)
 
 chatbots:
   buddy:
-    model: gpt-4.1
+    model: gpt-5.4-mini
     system_message: "..."
     tools: [get_calendar, web_search, save_memo, ...]
     context_window: 50

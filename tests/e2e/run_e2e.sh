@@ -456,10 +456,10 @@ TODAY_DASH=$(date +%Y-%m-%d)
 TODAY_Y=$(date +%Y)
 TODAY_M=$(date +%-m)
 TODAY_D=$(date +%-d)
-# Accept: "2026-03-28" or "2026年3月28日"
+# Accept: "2026-03-28" or "2026年3月28日" (spaces optional)
 if echo "$TS_RESP" | grep -q "$TODAY_DASH"; then
     pass "today's date exact match [L4: $TODAY_DASH]"
-elif echo "$TS_RESP" | grep -q "${TODAY_Y}年${TODAY_M}月${TODAY_D}日"; then
+elif echo "$TS_RESP" | grep -Eq "${TODAY_Y}[[:space:]]*年[[:space:]]*${TODAY_M}[[:space:]]*月[[:space:]]*${TODAY_D}[[:space:]]*日"; then
     pass "today's date (Chinese format) [L4: ${TODAY_Y}年${TODAY_M}月${TODAY_D}日]"
 else
     fail "date mismatch" "expected $TODAY_DASH or Chinese format in: $TS_RESP"

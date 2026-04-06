@@ -150,6 +150,38 @@ class SdkSession:
         except Exception:
             logger.warning("Failed to destroy session %s", self.session_id)
 
+    async def get_current_model(self) -> str | None:
+        """Return the SDK runtime model when the backend exposes it."""
+        rpc = getattr(self._session, "rpc", None)
+        model_rpc = getattr(rpc, "model", None)
+        getter = getattr(model_rpc, "get_current", None)
+        if getter is None:
+            return None
+        try:
+            current = await getter()
+        except Exception:
+            logger.debug(
+                "[SDK] %s get_current_model unavailable",
+                self.session_id,
+                exc_info=True,
+            )
+            return None
+        if current is None:
+            return None
+        if isinstance(current, str):
+            return current
+        if isinstance(current, dict):
+            return (
+                current.get("id")
+                or current.get("model")
+                or current.get("name")
+            )
+        return (
+            getattr(current, "id", None)
+            or getattr(current, "model", None)
+            or getattr(current, "name", None)
+        )
+
 
 class SdkClient:
     """Manages the Copilot SDK client and session lifecycle."""

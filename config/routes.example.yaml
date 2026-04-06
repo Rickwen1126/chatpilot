@@ -25,7 +25,7 @@ bindings:
 
 chatbots:
   buddy:
-    model: gpt-4.1
+    model: gpt-5.4-mini
     system_message: |
       You are a friendly, helpful assistant.
       Reply concisely. Use web_search when you need up-to-date information.
@@ -37,7 +37,7 @@ chatbots:
     timeout: 300
 
   my-assistant:
-    model: gpt-4.1
+    model: gpt-5.4-mini
     system_message: |
       You are a domain-specific assistant with warehouse and document tools.
       Reply concisely. Use tools to complete tasks, don't describe what you would do.
@@ -47,7 +47,7 @@ chatbots:
     auto_trigger_keywords: []
 
   my-observer:
-    model: gpt-4.1
+    model: gpt-5.4-mini
     system_message: "Silent observer."
     tools: []
     observer_mode: true

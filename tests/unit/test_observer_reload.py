@@ -25,7 +25,7 @@ class _FakeHub:
 def _observer_cfg(name: str, allowed: list[str] | None = None) -> ChatbotConfig:
     return ChatbotConfig(
         name=name,
-        model="gpt-4.1",
+        model="gpt-5.4-mini",
         system_message="observer",
         observer_mode=True,
         observer_batch_size=10,

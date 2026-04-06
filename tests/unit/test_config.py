@@ -12,7 +12,7 @@ def test_load_example_config():
     assert "buddy" in config.chatbots
     assert "my-observer" in config.chatbots
     bot = config.chatbots["buddy"]
-    assert bot.model == "gpt-4.1"
+    assert bot.model == "gpt-5.4-mini"
     assert bot.context_window == 50
     assert config.chatbots["my-observer"].observer_mode is True
     assert config.timezone == "Asia/Taipei"

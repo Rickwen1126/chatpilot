@@ -12,6 +12,9 @@ from chatpilot.sdk.session import SdkSession
 class _FakeRawSession:
     def __init__(self) -> None:
         self.calls: list[tuple[dict, float]] = []
+        self.rpc = SimpleNamespace(
+            model=SimpleNamespace(get_current=self._get_current)
+        )
 
     def on(self, handler) -> None:
         return None
@@ -22,6 +25,9 @@ class _FakeRawSession:
 
     async def destroy(self) -> None:
         return None
+
+    async def _get_current(self):
+        return {"id": "gpt-5.4"}
 
 
 @pytest.mark.asyncio
@@ -45,3 +51,13 @@ async def test_sdk_session_forwards_attachments():
             30.0,
         )
     ]
+
+
+@pytest.mark.asyncio
+async def test_sdk_session_reads_runtime_model_from_rpc():
+    raw = _FakeRawSession()
+    session = SdkSession(raw, "sid-1")
+
+    result = await session.get_current_model()
+
+    assert result == "gpt-5.4"

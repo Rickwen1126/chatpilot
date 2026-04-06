@@ -17,14 +17,21 @@ class ChatbotSession:
         self,
         sdk_session: SdkSession,
         config: ChatbotConfig,
+        *,
+        effective_model: str,
     ) -> None:
         self._session = sdk_session
         self._config = config
+        self._effective_model = effective_model
         self.broken = False
         self.needs_rebuild = False
 
     @property
     def model(self) -> str:
+        return self._effective_model
+
+    @property
+    def configured_model(self) -> str:
         return self._config.model
 
     @property
@@ -49,7 +56,7 @@ class ChatbotSession:
             "[Chatbot] %s sending session=%s model=%s chars=%d context=%s",
             self.chatbot_name,
             self._session.session_id,
-            self._config.model,
+            self.model,
             len(prompt),
             bool(context_prefix),
         )
@@ -69,7 +76,7 @@ class ChatbotSession:
                 "[Chatbot] timeout chatbot=%s session=%s model=%s timeout=%ss",
                 self.chatbot_name,
                 self._session.session_id,
-                self._config.model,
+                self.model,
                 self._config.timeout,
             )
             await self._mark_broken()
@@ -79,7 +86,7 @@ class ChatbotSession:
                 "[Chatbot] error chatbot=%s session=%s model=%s type=%s",
                 self.chatbot_name,
                 self._session.session_id,
-                self._config.model,
+                self.model,
                 type(e).__name__,
             )
             await self._mark_broken()
@@ -102,3 +109,6 @@ class ChatbotSession:
             self._session.session_id,
         )
         await self._session.destroy()
+
+    async def get_runtime_model(self) -> str | None:
+        return await self._session.get_current_model()

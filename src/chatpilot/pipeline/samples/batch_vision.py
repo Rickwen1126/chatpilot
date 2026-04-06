@@ -16,7 +16,7 @@ from chatpilot.tools.factory import ToolFactory
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_MODEL = "gpt-5.2"
+DEFAULT_MODEL = "gpt-5.4"
 DEFAULT_SYSTEM_MESSAGE = (
     "你是一個倉庫物料視覺辨識助手。"
     "你會收到多張圖片附件。"

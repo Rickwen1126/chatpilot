@@ -35,7 +35,7 @@ class ScheduleAgentNode:
         self,
         sdk_client: SdkClient,
         tool_factory: ToolFactory | None = None,
-        model: str = "gpt-4.1",
+        model: str = "gpt-5.4",
         system_message: str = DEFAULT_SYSTEM_MESSAGE,
         workdir: str | None = None,
     ) -> None:
