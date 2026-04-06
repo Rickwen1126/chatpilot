@@ -100,6 +100,8 @@ async def test_observer_media_no_reply():
 
     adapter.send_reply.assert_not_called()
     adapter.push_message.assert_not_called()
+    assert hub._context_buffer.count("line:Uobs123") == 0
+    assert hub._observation_buffer.count("line:Uobs123") == 1
 
 
 async def test_observer_keyword_trigger_no_reply():
@@ -115,6 +117,36 @@ async def test_observer_keyword_trigger_no_reply():
     adapter.push_message.assert_not_called()
     on_proceed.assert_not_called()
     configure([])  # cleanup
+
+
+async def test_never_none_without_capture_terminal_drop():
+    """never+none without capture should terminate without reply or buffering."""
+    adapter = AsyncMock()
+    adapter.send_reply = AsyncMock()
+    adapter.push_message = AsyncMock()
+    adapter.format_hint = None
+    on_proceed = AsyncMock()
+
+    hub = InMemoryMessageHub(
+        context_buffer=ContextBuffer(),
+        adapters={"line": adapter},
+        on_proceed=on_proceed,
+    )
+    hub.register_route_policy(
+        "line:Udrop123",
+        reply_policy="never",
+        processing_policy="none",
+        capture_enabled=False,
+    )
+
+    msg = _msg("drop me", user_id="Udrop123")
+    await hub.receive(msg, adapter)
+
+    adapter.send_reply.assert_not_called()
+    adapter.push_message.assert_not_called()
+    on_proceed.assert_not_called()
+    assert hub._context_buffer.count("line:Udrop123") == 0
+    assert hub._observation_buffer.count("line:Udrop123") == 0
 
 
 async def test_observer_auto_trigger_no_reply():

@@ -10,13 +10,39 @@ match_weights:
   user_id: 8
   platform: 5
 
+route_groups:
+  ops:
+    description: Example shared observation group
+
+observation_profiles:
+  ops_batch:
+    mode: batch
+    batch_size: 10
+    instructions: |
+      Summarize operational knowledge from the source route.
+      Ignore pure chit-chat and keep only reusable background knowledge.
+    categories: [leave, inventory, shipping]
+
 bindings:
   # Observer: silently collects messages, never responds
   - match: { user_id: "Ua1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4" }
     chatbot: my-observer
+    reply_policy: never
+    processing_policy: none
+    observation:
+      capture:
+        group: ops
+        profile: ops_batch
   # Group binding
   - match: { group_id: "Ca1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4" }
     chatbot: my-assistant
+    reply_policy: addressed
+    processing_policy: interactive
+    observation:
+      capture:
+        group: ops
+        profile: ops_batch
+      consume: [ops]
   # Platform default
   - match: { platform: "line" }
     chatbot: buddy
@@ -40,6 +66,7 @@ chatbots:
     model: gpt-5.4-mini
     system_message: |
       You are a domain-specific assistant with warehouse and document tools.
+      Use query_observations with group=ops when asked about observed operational history.
       Reply concisely. Use tools to complete tasks, don't describe what you would do.
     tools: [get_calendar, warehouse, quote_search, document_edit, web_search, download_media, show_image, query_observations, save_memo, list_memos, delete_memo, save_custom_prompt, list_custom_prompts, delete_custom_prompt, add_reminder, schedule_task_cron, list_schedules, cancel_schedule, manage_trigger_keywords]
     context_window: 50
@@ -50,10 +77,6 @@ chatbots:
     model: gpt-5.4-mini
     system_message: "Silent observer."
     tools: []
-    observer_mode: true
-    observer_batch_size: 10
-    observer_categories: [leave, inventory, shipping]
-    observer_allowed_consumers: ["line:Ua1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4", "line:Ca1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4"]
 
 agents: {}
 

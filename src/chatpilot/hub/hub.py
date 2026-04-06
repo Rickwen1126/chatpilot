@@ -62,6 +62,7 @@ class InMemoryMessageHub:
         self,
         context_buffer: ContextBuffer,
         adapters: dict[str, ChannelAdapter],
+        observation_buffer: ContextBuffer | None = None,
         on_proceed: OnProceedCallback | None = None,
         on_command: OnCommandCallback | None = None,
         on_pipeline_result: OnPipelineResultCallback | None = None,
@@ -72,6 +73,7 @@ class InMemoryMessageHub:
         file_handle_center: FileHandleCenter | None = None,
     ) -> None:
         self._context_buffer = context_buffer
+        self._observation_buffer = observation_buffer or ContextBuffer()
         self._adapters = adapters
         self._stt = stt_transcriber
         self._file_ingress = file_ingress
@@ -83,6 +85,7 @@ class InMemoryMessageHub:
         self._resolve_binding = resolve_binding
         self._on_observer_batch = on_observer_batch
         self._observer_configs: dict[str, dict] = {}  # route_id → config
+        self._route_policies: dict[str, dict[str, Any]] = {}
         self._pipeline_result_queue: dict[str, list[str]] = {}
         self._background_tasks: set[asyncio.Task] = set()
 
@@ -95,22 +98,33 @@ class InMemoryMessageHub:
     def set_on_pipeline_result(self, callback: OnPipelineResultCallback) -> None:
         self._on_pipeline_result = callback
 
-    def register_observer(
+    def register_capture(
         self, route_id: str, batch_size: int, categories: list[str]
     ) -> None:
-        """Register a route as observer mode."""
+        """Register a route as an observation capture source."""
         self._observer_configs[route_id] = {
             "batch_size": batch_size,
             "categories": categories,
         }
-        # Ensure context_window >= batch_size
-        current = self._context_buffer._get_window(route_id)
+        current = self._observation_buffer._get_window(route_id)
         if current < batch_size:
-            self._context_buffer.set_window_size(route_id, batch_size)
+            self._observation_buffer.set_window_size(route_id, batch_size)
         logger.info(
-            "Observer registered: %s (batch=%d)",
+            "Observation capture registered: %s (batch=%d)",
             route_id, batch_size,
         )
+
+    def register_observer(
+        self, route_id: str, batch_size: int, categories: list[str]
+    ) -> None:
+        """Legacy helper: register silent observer source semantics."""
+        self.register_route_policy(
+            route_id,
+            reply_policy="never",
+            processing_policy="none",
+            capture_enabled=True,
+        )
+        self.register_capture(route_id, batch_size, categories)
 
     def clear_observers(self) -> None:
         """Clear all observer registrations.
@@ -120,6 +134,37 @@ class InMemoryMessageHub:
         """
         self._observer_configs.clear()
         logger.info("Observer registrations cleared")
+
+    def register_route_policy(
+        self,
+        route_id: str,
+        *,
+        reply_policy: Literal["never", "addressed"],
+        processing_policy: Literal["none", "interactive"],
+        capture_enabled: bool,
+    ) -> None:
+        self._route_policies[route_id] = {
+            "reply_policy": reply_policy,
+            "processing_policy": processing_policy,
+            "capture_enabled": capture_enabled,
+        }
+
+    def clear_route_policies(self) -> None:
+        self._route_policies.clear()
+        logger.info("Route policies cleared")
+
+    def _route_policy(self, route_id: str) -> dict[str, Any]:
+        return self._route_policies.get(
+            route_id,
+            {
+                "reply_policy": "addressed",
+                "processing_policy": "interactive",
+                "capture_enabled": False,
+            },
+        )
+
+    def _reply_blocked(self, route_id: str) -> bool:
+        return self._route_policy(route_id)["reply_policy"] == "never"
 
     async def receive(self, message: Message, adapter: ChannelAdapter) -> None:
         """Process inbound message through mention filter + busy/idle gate."""
@@ -133,10 +178,14 @@ class InMemoryMessageHub:
                     message.conversation_id,
                 )
         route_id = f"{message.platform}:{message.conversation_id}"
+        policy = self._route_policy(route_id)
         logger.info(
-            "[hub] receive route=%s user=%s mention=%s text=%s",
+            "[hub] receive route=%s user=%s mention=%s reply=%s processing=%s text=%s",
             route_id, message.user_name or message.user_id,
-            message.is_mention, message.text[:80],
+            message.is_mention,
+            policy["reply_policy"],
+            policy["processing_policy"],
+            message.text[:80],
         )
 
         # STT: transcribe audio refs before routing
@@ -145,7 +194,7 @@ class InMemoryMessageHub:
         # Observer mode: silent collect + batch trigger
         obs_config = self._observer_configs.get(route_id)
         if obs_config is not None:
-            self._context_buffer.append(
+            self._observation_buffer.append(
                 route_id,
                 ContextMessage(
                     user_id=message.user_id,
@@ -155,7 +204,7 @@ class InMemoryMessageHub:
                     message_type=ContextMessageType.background,
                 ),
             )
-            count = self._context_buffer.count(route_id)
+            count = self._observation_buffer.count(route_id)
             batch_size = obs_config["batch_size"]
             logger.info(
                 "[observer] %s buffered (%d/%d) from=%s: %s",
@@ -164,8 +213,8 @@ class InMemoryMessageHub:
                 message.text[:50],
             )
             if count >= batch_size and self._on_observer_batch:
-                messages = self._context_buffer.drain(route_id)
-                formatted = self._context_buffer.format_context(
+                messages = self._observation_buffer.drain(route_id)
+                formatted = self._observation_buffer.format_context(
                     messages, inject_timestamp=True
                 )
                 categories = obs_config["categories"]
@@ -173,7 +222,7 @@ class InMemoryMessageHub:
                     "[observer] %s batch triggered! draining %d msgs, "
                     "buffer now=%d",
                     route_id, len(messages),
-                    self._context_buffer.count(route_id),
+                    self._observation_buffer.count(route_id),
                 )
                 task = asyncio.create_task(
                     self._on_observer_batch(
@@ -182,6 +231,22 @@ class InMemoryMessageHub:
                 )
                 self._background_tasks.add(task)
                 task.add_done_callback(self._background_tasks.discard)
+            if policy["reply_policy"] == "never":
+                logger.info(
+                    "[hub] %s fanout reply_intent=False observation_intent=True",
+                    route_id,
+                )
+                return
+
+        if (
+            policy["reply_policy"] == "never"
+            and policy["processing_policy"] == "none"
+        ):
+            logger.info(
+                "[hub] %s terminal drop (reply=never processing=none capture=%s)",
+                route_id,
+                policy["capture_enabled"],
+            )
             return
 
         mentioned = is_mention(message)
@@ -254,6 +319,11 @@ class InMemoryMessageHub:
                         message_type=ContextMessageType.background,
                     ),
                 )
+                if obs_config is not None:
+                    logger.info(
+                        "[hub] %s fanout reply_intent=False observation_intent=True",
+                        route_id,
+                    )
                 return
 
         # Mentioned but bot is busy
@@ -288,6 +358,11 @@ class InMemoryMessageHub:
         context_messages = self._context_buffer.drain(route_id)
         context_prefix = self._context_buffer.format_context(context_messages) or None
         logger.info(
+            "[hub] %s fanout reply_intent=True observation_intent=%s",
+            route_id,
+            obs_config is not None,
+        )
+        logger.info(
             "[hub] %s PROCEED → chatbot (drained %d context msgs)",
             route_id, len(context_messages),
         )
@@ -318,11 +393,10 @@ class InMemoryMessageHub:
     async def send_reply(
         self, message: Message, response: Response, adapter: ChannelAdapter
     ) -> None:
-        # CRITICAL: never reply to observer routes
         route_id = f"{message.platform}:{message.conversation_id}"
-        if route_id in self._observer_configs:
+        if self._reply_blocked(route_id):
             logger.warning(
-                "[observer] BLOCKED send_reply to observer route %s",
+                "[reply] BLOCKED send_reply to route %s (reply=never)",
                 route_id,
             )
             return
@@ -330,10 +404,9 @@ class InMemoryMessageHub:
 
     async def push(self, route_id: str, response: Response) -> None:
         """Push async result back to the originating conversation."""
-        # CRITICAL: never push to observer routes — they must stay invisible
-        if route_id in self._observer_configs:
+        if self._reply_blocked(route_id):
             logger.warning(
-                "[observer] BLOCKED push to observer route %s: %s",
+                "[reply] BLOCKED push to route %s (reply=never): %s",
                 route_id, response.text[:80],
             )
             return
@@ -351,10 +424,9 @@ class InMemoryMessageHub:
         self, route_id: str, result: str, reply_mode: str = "direct"
     ) -> None:
         """Pipeline result entry — never discarded."""
-        # CRITICAL: never push pipeline results to observer routes
-        if route_id in self._observer_configs:
+        if self._reply_blocked(route_id):
             logger.warning(
-                "[observer] BLOCKED pipeline result to observer route %s",
+                "[reply] BLOCKED pipeline result to route %s (reply=never)",
                 route_id,
             )
             return

@@ -134,9 +134,9 @@ async def test_query_observations_uses_session_context_for_permissions():
     factory.register(create_query_observations_tool(
         memory_store,
         {
-            "Main Group": {
-                "route_id": "line:Csource",
-                "allowed_consumers": ["line:Ufc68"],
+            "ops": {
+                "source_route_ids": ["line:Csource"],
+                "consumer_route_ids": ["line:webric:Ufc68"],
             }
         },
     ))
@@ -144,7 +144,7 @@ async def test_query_observations_uses_session_context_for_permissions():
     sdk_tool = factory.get_tools_for_chatbot(["query_observations"])[0]
     result = await sdk_tool.handler({
         "session_id": session_id,
-        "arguments": {"source": "Main Group"},
+        "arguments": {"group": "ops"},
     })
 
     assert result["resultType"] == "success"

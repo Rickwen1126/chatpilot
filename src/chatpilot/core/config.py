@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Callable
 
 import yaml
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from watchdog.events import FileSystemEvent, FileSystemEventHandler
 from watchdog.observers import Observer
 
@@ -18,6 +18,8 @@ from chatpilot.core.types import (
     ChatbotConfig,
     CronSchedulerConfig,
     MatchWeights,
+    ObservationProfileConfig,
+    RouteGroupConfig,
     SchedulerConfig,
 )
 
@@ -27,6 +29,10 @@ logger = logging.getLogger(__name__)
 class GatewayConfig(BaseModel):
     timezone: str = "Asia/Taipei"
     match_weights: MatchWeights = Field(default_factory=MatchWeights)
+    route_groups: dict[str, RouteGroupConfig] = Field(default_factory=dict)
+    observation_profiles: dict[str, ObservationProfileConfig] = Field(
+        default_factory=dict
+    )
     bindings: list[Binding] = Field(default_factory=list)
     chatbots: dict[str, ChatbotConfig] = Field(default_factory=dict)
     agents: dict[str, AgentConfig] = Field(default_factory=dict)
@@ -34,6 +40,31 @@ class GatewayConfig(BaseModel):
     scheduler: SchedulerConfig = Field(default_factory=SchedulerConfig)
     cron_scheduler: CronSchedulerConfig = Field(default_factory=CronSchedulerConfig)
     trigger_keywords: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_observer_vnext_refs(self) -> GatewayConfig:
+        for binding in self.bindings:
+            obs = binding.observation
+            if obs is None:
+                continue
+            if obs.capture is not None:
+                if obs.capture.group not in self.route_groups:
+                    raise ValueError(
+                        f"binding observation.capture.group references unknown "
+                        f"route_group '{obs.capture.group}'"
+                    )
+                if obs.capture.profile not in self.observation_profiles:
+                    raise ValueError(
+                        "binding observation.capture.profile references "
+                        f"unknown observation_profile '{obs.capture.profile}'"
+                    )
+            for group in obs.consume:
+                if group not in self.route_groups:
+                    raise ValueError(
+                        f"binding observation.consume references unknown "
+                        f"route_group '{group}'"
+                    )
+        return self
 
 
 def load_config(path: Path) -> GatewayConfig:

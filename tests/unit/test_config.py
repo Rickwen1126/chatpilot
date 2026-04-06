@@ -14,10 +14,17 @@ def test_load_example_config():
     bot = config.chatbots["buddy"]
     assert bot.model == "gpt-5.4-mini"
     assert bot.context_window == 50
-    assert config.chatbots["my-observer"].observer_mode is True
+    observer_binding = config.bindings[0]
+    assert observer_binding.reply_policy == "never"
+    assert observer_binding.processing_policy == "none"
+    assert observer_binding.observation is not None
+    assert observer_binding.observation.capture is not None
+    assert observer_binding.observation.capture.group == "ops"
     assert config.timezone == "Asia/Taipei"
     assert config.scheduler.concurrent_runners == 2
     assert config.match_weights.group_id == 10
+    assert "ops" in config.route_groups
+    assert "ops_batch" in config.observation_profiles
 
 
 def test_load_config_parses_named_line_adapters(tmp_path):
@@ -73,6 +80,52 @@ adapters:
     assert "line:webric" in adapters
     assert "line:shinyipaint" in adapters
     assert "mock" in adapters
+
+
+def test_route_group_rejects_members(tmp_path):
+    path = tmp_path / "routes.yaml"
+    path.write_text(
+        """
+route_groups:
+  ops:
+    description: test
+    members:
+      - accidental
+""".strip(),
+        encoding="utf-8",
+    )
+
+    try:
+        load_config(path)
+    except ValueError as exc:
+        assert "must not define members" in str(exc)
+    else:
+        raise AssertionError("expected route_group members validation error")
+
+
+def test_binding_policy_combo_rejects_addressed_none(tmp_path):
+    path = tmp_path / "routes.yaml"
+    path.write_text(
+        """
+bindings:
+  - chatbot: buddy
+    reply_policy: addressed
+    processing_policy: none
+
+chatbots:
+  buddy:
+    model: gpt-5.4-mini
+    system_message: test
+""".strip(),
+        encoding="utf-8",
+    )
+
+    try:
+        load_config(path)
+    except ValueError as exc:
+        assert "reply_policy=addressed" in str(exc)
+    else:
+        raise AssertionError("expected invalid policy combination error")
 
 
 def _write_tmp_config(content: str) -> str:

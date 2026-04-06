@@ -124,19 +124,41 @@ Group chat messages are buffered in a sliding window. When the bot is mentioned,
 [以下是直接對你說的訊息]
 ```
 
-### Observer Mode
+### Observer VNext
 
-Silent message collection for analytics. Configured per-chatbot:
+Observer vNext is configured per-binding, not per-chatbot.
 
 ```yaml
-my-observer:
-  observer_mode: true
-  observer_batch_size: 10
-  observer_categories: [leave, inventory, shipping, ...]
-  observer_allowed_consumers: ["line:Uxxx...", "line:Cxxx..."]
+route_groups:
+  ops:
+    description: Shared operational knowledge
+
+observation_profiles:
+  ops_batch:
+    mode: batch
+    batch_size: 10
+    instructions: |
+      Summarize reusable background knowledge from this route.
+
+bindings:
+  - match: { group_id: "Cxxx..." }
+    chatbot: my-observer
+    reply_policy: never
+    processing_policy: none
+    observation:
+      capture:
+        group: ops
+        profile: ops_batch
+
+  - match: { user_id: "Uxxx..." }
+    chatbot: my-admin
+    reply_policy: addressed
+    processing_policy: interactive
+    observation:
+      consume: [ops]
 ```
 
-Messages are buffered until `batch_size` is reached, then LLM categorizes and stores to SQLite. Other chatbots query via `query_observations` tool (permission-gated).
+Capture remains route-local in SQLite. `query_observations(group=...)` expands an observation group into source routes at query time, with consumer-route permission checks.
 
 ### TimeService
 
@@ -191,7 +213,7 @@ AGENT_TEAM_TRIGGER — chatbot can call to enqueue async task; pipeline cannot (
 | `batch_image_analyze` | Submit batch vision analysis (async) |
 | `submit_task` | Enqueue arbitrary async task |
 | `browse_task` | Enqueue browser search task |
-| `query_observations` | Query observer collected data (permission-gated) |
+| `query_observations` | Query group-based observer knowledge (permission-gated) |
 | `save_memo` / `list_memos` / `delete_memo` | Per-route memo CRUD |
 | `save_custom_prompt` / `list_custom_prompts` / `delete_custom_prompt` | Persistent prompt customization |
 | `add_reminder` | Schedule one-time reminder |

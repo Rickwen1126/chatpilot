@@ -113,54 +113,90 @@ def _refresh_observer_state(
     config: GatewayConfig,
     observer_sources: dict[str, dict],
 ) -> None:
-    """Rebuild observer registrations and queryable source metadata.
+    """Rebuild observer registrations and group membership metadata.
 
-    This must run at startup and on config reload. Bindings and chatbot config
-    can change independently of runtime sessions, so the hub observer registry
-    and query_observations source map must be kept in sync with the latest
-    config instead of only updating route bindings.
+    Current implementation supports group-based query identity for both:
+    - silent capture routes (`reply=never + processing=none + capture`)
+    - interactive capture routes (`reply=addressed + processing=interactive + capture`)
     """
-    import json as _json
-    from pathlib import Path as _Path
 
     hub.clear_observers()
+    hub.clear_route_policies()
     observer_sources.clear()
 
-    labels: dict = {}
-    labels_path = _Path("data/route_labels.json")
-    if labels_path.exists():
-        labels = _json.loads(labels_path.read_text("utf-8"))
-
     for binding in config.bindings:
-        chatbot_name = binding.chatbot
-        cfg = config.chatbots.get(chatbot_name)
-        if cfg is None or not cfg.observer_mode:
-            continue
-
         gid = binding.match.get("group_id", "")
         uid = binding.match.get("user_id", "")
         cid = gid or uid
         if not cid:
             continue
 
-        all_route_ids: list[str] = []
-        for platform in adapters:
+        match_platform = binding.match.get("platform")
+        if match_platform:
+            platforms = [match_platform] if match_platform in adapters else []
+        else:
+            platforms = list(adapters)
+
+        obs = binding.observation
+        capture = obs.capture if obs is not None else None
+        consume = obs.consume if obs is not None else []
+
+        # Register group memberships first; source routes are only those that
+        # actually capture in the current runtime phase.
+        def _ensure_group(name: str) -> dict[str, list[str]]:
+            return observer_sources.setdefault(
+                name,
+                {
+                    "source_route_ids": [],
+                    "consumer_route_ids": [],
+                },
+            )
+
+        for group in consume:
+            state = _ensure_group(group)
+            for platform in platforms:
+                route_id = f"{platform}:{cid}"
+                hub.register_route_policy(
+                    route_id,
+                    reply_policy=binding.reply_policy,
+                    processing_policy=binding.processing_policy,
+                    capture_enabled=capture is not None,
+                )
+                if route_id not in state["consumer_route_ids"]:
+                    state["consumer_route_ids"].append(route_id)
+
+        if not consume:
+            for platform in platforms:
+                route_id = f"{platform}:{cid}"
+                hub.register_route_policy(
+                    route_id,
+                    reply_policy=binding.reply_policy,
+                    processing_policy=binding.processing_policy,
+                    capture_enabled=capture is not None,
+                )
+
+        if capture is None:
+            continue
+
+        profile = config.observation_profiles.get(capture.profile)
+        if profile is None:
+            logger.warning(
+                "Observer capture profile missing for group=%s profile=%s",
+                capture.group, capture.profile,
+            )
+            continue
+
+        state = _ensure_group(capture.group)
+        for platform in platforms:
             route_id = f"{platform}:{cid}"
-            hub.register_observer(
+            hub.register_capture(
                 route_id,
-                batch_size=cfg.observer_batch_size,
-                categories=cfg.observer_categories,
+                batch_size=profile.batch_size,
+                categories=profile.categories,
             )
             if _is_queryable_observer_platform(platform):
-                all_route_ids.append(route_id)
-
-        canonical = f"line:{cid}"
-        label = labels.get(canonical, chatbot_name)
-        observer_sources[label] = {
-            "route_id": canonical,
-            "all_route_ids": all_route_ids,
-            "allowed_consumers": cfg.observer_allowed_consumers,
-        }
+                if route_id not in state["source_route_ids"]:
+                    state["source_route_ids"].append(route_id)
 
 
 def _init_hub(
@@ -595,7 +631,11 @@ async def lifespan(app: FastAPI):
                 system_message="你是資訊整理助手。只回傳 JSON array。",
             )
             try:
-                logger.info("[observer] %s LLM session=%s", route_id, sid)
+                logger.info(
+                    "[observer] %s worker_session=%s lane=observation",
+                    route_id,
+                    sid,
+                )
                 result = await sdk_session.send_and_wait(
                     prompt, timeout=120.0
                 )

@@ -6,7 +6,7 @@ from datetime import datetime
 from enum import Enum, IntEnum
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from chatpilot.core.time_service import TimeService
 from chatpilot.files.models import CanonicalFileHandle, SourceHandleInput
@@ -125,6 +125,28 @@ class Binding(BaseModel):
 
     match: dict[str, str] = Field(default_factory=dict)
     chatbot: str
+    reply_policy: Literal["never", "addressed"] = "addressed"
+    processing_policy: Literal["none", "interactive"] = "interactive"
+    observation: ObservationConfig | None = None
+
+    @model_validator(mode="after")
+    def validate_policy_combination(self) -> Binding:
+        if (
+            self.reply_policy == "never"
+            and self.processing_policy != "none"
+        ):
+            raise ValueError(
+                "reply_policy=never must be paired with processing_policy=none"
+            )
+        if (
+            self.reply_policy == "addressed"
+            and self.processing_policy != "interactive"
+        ):
+            raise ValueError(
+                "reply_policy=addressed must be paired with "
+                "processing_policy=interactive"
+            )
+        return self
 
 
 class MatchWeights(BaseModel):
@@ -133,6 +155,45 @@ class MatchWeights(BaseModel):
     group_id: int = 10
     user_id: int = 8
     platform: int = 5
+
+
+class RouteGroupConfig(BaseModel):
+    """Logical shared/query unit for observer vNext."""
+
+    model_config = {"extra": "allow"}
+
+    description: str = ""
+
+    @model_validator(mode="after")
+    def reject_members(self) -> RouteGroupConfig:
+        if self.model_extra and "members" in self.model_extra:
+            raise ValueError("route_group must not define members")
+        return self
+
+
+class ObservationProfileConfig(BaseModel):
+    """Prompt-backed observation interpretation profile."""
+
+    model_config = {"extra": "allow"}
+
+    mode: Literal["batch"]
+    batch_size: int = 10
+    instructions: str
+    categories: list[str] = Field(default_factory=list)
+
+
+class ObservationCaptureConfig(BaseModel):
+    """Capture target for a binding."""
+
+    group: str
+    profile: str
+
+
+class ObservationConfig(BaseModel):
+    """Observation policy attached to a binding."""
+
+    capture: ObservationCaptureConfig | None = None
+    consume: list[str] = Field(default_factory=list)
 
 
 # ── Config ────────────────────────────────────────────────────────────
@@ -150,10 +211,6 @@ class ChatbotConfig(BaseModel):
     timeout: int = 300
     workdir: str | None = None
     auto_trigger_keywords: list[str] = Field(default_factory=list)
-    observer_mode: bool = False
-    observer_batch_size: int = 10
-    observer_categories: list[str] = Field(default_factory=list)
-    observer_allowed_consumers: list[str] = Field(default_factory=list)
 
 
 class AgentConfig(BaseModel):

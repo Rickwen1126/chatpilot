@@ -448,6 +448,48 @@ sleep 2
 assert_log_absent "observer: @mention blocked" "\[SDK\].*$OBS_ROUTE.*sending"
 pass "observer: all attacks blocked [L2]"
 
+# ─── Observer VNext: Addressed + Capture [L2+L3+L4] ─────────────
+header "Observer VNext (addressed + capture)"
+
+CAP_MSGS=(
+    '{"text":"今天要補兩桶底漆","user_name":"Ops1","is_mention":false}'
+    '{"text":"收到 我晚點去確認","user_name":"Ops2","is_mention":false}'
+    '{"text":"明天早上有人要請假","user_name":"Ops3","is_mention":false}'
+    '{"text":"倉庫 A1 區還有三桶","user_name":"Ops4","is_mention":false}'
+    '{"text":"下午要送一批到工地","user_name":"Ops5","is_mention":false}'
+    '{"text":"黑色乳膠漆還缺一桶","user_name":"Ops6","is_mention":false}'
+    '{"text":"週三可能還要再叫貨","user_name":"Ops7","is_mention":false}'
+    '{"text":"小王下週一也會請假","user_name":"Ops8","is_mention":false}'
+    '{"text":"收到 我整理一下","user_name":"Ops9","is_mention":false}'
+    '{"text":"bot 幫我整理一下最近請假狀況","user_name":"Lead","is_mention":false}'
+)
+for msg_json in "${CAP_MSGS[@]}"; do
+    uname=$(echo "$msg_json" | python3 -c "import sys,json; print(json.load(sys.stdin)['user_name'])")
+    text=$(echo "$msg_json" | python3 -c "import sys,json; print(json.load(sys.stdin)['text'])")
+    mention=$(echo "$msg_json" | python3 -c "import sys,json; print('true' if json.load(sys.stdin)['is_mention'] else 'false')")
+    mock_webhook "{\"text\": \"$text\", \"user_id\": \"cap-$uname\", \"user_name\": \"$uname\", \"group_id\": \"$ASSISTANT_GROUP\", \"platform\": \"line\", \"is_mention\": $mention}" > /dev/null
+    sleep 0.2
+done
+
+if wait_for_log "\\[observer\\].*line:$ASSISTANT_GROUP.*saved to DB" 90 2; then
+    pass "addressed route observation persisted [L4: saved to DB log]"
+else
+    fail "addressed route observation persisted [L4: timeout]" "pattern: [observer] line:$ASSISTANT_GROUP saved to DB"
+fi
+assert_log "addressed+capture fanout" "\\[hub\\] line:$ASSISTANT_GROUP fanout reply_intent=True observation_intent=True"
+assert_log "assistant reply lane session" "\\[Chatbot\\] my-assistant sending lane=reply session=line-${ASSISTANT_GROUP}__my-assistant"
+assert_log "assistant observation worker session" "\\[observer\\] line:$ASSISTANT_GROUP worker_session=observer-.* lane=observation"
+assert_db_exists "addressed route observation in DB" \
+    "SELECT count(*) FROM memory_observations WHERE route_id='line:$ASSISTANT_GROUP'"
+
+# ─── Observer Group Query [L2+L3] ───────────────────────────────
+header "Observer Group Query"
+
+mock_webhook "{\"text\": \"bot 請直接使用 query_observations 工具查詢 ops 群組過去 30 天請假紀錄，然後簡短回答\", \"user_id\": \"ops-admin\", \"group_id\": \"$ASSISTANT_GROUP\", \"platform\": \"line\", \"is_mention\": false}" > /dev/null
+sleep 15
+assert_tool_called "group query tool called" "query_observations"
+assert_log "group query executed" "\\[query_obs\\] group=ops caller=line:$ASSISTANT_GROUP"
+
 # ─── TimeService [L4] ───────────────────────────────────────────
 header "TimeService Integration"
 TS_RESP=$(cli_chat "今天幾號星期幾")

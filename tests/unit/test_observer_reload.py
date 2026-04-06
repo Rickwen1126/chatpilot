@@ -3,53 +3,94 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 from chatpilot.core.config import GatewayConfig
-from chatpilot.core.types import Binding, ChatbotConfig
+from chatpilot.core.types import Binding
 from chatpilot.server.__init__ import _refresh_observer_state
 
 
 class _FakeHub:
     def __init__(self) -> None:
         self.registered: list[tuple[str, int, list[str]]] = []
+        self.route_policies: dict[str, dict] = {}
         self.cleared = 0
+        self.policy_cleared = 0
 
     def clear_observers(self) -> None:
         self.cleared += 1
         self.registered.clear()
+
+    def clear_route_policies(self) -> None:
+        self.policy_cleared += 1
+        self.route_policies.clear()
 
     def register_observer(
         self, route_id: str, batch_size: int, categories: list[str]
     ) -> None:
         self.registered.append((route_id, batch_size, categories))
 
+    def register_capture(
+        self, route_id: str, batch_size: int, categories: list[str]
+    ) -> None:
+        self.registered.append((route_id, batch_size, categories))
 
-def _observer_cfg(name: str, allowed: list[str] | None = None) -> ChatbotConfig:
-    return ChatbotConfig(
-        name=name,
-        model="gpt-5.4-mini",
-        system_message="observer",
-        observer_mode=True,
-        observer_batch_size=10,
-        observer_categories=["請假", "進料"],
-        observer_allowed_consumers=allowed or [],
-    )
+    def register_route_policy(
+        self,
+        route_id: str,
+        *,
+        reply_policy: str,
+        processing_policy: str,
+        capture_enabled: bool,
+    ) -> None:
+        self.route_policies[route_id] = {
+            "reply_policy": reply_policy,
+            "processing_policy": processing_policy,
+            "capture_enabled": capture_enabled,
+        }
 
 
 def test_refresh_observer_state_registers_named_adapter_routes() -> None:
     hub = _FakeHub()
     observer_sources: dict[str, dict] = {}
     config = GatewayConfig(
+        route_groups={
+            "ops": {"description": "ops"},
+        },
+        observation_profiles={
+            "warehouse_ops": {
+                "mode": "batch",
+                "batch_size": 10,
+                "instructions": "capture ops",
+                "categories": ["請假", "進料"],
+            }
+        },
         bindings=[
             Binding(
-                match={"group_id": "C123"},
+                match={
+                    "platform": "line:shinyipaint",
+                    "group_id": "C123",
+                },
                 chatbot="shinyipaint-observer",
+                reply_policy="never",
+                processing_policy="none",
+                observation={
+                    "capture": {
+                        "group": "ops",
+                        "profile": "warehouse_ops",
+                    }
+                },
+            ),
+            Binding(
+                match={
+                    "platform": "line:shinyipaint",
+                    "user_id": "Uabc",
+                },
+                chatbot="shinyipaint-admin",
+                reply_policy="addressed",
+                processing_policy="interactive",
+                observation={
+                    "consume": ["ops"],
+                },
             )
         ],
-        chatbots={
-            "shinyipaint-observer": _observer_cfg(
-                "shinyipaint-observer",
-                allowed=["line:shinyipaint:Uabc"],
-            )
-        },
     )
     adapters = {
         "cli": SimpleNamespace(platform="cli"),
@@ -68,17 +109,14 @@ def test_refresh_observer_state_registers_named_adapter_routes() -> None:
     assert {
         route_id for route_id, _, _ in hub.registered
     } == {
-        "cli:C123",
         "line:shinyipaint:C123",
-        "mock:C123",
     }
     assert observer_sources == {
-        "shinyipaint-observer": {
-            "route_id": "line:C123",
-            "all_route_ids": [
+        "ops": {
+            "source_route_ids": [
                 "line:shinyipaint:C123",
             ],
-            "allowed_consumers": ["line:shinyipaint:Uabc"],
+            "consumer_route_ids": ["line:shinyipaint:Uabc"],
         }
     }
 
@@ -86,10 +124,9 @@ def test_refresh_observer_state_registers_named_adapter_routes() -> None:
 def test_refresh_observer_state_replaces_old_observer_bindings() -> None:
     hub = _FakeHub()
     observer_sources = {
-        "old-observer": {
-            "route_id": "line:Cold",
-            "all_route_ids": ["line:shinyipaint:Cold"],
-            "allowed_consumers": [],
+        "old-group": {
+            "source_route_ids": ["line:shinyipaint:Cold"],
+            "consumer_route_ids": [],
         }
     }
     adapters = {
@@ -98,16 +135,52 @@ def test_refresh_observer_state_replaces_old_observer_bindings() -> None:
     }
 
     first = GatewayConfig(
+        route_groups={"ops_old": {"description": "old"}},
+        observation_profiles={
+            "warehouse_ops": {
+                "mode": "batch",
+                "batch_size": 10,
+                "instructions": "capture ops",
+            }
+        },
         bindings=[
-            Binding(match={"group_id": "Cold"}, chatbot="old-observer")
+            Binding(
+                match={"platform": "line:shinyipaint", "group_id": "Cold"},
+                chatbot="old-observer",
+                reply_policy="never",
+                processing_policy="none",
+                observation={
+                    "capture": {
+                        "group": "ops_old",
+                        "profile": "warehouse_ops",
+                    }
+                },
+            )
         ],
-        chatbots={"old-observer": _observer_cfg("old-observer")},
     )
     second = GatewayConfig(
+        route_groups={"ops_new": {"description": "new"}},
+        observation_profiles={
+            "warehouse_ops": {
+                "mode": "batch",
+                "batch_size": 10,
+                "instructions": "capture ops",
+            }
+        },
         bindings=[
-            Binding(match={"group_id": "Cnew"}, chatbot="new-observer")
+            Binding(
+                match={"platform": "line:shinyipaint", "group_id": "Cnew"},
+                chatbot="new-observer",
+                reply_policy="never",
+                processing_policy="none",
+                observation={
+                    "capture": {
+                        "group": "ops_new",
+                        "profile": "warehouse_ops",
+                    }
+                },
+            )
         ],
-        chatbots={"new-observer": _observer_cfg("new-observer")},
     )
 
     _refresh_observer_state(
@@ -127,10 +200,61 @@ def test_refresh_observer_state_replaces_old_observer_bindings() -> None:
     assert {
         route_id for route_id, _, _ in hub.registered
     } == {
-        "cli:Cnew",
         "line:shinyipaint:Cnew",
     }
-    assert list(observer_sources) == ["new-observer"]
-    assert observer_sources["new-observer"]["all_route_ids"] == [
+    assert list(observer_sources) == ["ops_new"]
+    assert observer_sources["ops_new"]["source_route_ids"] == [
         "line:shinyipaint:Cnew",
     ]
+
+
+def test_refresh_observer_state_registers_interactive_capture_routes() -> None:
+    hub = _FakeHub()
+    observer_sources: dict[str, dict] = {}
+    config = GatewayConfig(
+        route_groups={"ops": {"description": "ops"}},
+        observation_profiles={
+            "warehouse_ops": {
+                "mode": "batch",
+                "batch_size": 10,
+                "instructions": "capture ops",
+            }
+        },
+        bindings=[
+            Binding(
+                match={"platform": "line:shinyipaint", "group_id": "C123"},
+                chatbot="shinyipaint",
+                reply_policy="addressed",
+                processing_policy="interactive",
+                observation={
+                    "capture": {
+                        "group": "ops",
+                        "profile": "warehouse_ops",
+                    }
+                },
+            )
+        ],
+    )
+    adapters = {
+        "line:shinyipaint": SimpleNamespace(platform="line:shinyipaint"),
+    }
+
+    _refresh_observer_state(
+        hub=hub,
+        adapters=adapters,
+        config=config,
+        observer_sources=observer_sources,
+    )
+
+    assert hub.registered == [("line:shinyipaint:C123", 10, [])]
+    assert observer_sources == {
+        "ops": {
+            "source_route_ids": ["line:shinyipaint:C123"],
+            "consumer_route_ids": [],
+        }
+    }
+    assert hub.route_policies["line:shinyipaint:C123"] == {
+        "reply_policy": "addressed",
+        "processing_policy": "interactive",
+        "capture_enabled": True,
+    }

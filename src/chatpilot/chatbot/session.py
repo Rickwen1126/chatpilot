@@ -53,7 +53,7 @@ class ChatbotSession:
             prompt = f"{context_prefix}\n{text}"
 
         logger.info(
-            "[Chatbot] %s sending session=%s model=%s chars=%d context=%s",
+            "[Chatbot] %s sending lane=reply session=%s model=%s chars=%d context=%s",
             self.chatbot_name,
             self._session.session_id,
             self.model,
