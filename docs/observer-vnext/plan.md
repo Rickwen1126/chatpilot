@@ -5,7 +5,7 @@
 本輪只做 observer core replacement：
 
 - 以 `route_group` 取代舊 observer source label 概念
-- 以 `binding.reply_policy` + `binding.observation` 取代舊 `chatbot.observer_mode`
+- 以 `binding.reply_policy` + `binding.processing_policy` + `binding.observation` 取代舊 `chatbot.observer_mode`
 - `query_observations` 直接改成以 `group` 為 canonical API
 - 保持 observation 持久化仍為 route-local storage
 
@@ -13,6 +13,7 @@
 
 - `follow/join` discovery onboarding
 - `smart` reply policy
+- `shadow` processing policy
 - event schema 細化
 - bot-level persistent memory
 - file/STT/recent recall 類行為修正
@@ -23,16 +24,22 @@
 - `route_group` 是 sharing/query unit；是正式 config，但不含 `members`
 - membership 只能從 `binding.observation` 推導，不能雙重維護
 - `reply_policy` 本輪只支援：
-  - `silent`
+  - `never`
   - `addressed`
-- `silent` 的語意是：
+- `processing_policy` 本輪只支援：
+  - `none`
+  - `interactive`
+- `never` 的語意是：
   - 不建立 reply intent
-  - 不進互動 chatbot path
+  - 不直接決定 chatbot session 是否處理
+- `none` 的語意是：
   - 不建立/復用互動 chatbot session
+  - 不進互動 chatbot path
   - 不是「先跑 chatbot 再 suppress output」
 - `addressed` 的判定語意沿用現有 adapter/hub addressed 規則：
   - private/direct route：通常每句都 addressed
   - group/shared route：mention / keyword / slash / 平台規則命中才 addressed
+- `shadow` 是未來 processing mode，不在本輪實作
 - 不保留舊 observer config 並存；新 schema 一次替換
 - `route_group` 這輪保持薄，但實作不得把其結構寫死成只有 `description`
 - 互動回話與 observation summarize 必須是兩條分離 execution lane：
@@ -57,6 +64,7 @@
   - `route_groups`
   - `observation_profiles`
   - `bindings[].reply_policy`
+  - `bindings[].processing_policy`
   - `bindings[].observation.capture`
   - `bindings[].observation.consume`
 - 移除舊 observer config 入口：
@@ -68,7 +76,8 @@
   - `route_group` 不接受 `members`
   - `capture` 僅允許單一 `group + profile`
   - `consume` 是 group name list
-  - `reply_policy` 僅允許 `silent | addressed`
+  - `reply_policy` 僅允許 `never | addressed`
+  - `processing_policy` 僅允許 `none | interactive`
 
 完成條件：
 
@@ -83,7 +92,7 @@
 
 - server startup / reload 時：
   - 不再從 chatbot config 掃 `observer_mode`
-  - 改為從 binding 掃 `reply_policy` + `observation`
+  - 改為從 binding 掃 `reply_policy` + `processing_policy` + `observation`
 - runtime 建立 group membership 視圖：
   - source routes：來自 `capture.group`
   - consumer routes：來自 `consume[]`
@@ -104,34 +113,35 @@
 
 ### Phase 3. Hub Behavior Replacement
 
-目標：把 observer 行為明確對齊到 `reply_policy + observation`。
+目標：把 observer 行為明確對齊到 `reply_policy + processing_policy + observation`。
 
 要做：
 
 - hub `receive()`：
   - 先建立 canonical inbound message
   - 先套 binding
-  - 依 `reply_policy` 決定是否可回話
+  - 依 `reply_policy` 決定是否建立 reply intent
+  - 依 `processing_policy` 決定互動 chatbot path 是否啟用
   - 依 `observation.capture` 決定是否做 capture
 - 當同一路 route 同時有 `addressed` 回話與 `capture`：
   - reply 與 summarize 可以由同一批 inbound message 觸發
   - 但必須先 fan-out 成不同 intent
   - 並走不同 buffer / session path
-- `silent`：
+- `reply=never + processing=none`：
   - 不產生 reply intent
   - 不進 chatbot reply path
   - 不建立/復用互動 chatbot session
   - 但仍可走 file/STT preprocessing，再進 capture
   - 若沒有 capture，則在 bookkeeping/log 後 terminal drop
-- `addressed`：
+- `reply=addressed + processing=interactive`：
   - 只在 addressed 時進 chatbot
   - 非 addressed 訊息仍可 capture（若 binding 有設定）
 - `send_reply()` / `push()` / pipeline return path：
-  - 仍需防守 `silent` route 不回話
+  - 仍需防守 `reply_policy=never` route 不回話
 
 完成條件：
 
-- `silent` / `addressed` 的 runtime 行為與 spec 一致
+- `reply_policy` / `processing_policy` 的 runtime 行為與 spec 一致
 - observer 群組靜默防線仍成立
 
 ### Phase 4. Query API Cutover
@@ -167,6 +177,7 @@
   - `route_groups`
   - `observation_profiles`
   - `binding.reply_policy`
+  - `binding.processing_policy`
   - `binding.observation`
 
 完成條件：
@@ -190,6 +201,9 @@
 - session boundary：
   - observation summarize 走 worker session
   - reply path 不復用 summarize session
+- processing boundary：
+  - `processing_policy=none` 不建立互動 chatbot session
+  - `processing_policy=interactive` 只服務 reply lane
 - `addressed` 語意：
   - private route 視為 addressed
   - group route 依現有 mention/keyword/slash 判定
@@ -201,19 +215,19 @@
 
 至少補這三組：
 
-1. `silent + capture`
+1. `reply=never + processing=none + capture`
    - 不回話
    - 不建立互動 chatbot session
    - 仍會寫 observation row
    - DB 有 route-local observation
 
-1b. `silent + no capture`
+1b. `reply=never + processing=none + no capture`
    - 不回話
    - 不建立互動 chatbot session
    - 不寫 observation
    - 僅留下必要 route bookkeeping/log
 
-2. `addressed + capture`
+2. `reply=addressed + processing=interactive + capture`
    - private route：一般訊息可回
    - group route：只有 addressed 訊息可回
    - 非 addressed 訊息若有 capture 仍會寫 observation
@@ -229,7 +243,7 @@
 merge 前至少再做一輪最小 live check：
 
 - observer 群組：
-  - `silent` 不回話
+  - `reply=never + processing=none` 不回話
   - image/audio/file 仍可 capture
 - consumer route：
   - addressed 問 observation 問題時會走 `query_observations(group=...)`
@@ -238,6 +252,7 @@ merge 前至少再做一輪最小 live check：
 
 - 這輪不保留舊 config，代表 config migration 要一次到位
 - `addressed` 是跨平台抽象，若 adapter/hub 規則不一致，行為可能漂
+- 若未把 reply 與 processing 視為獨立軸，未來引入 `shadow` 會再次打破抽象
 - 若在本輪把 `route_group` 擴成 ACL/onboarding/sync 中樞，scope 會失控
 
 ## Suggested Execution Order
@@ -257,5 +272,5 @@ merge 前至少再做一輪最小 live check：
 
 - repo 內不再使用舊 observer config
 - observer source/query identity 不再依賴 chatbot name 或 source label
-- `silent | addressed` 行為已被 unit + E2E 證明
+- `reply_policy = never | addressed` 與 `processing_policy = none | interactive` 行為已被 unit + E2E 證明
 - `query_observations(group=...)` 已在新抽象下運作

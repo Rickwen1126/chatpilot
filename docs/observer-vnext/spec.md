@@ -6,7 +6,8 @@ observer vNext 要把目前「可用但抽象不穩」的 observer mode，重構
 
 - `route_id` 作為 **storage unit**
 - `route_group` 作為 **sharing/query unit**
-- `binding.reply_policy` 決定回話行為
+- `binding.reply_policy` 決定是否對外回話
+- `binding.processing_policy` 決定 chatbot session 是否參與處理
 - `binding.observation` 決定背景觀察與知識消費行為
 
 這輪的核心不是新增更多 observer special case，而是把目前混在一起的：
@@ -47,7 +48,7 @@ observer vNext 要把目前「可用但抽象不穩」的 observer mode，重構
 - 讓 observer 不再是一種 bot type，而是 `binding` 上的 policy
 - 保持 `route_id` 為最小持久化單位，不引入 bot-level persistent memory
 - 引入穩定的 `route_group` 作為共享/查詢單位
-- 把回話行為從 observation/capture 抽離
+- 把回話行為、session processing 行為、observation capture 行為正式拆開
 - 為後續：
   - `follow/join` onboarding
   - shared memory
@@ -62,6 +63,7 @@ observer vNext 要把目前「可用但抽象不穩」的 observer mode，重構
 - event schema 細化
 - bot-level persistent memory
 - `smart` reply policy 實作
+- `shadow` processing policy 實作
 - file-center / STT / recent file recall 的行為調整
 - observer query API 的最終 UX 優化
 
@@ -95,26 +97,39 @@ observer vNext 要把目前「可用但抽象不穩」的 observer mode，重構
 - `binding` 定義這條對話如何使用這個 chatbot
 - observation 雖然像能力，但本質是 **conversation-scoped policy**
 
-### 4. `reply_policy` 先收成兩個已實作目標
+### 4. `reply_policy` 與 `processing_policy` 是兩個獨立軸
 
-- `silent`
+`reply_policy` 只回答：
+
+- 這條 route 是否對外回話
+
+本輪最小列舉值：
+
+- `never`
 - `addressed`
 
 `smart` 保留 future，不進這輪實作。
 
-`silent` 的語意要特別定死：
+`processing_policy` 只回答：
 
-- `silent` 不是「chatbot 照常工作但最後不輸出」
-- `silent` 是 **不建立 reply intent**
+- 這條 route 的訊息是否要進 chatbot session 做處理
+
+本輪最小列舉值：
+
+- `none`
+- `interactive`
+
+`shadow` 保留 future，不進這輪實作。
+
+### 5. `never` 與 `addressed` 的語意
+
+- `never` 是 **不建立 reply intent**
 - 因此：
   - 不進互動 chatbot path
-  - 不建立/復用互動 chatbot session
-  - 不寫入互動用 context buffer
+  - 不對外回話
 
 若該 binding 同時有 `observation.capture`，則 message 只進 observation lane。
 若沒有 `observation.capture`，則 message 在完成必要 preprocessing / route bookkeeping 後終止，不再往下走。
-
-### 5. `addressed` 是比 `normal/trigger_only` 更穩的抽象
 
 - private/direct route：通常每句都可視為 addressed
 - group/shared route：依 mention / keyword / slash / 平台規則決定
@@ -124,9 +139,19 @@ observer vNext 要把目前「可用但抽象不穩」的 observer mode，重構
 - 在私聊 `addressed` 看起來像舊的 `normal`
 - 在群組 `addressed` 看起來像舊的 `trigger_only`
 
-### 6. 背景整理與互動回話是兩條 execution lane
+### 6. `none` 與 `interactive` 的語意
 
-- `reply_policy=addressed` 的互動回話，走 chatbot 的對話 session
+- `processing_policy=none`
+  - 不建立/復用互動 chatbot session
+  - 不進互動用 context buffer
+- `processing_policy=interactive`
+  - 允許 message 進入互動 chatbot path
+  - 允許建立/復用互動 chatbot session
+  - 互動 lane 的 session 僅服務 reply intent
+
+### 7. 背景整理與互動回話是兩條 execution lane
+
+- `processing_policy=interactive` 的互動回話，走 chatbot 的對話 session
 - `observation.capture` 的背景整理，走獨立的 observation worker session
 - 同一條 route 可以同時：
   - 對當前使用者訊息回話
@@ -153,7 +178,7 @@ observer vNext 要把目前「可用但抽象不穩」的 observer mode，重構
 
 - 直接復用互動 chatbot session 來做 observation summarize
 
-### 7. Message Hub 只有一份 inbound message，但要 fan-out 成不同 intent
+### 8. Message Hub 只有一份 inbound message，但要 fan-out 成不同 intent
 
 - inbound message 在 Hub 內只有一份 canonical input
 - 這份 canonical input 經過 preprocessing 與 binding 判定後，可同時導出：
@@ -237,8 +262,15 @@ observation_profiles:
 
 最小列舉值：
 
-- `silent`
+- `never`
 - `addressed`
+
+### `binding.processing_policy`
+
+最小列舉值：
+
+- `none`
+- `interactive`
 
 ### `binding.observation`
 
@@ -277,7 +309,8 @@ bindings:
       platform: "line:shinyipaint"
       group_id: "C0069917b022d280805149bf9a8709453"
     chatbot: "shinyipaint"
-    reply_policy: "silent"
+    reply_policy: "never"
+    processing_policy: "none"
     observation:
       capture:
         group: "shinyipaint_ops"
@@ -288,6 +321,7 @@ bindings:
       group_id: "Ceead1a4ba637518e00059ac73ba2cd8a"
     chatbot: "shinyipaint"
     reply_policy: "addressed"
+    processing_policy: "interactive"
     observation:
       capture:
         group: "shinyipaint_ops"
@@ -300,6 +334,7 @@ bindings:
       user_id: "Ufc68d77c84b42995d970dc6639da4316"
     chatbot: "shinyipaint-admin"
     reply_policy: "addressed"
+    processing_policy: "interactive"
     observation:
       consume:
         - "shinyipaint_ops"
@@ -310,7 +345,7 @@ bindings:
 ### Capture path
 
 1. inbound route 命中 binding
-2. binding 決定 chatbot + `reply_policy`
+2. binding 決定 chatbot + `reply_policy` + `processing_policy`
 3. 若 binding 有 `observation.capture`
    - 這條 route 會成為某個 `route_group` 的 source route
    - Hub 從 canonical inbound message 派生 observation intent
@@ -319,26 +354,35 @@ bindings:
    - batch summarize 由獨立 observation worker session 處理
 4. observation 仍存到該 route 自己的 `route_id`
 
-### Silent route semantics
+### Reply / Processing semantics
 
-當 `reply_policy=silent`：
+當 `reply_policy=never`：
 
 - Hub 不產生 reply intent
+
+當 `processing_policy=none`：
+
 - 不進互動 busy gate / interaction context buffer
 - 不建立或喚醒互動 chatbot session
 
-接下來只分兩種：
+因此本輪至少有兩種明確組合：
 
-1. `silent + capture`
+1. `reply=never + processing=none + capture`
    - message 經 preprocessing 後，派生 observation intent
    - observation intent 進 observation buffer / capture queue
    - 達批次門檻後由 worker session summarize
 
-2. `silent + no capture`
+2. `reply=never + processing=none + no capture`
    - message 僅做必要 route bookkeeping / log
    - 不進 reply lane
    - 不進 observation lane
    - 視為 terminal drop
+
+當 `reply=addressed + processing=interactive`：
+
+- message 在 addressed 時進互動 chatbot path
+- 非 addressed 訊息不建立 reply intent
+- 若同時有 capture，仍可進 observation lane
 
 ### Consume path
 
@@ -371,8 +415,9 @@ group membership **不是靜態表**，而是 binding 推導結果：
 - 兩條 lane 可以共享 route_id、message metadata、file refs
 - 但不能共享同一個 buffer state
 
-如果 `reply_policy=silent`，則不發生 reply lane fan-out；
+如果 `reply_policy=never`，則不發生 reply lane fan-out；
 只有 observation lane 會被建立（若有 capture）。
+如果 `reply_policy=never` 或 `processing_policy=none` 導致互動 lane 不成立，也不應補建互動 session。
 
 ## Migration Strategy
 
@@ -392,6 +437,7 @@ group membership **不是靜態表**，而是 binding 推導結果：
 - `route_groups`
 - `observation_profiles`
 - `binding.reply_policy`
+- `binding.processing_policy`
 - `binding.observation`
 
 ### Phase 2: runtime rewrite
@@ -399,7 +445,7 @@ group membership **不是靜態表**，而是 binding 推導結果：
 server wiring / observer registration / query path 直接改用新結構：
 
 - 觀察能力不再從 chatbot config 啟動
-- 改由 binding 上的 observation policy 啟動
+- 改由 binding 上的 reply/processing/observation policy 啟動
 - query identity 不再使用 source label
 
 ### Phase 3: query API cutover
@@ -426,8 +472,10 @@ reply 與 capture 的 session boundary 必須一次到位：
 ### Unit / integration
 
 - binding schema 能正確解析 `reply_policy` 與 `observation`
+- binding schema 能正確解析 `processing_policy`
 - `route_group` 不接受 `members`
 - `addressed` 在 private/group route 的判定語意正確
+- `never/none` 的 route 不建立互動 session
 - `capture` 與 `consume` membership 推導正確
 - `query_observations(group=...)` 能正確展開 source routes
 - observation summarize 明確走 worker session，不復用互動 chatbot session
@@ -437,13 +485,13 @@ reply 與 capture 的 session boundary 必須一次到位：
 
 至少補這三組：
 
-1. `silent` route
+1. `reply=never + processing=none + capture`
    - 不回話
    - 不建立互動 chatbot session
    - 仍會 capture
    - observation row 真的落 DB
 
-2. `addressed` route
+2. `reply=addressed + processing=interactive + capture`
    - 私聊：一般訊息可回
    - 群組：只有 addressed 訊息可回
    - 同時有 capture 時，回話與 summarize 仍走不同 session path
@@ -457,6 +505,7 @@ reply 與 capture 的 session boundary 必須一次到位：
 
 - 直接替換舊 observer config 代表 migration 必須一次到位
 - `addressed` 若沒有明確平台語意測試，可能在不同 adapter 上行為不一致
+- 若未把 reply 與 processing 視為獨立軸，後續引入 `shadow` 會再次打破抽象
 - 若太早把 `group` 擴成 ACL / onboarding / sync 中樞，scope 容易爆掉
 
 ## Open Questions
@@ -468,6 +517,7 @@ reply 與 capture 的 session boundary 必須一次到位：
    - 但實作不得把 `route_group` 結構寫死成無法擴充
 2. `follow/join` discovery onboarding 之後怎麼把 route attach 到預設 profile
 3. `smart` reply policy 何時引入，以及它與 `addressed` 的優先關係
+4. `shadow` processing policy 何時引入，以及它允許的 tool/side-effect 邊界
 
 ## Acceptance
 
@@ -475,5 +525,6 @@ reply 與 capture 的 session boundary 必須一次到位：
 
 - config schema 與 runtime semantics 沒有再混淆 `chatbot` 與 `binding`
 - `route_group` 被確認為一級配置，但不含 members
-- `reply_policy = silent | addressed` 被接受為本輪最小列舉
+- `reply_policy = never | addressed` 被接受為本輪最小列舉
+- `processing_policy = none | interactive` 被接受為本輪最小列舉
 - `binding.observation.capture.group/profile + consume[]` 被接受為本輪最小 schema
