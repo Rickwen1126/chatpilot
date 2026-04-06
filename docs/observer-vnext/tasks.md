@@ -109,7 +109,7 @@
 - [x] T026 [P] 跑 `uv run ruff check src/ tests/` 並修正 lint issues
 - [x] T027 跑 `uv run pytest tests/` 並修正 regression
 - [x] T028 跑 `bash tests/e2e/run_e2e.sh` 並確認 observer vNext 全鏈路正確
-- [ ] T029 依 milestone workflow 產生 codetour 與 review notes，更新 [docs/todo/20260403.md](/Users/rickwen/code/chatpilot/docs/todo/20260403.md) 或新當日 todo
+- [x] T029 依 milestone workflow 產生 codetour 與 review notes，更新 [docs/todo/20260403.md](/Users/rickwen/code/chatpilot/docs/todo/20260403.md) 或新當日 todo
 
 ---
 
