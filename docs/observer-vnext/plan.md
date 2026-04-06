@@ -30,6 +30,10 @@
   - group/shared route：mention / keyword / slash / 平台規則命中才 addressed
 - 不保留舊 observer config 並存；新 schema 一次替換
 - `route_group` 這輪保持薄，但實作不得把其結構寫死成只有 `description`
+- 互動回話與 observation summarize 必須是兩條分離 execution lane：
+  - chatbot reply 走互動 session
+  - observation capture/batch summarize 走獨立 worker session
+  - 不可共用同一 session context
 
 ## Implementation Plan
 
@@ -75,6 +79,9 @@
   - consumer routes：來自 `consume[]`
 - 保留 route-local observation storage：
   - batch summarize 仍存到 `memory_observations.route_id`
+- 建立 observation worker path：
+  - 由 profile 啟動獨立 summarize session
+  - 不復用互動 chatbot session
 - 移除舊 observer source map / chatbot name fallback
 
 完成條件：
@@ -92,6 +99,9 @@
   - 先套 binding
   - 依 `reply_policy` 決定是否可回話
   - 依 `observation.capture` 決定是否做 capture
+- 當同一路 route 同時有 `addressed` 回話與 `capture`：
+  - reply 與 summarize 可以由同一批 inbound message 觸發
+  - 但必須走不同 session path
 - `silent`：
   - 不進 chatbot reply path
   - 但仍可走 file/STT preprocessing，再進 capture
@@ -156,6 +166,9 @@
 - runtime membership：
   - source routes 推導正確
   - consumer routes 推導正確
+- session boundary：
+  - observation summarize 走 worker session
+  - reply path 不復用 summarize session
 - `addressed` 語意：
   - private route 視為 addressed
   - group route 依現有 mention/keyword/slash 判定
@@ -176,6 +189,7 @@
    - private route：一般訊息可回
    - group route：只有 addressed 訊息可回
    - 非 addressed 訊息若有 capture 仍會寫 observation
+   - reply 與 summarize log 可分別證明是不同 session path
 
 3. `consume -> group query`
    - source route 先寫 observation

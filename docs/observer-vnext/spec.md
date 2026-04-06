@@ -112,6 +112,35 @@ observer vNext 要把目前「可用但抽象不穩」的 observer mode，重構
 - 在私聊 `addressed` 看起來像舊的 `normal`
 - 在群組 `addressed` 看起來像舊的 `trigger_only`
 
+### 6. 背景整理與互動回話是兩條 execution lane
+
+- `reply_policy=addressed` 的互動回話，走 chatbot 的對話 session
+- `observation.capture` 的背景整理，走獨立的 observation worker session
+- 同一條 route 可以同時：
+  - 對當前使用者訊息回話
+  - 對同一批訊息做背景整理
+- 但這兩件事 **不能共用同一個 session context**
+
+理由：
+
+- 回話 session 需要維持互動上下文與工具使用狀態
+- 背景整理 session 需要套用 observation profile 的專用 instructions
+- 若共用同一 session，容易發生：
+  - context 汙染
+  - profile prompt 混入互動回話
+  - batch summarize 與即時回話互相干擾
+  - 長時間 session 技術性不穩定時更難隔離問題
+
+這裡強調的是 **execution context 分離**，不要求 observation worker 一定是長壽 session。
+本輪可接受：
+
+- 每次 batch capture 建立短生命週期 worker session
+- 或未來再優化成可重用的 observation worker session
+
+但不接受：
+
+- 直接復用互動 chatbot session 來做 observation summarize
+
 ## Config Model
 
 ### `route_groups`
@@ -249,6 +278,7 @@ bindings:
 3. 若 binding 有 `observation.capture`
    - 這條 route 會成為某個 `route_group` 的 source route
    - 依 profile 做 buffer / batch observe
+   - batch summarize 由獨立 observation worker session 處理
 4. observation 仍存到該 route 自己的 `route_id`
 
 ### Consume path
@@ -307,6 +337,15 @@ server wiring / observer registration / query path 直接改用新結構：
 - chatbot name fallback
 - 舊 observer source map UX
 
+### Phase 4: session boundary
+
+reply 與 capture 的 session boundary 必須一次到位：
+
+- 互動回話不得復用 observation worker session
+- observation summarize 不得復用互動 chatbot session
+- runtime 可共享同一條 route 的 storage/membership 視圖
+- 但不得共享同一個 session context
+
 ## Validation
 
 ### Unit / integration
@@ -316,6 +355,7 @@ server wiring / observer registration / query path 直接改用新結構：
 - `addressed` 在 private/group route 的判定語意正確
 - `capture` 與 `consume` membership 推導正確
 - `query_observations(group=...)` 能正確展開 source routes
+- observation summarize 明確走 worker session，不復用互動 chatbot session
 
 ### E2E
 
@@ -329,6 +369,7 @@ server wiring / observer registration / query path 直接改用新結構：
 2. `addressed` route
    - 私聊：一般訊息可回
    - 群組：只有 addressed 訊息可回
+   - 同時有 capture 時，回話與 summarize 仍走不同 session path
 
 3. `capture + consume -> group query`
    - source route observation 寫入 route-local DB
