@@ -25,6 +25,11 @@
 - `reply_policy` 本輪只支援：
   - `silent`
   - `addressed`
+- `silent` 的語意是：
+  - 不建立 reply intent
+  - 不進互動 chatbot path
+  - 不建立/復用互動 chatbot session
+  - 不是「先跑 chatbot 再 suppress output」
 - `addressed` 的判定語意沿用現有 adapter/hub addressed 規則：
   - private/direct route：通常每句都 addressed
   - group/shared route：mention / keyword / slash / 平台規則命中才 addressed
@@ -113,8 +118,11 @@
   - 但必須先 fan-out 成不同 intent
   - 並走不同 buffer / session path
 - `silent`：
+  - 不產生 reply intent
   - 不進 chatbot reply path
+  - 不建立/復用互動 chatbot session
   - 但仍可走 file/STT preprocessing，再進 capture
+  - 若沒有 capture，則在 bookkeeping/log 後 terminal drop
 - `addressed`：
   - 只在 addressed 時進 chatbot
   - 非 addressed 訊息仍可 capture（若 binding 有設定）
@@ -195,8 +203,15 @@
 
 1. `silent + capture`
    - 不回話
+   - 不建立互動 chatbot session
    - 仍會寫 observation row
    - DB 有 route-local observation
+
+1b. `silent + no capture`
+   - 不回話
+   - 不建立互動 chatbot session
+   - 不寫 observation
+   - 僅留下必要 route bookkeeping/log
 
 2. `addressed + capture`
    - private route：一般訊息可回

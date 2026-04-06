@@ -102,6 +102,18 @@ observer vNext 要把目前「可用但抽象不穩」的 observer mode，重構
 
 `smart` 保留 future，不進這輪實作。
 
+`silent` 的語意要特別定死：
+
+- `silent` 不是「chatbot 照常工作但最後不輸出」
+- `silent` 是 **不建立 reply intent**
+- 因此：
+  - 不進互動 chatbot path
+  - 不建立/復用互動 chatbot session
+  - 不寫入互動用 context buffer
+
+若該 binding 同時有 `observation.capture`，則 message 只進 observation lane。
+若沒有 `observation.capture`，則 message 在完成必要 preprocessing / route bookkeeping 後終止，不再往下走。
+
 ### 5. `addressed` 是比 `normal/trigger_only` 更穩的抽象
 
 - private/direct route：通常每句都可視為 addressed
@@ -307,6 +319,27 @@ bindings:
    - batch summarize 由獨立 observation worker session 處理
 4. observation 仍存到該 route 自己的 `route_id`
 
+### Silent route semantics
+
+當 `reply_policy=silent`：
+
+- Hub 不產生 reply intent
+- 不進互動 busy gate / interaction context buffer
+- 不建立或喚醒互動 chatbot session
+
+接下來只分兩種：
+
+1. `silent + capture`
+   - message 經 preprocessing 後，派生 observation intent
+   - observation intent 進 observation buffer / capture queue
+   - 達批次門檻後由 worker session summarize
+
+2. `silent + no capture`
+   - message 僅做必要 route bookkeeping / log
+   - 不進 reply lane
+   - 不進 observation lane
+   - 視為 terminal drop
+
 ### Consume path
 
 1. chatbot 在某條 route 被 addressed
@@ -337,6 +370,9 @@ group membership **不是靜態表**，而是 binding 推導結果：
 - observation intent 走 observation buffer / worker session
 - 兩條 lane 可以共享 route_id、message metadata、file refs
 - 但不能共享同一個 buffer state
+
+如果 `reply_policy=silent`，則不發生 reply lane fan-out；
+只有 observation lane 會被建立（若有 capture）。
 
 ## Migration Strategy
 
@@ -403,6 +439,7 @@ reply 與 capture 的 session boundary 必須一次到位：
 
 1. `silent` route
    - 不回話
+   - 不建立互動 chatbot session
    - 仍會 capture
    - observation row 真的落 DB
 
