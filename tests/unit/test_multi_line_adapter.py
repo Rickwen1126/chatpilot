@@ -9,7 +9,7 @@ from fastapi import Request
 
 from chatpilot.adapters.line import adapter as line_adapter_module
 from chatpilot.adapters.line.adapter import LineAdapter
-from chatpilot.adapters.line.parser import parse_line_events
+from chatpilot.adapters.line.parser import parse_line_discovery_events, parse_line_events
 
 
 def _request(body: bytes = b"{}", headers: dict[str, str] | None = None) -> Request:
@@ -116,3 +116,36 @@ def test_parse_line_events_uses_named_platform_for_text_and_media_refs(monkeypat
     assert messages[1].text == "[圖片 ref:line:webric:img1]"
     assert messages[1].source_handles[0].route_id == "line:webric:C456"
     assert messages[1].source_handles[0].native_locator == "img1"
+
+
+def test_parse_line_discovery_events_uses_named_platform_for_follow_and_join(monkeypatch):
+    class FakeFollowEvent:
+        def __init__(self, source, reply_token="reply-follow", timestamp=1000):
+            self.source = source
+            self.reply_token = reply_token
+            self.timestamp = timestamp
+
+    class FakeJoinEvent:
+        def __init__(self, source, reply_token="reply-join", timestamp=2000):
+            self.source = source
+            self.reply_token = reply_token
+            self.timestamp = timestamp
+
+    monkeypatch.setattr("chatpilot.adapters.line.parser.FollowEvent", FakeFollowEvent)
+    monkeypatch.setattr("chatpilot.adapters.line.parser.JoinEvent", FakeJoinEvent)
+
+    follow_source = SimpleNamespace(user_id="U123")
+    join_source = SimpleNamespace(user_id="U999", group_id="C456")
+
+    events = [
+        FakeFollowEvent(source=follow_source),
+        FakeJoinEvent(source=join_source),
+    ]
+
+    discovery = parse_line_discovery_events(events, platform="line:webric")
+
+    assert [event.route_id for event in discovery] == [
+        "line:webric:U123",
+        "line:webric:C456",
+    ]
+    assert [event.discovery_type for event in discovery] == ["follow", "join"]

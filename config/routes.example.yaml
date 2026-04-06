@@ -3,6 +3,12 @@
 
 timezone: "Asia/Taipei"
 
+adapters:
+  line:
+    - name: demo
+      channel_secret_env: DEMO_LINE_CHANNEL_SECRET
+      channel_token_env: DEMO_LINE_CHANNEL_ACCESS_TOKEN
+
 trigger_keywords: ["bot"]
 
 match_weights:
@@ -22,6 +28,38 @@ observation_profiles:
       Summarize operational knowledge from the source route.
       Ignore pure chit-chat and keep only reusable background knowledge.
     categories: [leave, inventory, shipping]
+
+discovery_profiles:
+  default_group_safe:
+    chatbot: buddy
+    reply_policy: never
+    processing_policy: none
+
+  ops_observer:
+    chatbot: my-observer
+    reply_policy: never
+    processing_policy: none
+    observation:
+      capture:
+        group: ops
+        profile: ops_batch
+
+  default_private_cheap:
+    chatbot: buddy
+    reply_policy: addressed
+    processing_policy: interactive
+
+discovery_rules:
+  - platform: line:demo
+    route_type: group
+    label_keywords: ["營運", "倉庫", "油漆"]
+    profile: ops_observer
+  - platform: line:demo
+    route_type: group
+    profile: default_group_safe
+  - platform: line:demo
+    route_type: user
+    profile: default_private_cheap
 
 bindings:
   # Observer: silently collects messages, never responds
@@ -44,7 +82,7 @@ bindings:
         profile: ops_batch
       consume: [ops]
   # Platform default
-  - match: { platform: "line" }
+  - match: { platform: "line:demo" }
     chatbot: buddy
   # Catch-all
   - chatbot: buddy

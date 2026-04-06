@@ -1,7 +1,10 @@
 """Tests for binding router."""
 
-from chatpilot.core.types import Binding, MatchWeights, Message
+from datetime import datetime, timezone
+
+from chatpilot.core.types import Binding, MatchWeights, Message, RouteOnboardingState
 from chatpilot.routing.binding import calculate_score
+from chatpilot.routing.onboarding import RouteOnboardingRegistry
 from chatpilot.routing.router import BindingRouter
 
 
@@ -62,3 +65,32 @@ def test_router_resolve_no_match():
     router = BindingRouter(bindings, MatchWeights())
     route = router.resolve(_msg())
     assert route is None
+
+
+def test_router_prefers_onboarding_state_over_static_binding():
+    registry = RouteOnboardingRegistry()
+    registry.register(
+        RouteOnboardingState(
+            route_id="line:g1",
+            platform="line",
+            conversation_id="g1",
+            route_type="group",
+            chatbot="onboarded",
+            reply_policy="never",
+            processing_policy="none",
+            observation=None,
+            profile_name="default_group",
+            discovery_type="join",
+            discovered_at=datetime(2026, 4, 7, tzinfo=timezone.utc),
+        )
+    )
+    bindings = [
+        Binding(match={"platform": "line", "group_id": "g1"}, chatbot="static"),
+    ]
+    router = BindingRouter(bindings, MatchWeights(), onboarding_registry=registry)
+
+    route = router.resolve(_msg(group_id="g1"))
+
+    assert route is not None
+    assert route.chatbot_name == "onboarded"
+    assert route.binding_score == 10_000

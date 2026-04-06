@@ -27,6 +27,7 @@ from chatpilot.memory.store import SqliteMemoryStore as MemoryStore
 from chatpilot.pipeline.executor import PipelineExecutor
 from chatpilot.pipeline.samples.browser import BrowserPipeline
 from chatpilot.pipeline.samples.echo import EchoPipeline
+from chatpilot.routing.onboarding import RouteOnboardingRegistry
 from chatpilot.routing.router import BindingRouter
 from chatpilot.scheduler.runner import RunnerPool
 from chatpilot.scheduler.scheduler import InMemoryTaskScheduler
@@ -124,6 +125,58 @@ def _refresh_observer_state(
     hub.clear_route_policies()
     observation_groups.clear()
 
+    def _apply_route_runtime_policy(
+        *,
+        route_id: str,
+        platform: str,
+        reply_policy: str,
+        processing_policy: str,
+        observation,
+    ) -> None:
+        capture = observation.capture if observation is not None else None
+        consume = observation.consume if observation is not None else []
+        hub.register_route_policy(
+            route_id,
+            reply_policy=reply_policy,
+            processing_policy=processing_policy,
+            capture_enabled=capture is not None,
+        )
+
+        def _ensure_group(name: str) -> dict[str, list[str]]:
+            return observation_groups.setdefault(
+                name,
+                {
+                    "source_route_ids": [],
+                    "consumer_route_ids": [],
+                },
+            )
+
+        for group in consume:
+            state = _ensure_group(group)
+            if route_id not in state["consumer_route_ids"]:
+                state["consumer_route_ids"].append(route_id)
+
+        if capture is None:
+            return
+
+        profile = config.observation_profiles.get(capture.profile)
+        if profile is None:
+            logger.warning(
+                "Observer capture profile missing for group=%s profile=%s",
+                capture.group, capture.profile,
+            )
+            return
+
+        state = _ensure_group(capture.group)
+        hub.register_capture(
+            route_id,
+            batch_size=profile.batch_size,
+            categories=profile.categories,
+        )
+        if _is_queryable_observer_platform(platform):
+            if route_id not in state["source_route_ids"]:
+                state["source_route_ids"].append(route_id)
+
     for binding in config.bindings:
         gid = binding.match.get("group_id", "")
         uid = binding.match.get("user_id", "")
@@ -138,65 +191,73 @@ def _refresh_observer_state(
             platforms = list(adapters)
 
         obs = binding.observation
-        capture = obs.capture if obs is not None else None
-        consume = obs.consume if obs is not None else []
-
-        # Register group memberships first; source routes are only those that
-        # actually capture in the current runtime phase.
-        def _ensure_group(name: str) -> dict[str, list[str]]:
-            return observation_groups.setdefault(
-                name,
-                {
-                    "source_route_ids": [],
-                    "consumer_route_ids": [],
-                },
-            )
-
-        for group in consume:
-            state = _ensure_group(group)
-            for platform in platforms:
-                route_id = f"{platform}:{cid}"
-                hub.register_route_policy(
-                    route_id,
-                    reply_policy=binding.reply_policy,
-                    processing_policy=binding.processing_policy,
-                    capture_enabled=capture is not None,
-                )
-                if route_id not in state["consumer_route_ids"]:
-                    state["consumer_route_ids"].append(route_id)
-
-        if not consume:
-            for platform in platforms:
-                route_id = f"{platform}:{cid}"
-                hub.register_route_policy(
-                    route_id,
-                    reply_policy=binding.reply_policy,
-                    processing_policy=binding.processing_policy,
-                    capture_enabled=capture is not None,
-                )
-
-        if capture is None:
-            continue
-
-        profile = config.observation_profiles.get(capture.profile)
-        if profile is None:
-            logger.warning(
-                "Observer capture profile missing for group=%s profile=%s",
-                capture.group, capture.profile,
-            )
-            continue
-
-        state = _ensure_group(capture.group)
         for platform in platforms:
             route_id = f"{platform}:{cid}"
-            hub.register_capture(
-                route_id,
-                batch_size=profile.batch_size,
-                categories=profile.categories,
+            _apply_route_runtime_policy(
+                route_id=route_id,
+                platform=platform,
+                reply_policy=binding.reply_policy,
+                processing_policy=binding.processing_policy,
+                observation=obs,
             )
-            if _is_queryable_observer_platform(platform):
-                if route_id not in state["source_route_ids"]:
-                    state["source_route_ids"].append(route_id)
+
+
+def _apply_onboarding_state(
+    *,
+    hub: InMemoryMessageHub,
+    config: GatewayConfig,
+    observation_groups: dict[str, dict],
+    route_id: str,
+    platform: str,
+    reply_policy: str,
+    processing_policy: str,
+    observation,
+) -> None:
+    capture = observation.capture if observation is not None else None
+    consume = observation.consume if observation is not None else []
+    hub.register_route_policy(
+        route_id,
+        reply_policy=reply_policy,
+        processing_policy=processing_policy,
+        capture_enabled=capture is not None,
+    )
+
+    def _ensure_group(name: str) -> dict[str, list[str]]:
+        return observation_groups.setdefault(
+            name,
+            {
+                "source_route_ids": [],
+                "consumer_route_ids": [],
+            },
+        )
+
+    for group in consume:
+        state = _ensure_group(group)
+        if route_id not in state["consumer_route_ids"]:
+            state["consumer_route_ids"].append(route_id)
+
+    if capture is None:
+        return
+
+    profile = config.observation_profiles.get(capture.profile)
+    if profile is None:
+        logger.warning(
+            "Onboarding capture profile missing for route=%s group=%s profile=%s",
+            route_id,
+            capture.group,
+            capture.profile,
+        )
+        return
+
+    state = _ensure_group(capture.group)
+    hub.register_capture(
+        route_id,
+        batch_size=profile.batch_size,
+        categories=profile.categories,
+    )
+    if _is_queryable_observer_platform(platform):
+        if route_id not in state["source_route_ids"]:
+            state["source_route_ids"].append(route_id)
 
 
 def _init_hub(
@@ -539,7 +600,12 @@ async def lifespan(app: FastAPI):
         )
 
     # Routing + chatbot
-    binding_router = BindingRouter(config.bindings, config.match_weights)
+    route_onboarding_registry = RouteOnboardingRegistry()
+    binding_router = BindingRouter(
+        config.bindings,
+        config.match_weights,
+        onboarding_registry=route_onboarding_registry,
+    )
     chatbot_manager = ChatbotManager(
         sdk_client,
         config.chatbots,
@@ -586,6 +652,8 @@ async def lifespan(app: FastAPI):
     app.state.chatbot_manager = chatbot_manager
     app.state.binding_router = binding_router
     app.state.session_context_registry = session_context_registry
+    app.state.route_onboarding_registry = route_onboarding_registry
+    app.state.config = config
 
     # Observer mode — register observer routes + batch callback
     observation_groups: dict[str, dict] = {}
@@ -767,12 +835,24 @@ async def lifespan(app: FastAPI):
         adapters.update(_init_adapters(new_config))
         binding_router.update(new_config.bindings, new_config.match_weights)
         chatbot_manager.update_configs(new_config.chatbots)
+        app.state.config = new_config
         _refresh_observer_state(
             hub=hub,
             adapters=adapters,
             config=new_config,
             observation_groups=observation_groups,
         )
+        for state in route_onboarding_registry.list_states():
+            _apply_onboarding_state(
+                hub=hub,
+                config=new_config,
+                observation_groups=observation_groups,
+                route_id=state.route_id,
+                platform=state.platform,
+                reply_policy=state.reply_policy,
+                processing_policy=state.processing_policy,
+                observation=state.observation,
+            )
         # Rebuild config keyword cache (DB cache untouched)
         configure_keywords(new_config.trigger_keywords)
         configure_auto_triggers({

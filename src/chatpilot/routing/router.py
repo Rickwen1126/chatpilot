@@ -6,6 +6,7 @@ import logging
 
 from chatpilot.core.types import Binding, ChatRoute, MatchWeights, Message
 from chatpilot.routing.binding import NO_MATCH, calculate_score
+from chatpilot.routing.onboarding import RouteOnboardingRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -17,9 +18,11 @@ class BindingRouter:
         self,
         bindings: list[Binding],
         weights: MatchWeights,
+        onboarding_registry: RouteOnboardingRegistry | None = None,
     ) -> None:
         self._bindings = bindings
         self._weights = weights
+        self._onboarding_registry = onboarding_registry
 
     def update(self, bindings: list[Binding], weights: MatchWeights) -> None:
         self._bindings = bindings
@@ -30,6 +33,18 @@ class BindingRouter:
 
         Returns None if no binding matches (not even a default).
         """
+        route_id = f"{message.platform}:{message.conversation_id}"
+        if self._onboarding_registry is not None:
+            state = self._onboarding_registry.resolve(route_id)
+            if state is not None:
+                return ChatRoute(
+                    route_id=route_id,
+                    chatbot_name=state.chatbot,
+                    platform=message.platform,
+                    conversation_id=message.conversation_id,
+                    binding_score=10_000,
+                )
+
         best_binding: Binding | None = None
         best_score = NO_MATCH
 
@@ -44,7 +59,6 @@ class BindingRouter:
         if best_binding is None:
             return None
 
-        route_id = f"{message.platform}:{message.conversation_id}"
         return ChatRoute(
             route_id=route_id,
             chatbot_name=best_binding.chatbot,

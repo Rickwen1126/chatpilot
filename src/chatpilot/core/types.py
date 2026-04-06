@@ -67,6 +67,23 @@ class Message(BaseModel):
         return v
 
 
+class DiscoveryEvent(BaseModel):
+    """Pre-message route discovery event from a platform webhook."""
+
+    discovery_type: Literal["follow", "join"]
+    route_type: Literal["user", "group"]
+    platform: str
+    conversation_id: str
+    timestamp: datetime = Field(
+        default_factory=lambda: TimeService.get().utc_now()
+    )
+    platform_context: dict[str, Any] = Field(default_factory=dict)
+
+    @property
+    def route_id(self) -> str:
+        return f"{self.platform}:{self.conversation_id}"
+
+
 class Attachment(BaseModel):
     """File or image attachment."""
 
@@ -194,6 +211,75 @@ class ObservationConfig(BaseModel):
 
     capture: ObservationCaptureConfig | None = None
     consume: list[str] = Field(default_factory=list)
+
+
+class DiscoveryProfileConfig(BaseModel):
+    """Route onboarding policy template applied at discovery time."""
+
+    chatbot: str
+    reply_policy: Literal["never", "addressed"] = "addressed"
+    processing_policy: Literal["none", "interactive"] = "interactive"
+    observation: ObservationConfig | None = None
+
+    @model_validator(mode="after")
+    def validate_policy_combination(self) -> DiscoveryProfileConfig:
+        if (
+            self.reply_policy == "never"
+            and self.processing_policy != "none"
+        ):
+            raise ValueError(
+                "discovery_profile reply_policy=never must be paired with "
+                "processing_policy=none"
+            )
+        if (
+            self.reply_policy == "addressed"
+            and self.processing_policy != "interactive"
+        ):
+            raise ValueError(
+                "discovery_profile reply_policy=addressed must be paired with "
+                "processing_policy=interactive"
+            )
+        return self
+
+
+class DiscoveryRuleConfig(BaseModel):
+    """Rule that selects a discovery profile for a newly discovered route."""
+
+    platform: str | None = None
+    route_type: Literal["group", "user"]
+    group_id: str | None = None
+    user_id: str | None = None
+    label_keywords: list[str] = Field(default_factory=list)
+    profile: str
+
+    @model_validator(mode="after")
+    def validate_route_match_fields(self) -> DiscoveryRuleConfig:
+        if self.route_type == "group" and self.user_id:
+            raise ValueError(
+                "discovery_rule route_type=group must not define user_id"
+            )
+        if self.route_type == "user" and self.group_id:
+            raise ValueError(
+                "discovery_rule route_type=user must not define group_id"
+            )
+        return self
+
+
+class RouteOnboardingState(BaseModel):
+    """Materialized runtime route policy produced by discovery onboarding."""
+
+    route_id: str
+    platform: str
+    conversation_id: str
+    route_type: Literal["group", "user"]
+    chatbot: str
+    reply_policy: Literal["never", "addressed"]
+    processing_policy: Literal["none", "interactive"]
+    observation: ObservationConfig | None = None
+    label: str | None = None
+    profile_name: str | None = None
+    discovery_type: Literal["follow", "join"]
+    discovered_at: datetime
 
 
 # ── Config ────────────────────────────────────────────────────────────

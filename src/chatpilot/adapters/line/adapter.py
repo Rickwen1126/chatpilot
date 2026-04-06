@@ -21,10 +21,13 @@ from linebot.v3.messaging import (
     TextMessage,
 )
 
-from chatpilot.adapters.line.parser import parse_line_events
+from chatpilot.adapters.line.parser import (
+    parse_line_discovery_events,
+    parse_line_events,
+)
 from chatpilot.core.errors import AdapterError
 from chatpilot.core.time_service import TimeService
-from chatpilot.core.types import Message, Response
+from chatpilot.core.types import DiscoveryEvent, Message, Response
 from chatpilot.files.models import SourceFetchResult, SourceHandleInput
 
 logger = logging.getLogger(__name__)
@@ -143,6 +146,39 @@ class LineAdapter:
         except Exception as e:
             logger.error("LINE parse error: %s", e)
             return []
+
+    async def parse_discovery_events(self, request: Request) -> list[DiscoveryEvent]:
+        self._log_legacy_mode("parse_discovery_events")
+        if self._parser is None:
+            return []
+        body = await request.body()
+        signature = request.headers.get("X-Line-Signature", "")
+        try:
+            events = self._parser.parse(body.decode("utf-8"), signature)
+            return parse_line_discovery_events(events, platform=self.platform)
+        except Exception as e:
+            logger.error("LINE discovery parse error: %s", e)
+            return []
+
+    def get_route_label(self, conversation_id: str) -> str | None:
+        if self._api is None:
+            return None
+        try:
+            if conversation_id.startswith("C"):
+                summary = self._api.get_group_summary(conversation_id)
+                count_resp = self._api.get_group_member_count(conversation_id)
+                count = getattr(count_resp, "count", count_resp)
+                return f"{summary.group_name}（{count}人）"
+            if conversation_id.startswith("U"):
+                profile = self._api.get_profile(conversation_id)
+                return f"{profile.display_name}（私訊）"
+        except Exception as e:
+            logger.warning(
+                "LINE route label lookup failed for %s: %s",
+                conversation_id,
+                e,
+            )
+        return None
 
     async def send_reply(self, message: Message, response: Response) -> None:
         """Reply to a message. Falls back to push if reply token expired or text is long."""

@@ -17,6 +17,8 @@ from chatpilot.core.types import (
     Binding,
     ChatbotConfig,
     CronSchedulerConfig,
+    DiscoveryProfileConfig,
+    DiscoveryRuleConfig,
     MatchWeights,
     ObservationProfileConfig,
     RouteGroupConfig,
@@ -33,6 +35,8 @@ class GatewayConfig(BaseModel):
     observation_profiles: dict[str, ObservationProfileConfig] = Field(
         default_factory=dict
     )
+    discovery_profiles: dict[str, DiscoveryProfileConfig] = Field(default_factory=dict)
+    discovery_rules: list[DiscoveryRuleConfig] = Field(default_factory=list)
     bindings: list[Binding] = Field(default_factory=list)
     chatbots: dict[str, ChatbotConfig] = Field(default_factory=dict)
     agents: dict[str, AgentConfig] = Field(default_factory=dict)
@@ -43,6 +47,39 @@ class GatewayConfig(BaseModel):
 
     @model_validator(mode="after")
     def validate_observer_vnext_refs(self) -> GatewayConfig:
+        for profile_name, profile in self.discovery_profiles.items():
+            if profile.chatbot not in self.chatbots:
+                raise ValueError(
+                    f"discovery_profile '{profile_name}' references unknown "
+                    f"chatbot '{profile.chatbot}'"
+                )
+            obs = profile.observation
+            if obs is None:
+                continue
+            if obs.capture is not None:
+                if obs.capture.group not in self.route_groups:
+                    raise ValueError(
+                        "discovery_profile observation.capture.group references "
+                        f"unknown route_group '{obs.capture.group}'"
+                    )
+                if obs.capture.profile not in self.observation_profiles:
+                    raise ValueError(
+                        "discovery_profile observation.capture.profile references "
+                        f"unknown observation_profile '{obs.capture.profile}'"
+                    )
+            for group in obs.consume:
+                if group not in self.route_groups:
+                    raise ValueError(
+                        "discovery_profile observation.consume references "
+                        f"unknown route_group '{group}'"
+                    )
+
+        for rule in self.discovery_rules:
+            if rule.profile not in self.discovery_profiles:
+                raise ValueError(
+                    f"discovery_rule references unknown profile '{rule.profile}'"
+                )
+
         for binding in self.bindings:
             obs = binding.observation
             if obs is None:

@@ -7,7 +7,9 @@ import logging
 from linebot.v3.webhooks import (
     AudioMessageContent,
     FileMessageContent,
+    FollowEvent,
     ImageMessageContent,
+    JoinEvent,
     MessageEvent,
     TextMessageContent,
     UserMentionee,
@@ -15,7 +17,7 @@ from linebot.v3.webhooks import (
 )
 
 from chatpilot.core.time_service import TimeService
-from chatpilot.core.types import Message
+from chatpilot.core.types import DiscoveryEvent, Message
 from chatpilot.files.models import FileKind, SourceHandleInput
 
 logger = logging.getLogger(__name__)
@@ -226,3 +228,65 @@ def parse_line_events(events: list, platform: str = "line") -> list[Message]:
             messages.append(msg)
 
     return messages
+
+
+def parse_line_discovery_events(
+    events: list,
+    platform: str = "line",
+) -> list[DiscoveryEvent]:
+    """Parse LINE webhook follow/join events into discovery events."""
+    if platform == "line":
+        logger.error(
+            "Legacy unnamed LINE platform emitted by parse_line_discovery_events. "
+            "Expected named platform key such as line:webric."
+        )
+
+    discoveries: list[DiscoveryEvent] = []
+    ts = TimeService.get()
+    received_at = ts.utc_now()
+
+    for event in events:
+        if isinstance(event, FollowEvent):
+            source = event.source
+            user_id = source.user_id if hasattr(source, "user_id") else ""
+            if not user_id:
+                continue
+            event_ts = ts.from_epoch_ms(event.timestamp) if event.timestamp else received_at
+            discoveries.append(
+                DiscoveryEvent(
+                    discovery_type="follow",
+                    route_type="user",
+                    platform=platform,
+                    conversation_id=user_id,
+                    timestamp=event_ts,
+                    platform_context={
+                        "reply_token": event.reply_token,
+                        "received_at": received_at.isoformat(),
+                    },
+                )
+            )
+        elif isinstance(event, JoinEvent):
+            source = event.source
+            group_id: str | None = None
+            if hasattr(source, "group_id") and source.group_id:
+                group_id = source.group_id
+            elif hasattr(source, "room_id") and source.room_id:
+                group_id = source.room_id
+            if not group_id:
+                continue
+            event_ts = ts.from_epoch_ms(event.timestamp) if event.timestamp else received_at
+            discoveries.append(
+                DiscoveryEvent(
+                    discovery_type="join",
+                    route_type="group",
+                    platform=platform,
+                    conversation_id=group_id,
+                    timestamp=event_ts,
+                    platform_context={
+                        "reply_token": event.reply_token,
+                        "received_at": received_at.isoformat(),
+                    },
+                )
+            )
+
+    return discoveries

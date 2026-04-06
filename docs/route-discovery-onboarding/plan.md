@@ -1,5 +1,14 @@
 # Route Discovery Onboarding Plan
 
+## Status
+
+Implemented on 2026-04-07.
+
+Validation baseline:
+- `uv run ruff check src/ tests/`
+- `uv run pytest tests/` → `210 passed`
+- `bash tests/e2e/run_e2e.sh` → `65 passed / 0 failed`
+
 ## Goal
 
 把 LINE route discovery 從「收到第一則訊息才知道 route」改成：

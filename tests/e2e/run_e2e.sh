@@ -20,10 +20,23 @@ CLI_TIMEOUT=60
 PASS=0
 FAIL=0
 USER="e2e-$(date +%s)"
+LINE_E2E_SECRET="${LINE_E2E_SECRET:-e2e-line-secret}"
+LINE_E2E_TOKEN="${LINE_E2E_TOKEN:-e2e-line-token}"
+DISCOVERY_SUFFIX="$(python3 - <<'PY'
+import uuid
+print(uuid.uuid4().hex)
+PY
+)"
+DISCOVERY_GROUP_ID="C$DISCOVERY_SUFFIX"
+DISCOVERY_GROUP_ROUTE="line:demo:$DISCOVERY_GROUP_ID"
+DISCOVERY_USER_ID="U$DISCOVERY_SUFFIX"
+DISCOVERY_USER_ROUTE="line:demo:$DISCOVERY_USER_ID"
 
 # Observer/chatbot IDs from routes.example.yaml
 OBS_ROUTE="Ua1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4"
+OBS_ROUTE_ID="line:demo:$OBS_ROUTE"
 ASSISTANT_GROUP="Ca1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4"
+ASSISTANT_ROUTE_ID="line:demo:$ASSISTANT_GROUP"
 
 # ─── Helpers ─────────────────────────────────────────────────────
 green() { printf "\033[32m%s\033[0m\n" "$1"; }
@@ -41,6 +54,177 @@ mock_webhook() {
     curl -s -X POST "$BASE_URL/webhook/mock" \
         -H "Content-Type: application/json" \
         -d "$1"
+}
+
+line_signature() {
+    local body="$1"
+    LINE_BODY="$body" LINE_SECRET="$LINE_E2E_SECRET" python3 - <<'PY'
+import base64
+import hashlib
+import hmac
+import os
+
+print(
+    base64.b64encode(
+        hmac.new(
+            os.environ["LINE_SECRET"].encode("utf-8"),
+            os.environ["LINE_BODY"].encode("utf-8"),
+            hashlib.sha256,
+        ).digest()
+    ).decode("utf-8")
+)
+PY
+}
+
+line_signed_post_code() {
+    local body="$1"
+    local signature
+    signature=$(line_signature "$body")
+    curl -s -o /dev/null -w "%{http_code}" -X POST "$BASE_URL/webhook/line" \
+        -H "Content-Type: application/json" \
+        -H "X-Line-Signature: $signature" \
+        --data-binary "$body"
+}
+
+line_join_body() {
+    local group_id="$1"
+    LINE_GROUP_ID="$group_id" python3 - <<'PY'
+import json
+import os
+
+print(json.dumps({
+    "destination": "UdemoDestination",
+    "events": [{
+        "type": "join",
+        "timestamp": 1710000000000,
+        "source": {"type": "group", "groupId": os.environ["LINE_GROUP_ID"]},
+        "replyToken": "join-reply-token",
+        "mode": "active",
+        "webhookEventId": "01HJOIN",
+        "deliveryContext": {"isRedelivery": False},
+    }],
+}, separators=(",", ":")))
+PY
+}
+
+line_follow_body() {
+    local user_id="$1"
+    LINE_USER_ID="$user_id" python3 - <<'PY'
+import json
+import os
+
+print(json.dumps({
+    "destination": "UdemoDestination",
+    "events": [{
+        "type": "follow",
+        "timestamp": 1710000000000,
+        "source": {"type": "user", "userId": os.environ["LINE_USER_ID"]},
+        "replyToken": "follow-reply-token",
+        "follow": {"isUnblocked": False},
+        "mode": "active",
+        "webhookEventId": "01HFOLLOW",
+        "deliveryContext": {"isRedelivery": False},
+    }],
+}, separators=(",", ":")))
+PY
+}
+
+line_group_text_body() {
+    local group_id="$1" user_id="$2" text="$3" message_id="$4"
+    LINE_GROUP_ID="$group_id" LINE_USER_ID="$user_id" LINE_TEXT="$text" LINE_MESSAGE_ID="$message_id" python3 - <<'PY'
+import json
+import os
+
+print(json.dumps({
+    "destination": "UdemoDestination",
+    "events": [{
+        "type": "message",
+        "timestamp": 1710000000000,
+        "source": {
+            "type": "group",
+            "groupId": os.environ["LINE_GROUP_ID"],
+            "userId": os.environ["LINE_USER_ID"],
+        },
+        "replyToken": "message-reply-token",
+        "mode": "active",
+        "webhookEventId": "01HMSG-" + os.environ["LINE_MESSAGE_ID"],
+        "deliveryContext": {"isRedelivery": False},
+        "message": {
+            "id": os.environ["LINE_MESSAGE_ID"],
+            "type": "text",
+            "text": os.environ["LINE_TEXT"],
+            "quoteToken": "quote-token-group",
+        },
+    }],
+}, separators=(",", ":")))
+PY
+}
+
+line_private_text_body() {
+    local user_id="$1" text="$2" message_id="$3"
+    LINE_USER_ID="$user_id" LINE_TEXT="$text" LINE_MESSAGE_ID="$message_id" python3 - <<'PY'
+import json
+import os
+
+print(json.dumps({
+    "destination": "UdemoDestination",
+    "events": [{
+        "type": "message",
+        "timestamp": 1710000000000,
+        "source": {
+            "type": "user",
+            "userId": os.environ["LINE_USER_ID"],
+        },
+        "replyToken": "message-reply-token",
+        "mode": "active",
+        "webhookEventId": "01HPRIV-" + os.environ["LINE_MESSAGE_ID"],
+        "deliveryContext": {"isRedelivery": False},
+        "message": {
+            "id": os.environ["LINE_MESSAGE_ID"],
+            "type": "text",
+            "text": os.environ["LINE_TEXT"],
+            "quoteToken": "quote-token-private",
+        },
+    }],
+}, separators=(",", ":")))
+PY
+}
+
+cli_route_field() {
+    local route_id="$1" field="$2"
+    curl -s "$BASE_URL/cli/routes" | python3 -c '
+import json
+import sys
+
+payload = json.load(sys.stdin)
+route_id = sys.argv[1]
+field = sys.argv[2]
+for item in payload.get("routes", []):
+    if item.get("route_id") == route_id:
+        value = item.get(field)
+        if value is None:
+            print("")
+        elif isinstance(value, (dict, list)):
+            print(json.dumps(value, ensure_ascii=False, sort_keys=True))
+        else:
+            print(value)
+        raise SystemExit(0)
+raise SystemExit(1)
+' "$route_id" "$field"
+}
+
+wait_for_route_field() {
+    local route_id="$1" field="$2" expected="$3" timeout="${4:-20}" interval="${5:-1}"
+    local elapsed=0 value
+    while [ "$elapsed" -lt "$timeout" ]; do
+        value=$(cli_route_field "$route_id" "$field" 2>/dev/null || true)
+        if [ "$value" = "$expected" ]; then
+            return 0
+        fi
+        sleep "$interval"
+        elapsed=$((elapsed + interval))
+    done
+    return 1
 }
 
 # L2: assert tool was called in log
@@ -147,6 +331,8 @@ start_server() {
     CHATPILOT_FILES_DB="$E2E_FILES_DB" \
     CHATPILOT_FILE_ASSETS_DIR="$E2E_ASSETS_DIR" \
     CHATPILOT_TICK_INTERVAL="$TICK_INTERVAL" \
+    DEMO_LINE_CHANNEL_SECRET="$LINE_E2E_SECRET" \
+    DEMO_LINE_CHANNEL_ACCESS_TOKEN="$LINE_E2E_TOKEN" \
     uv run uvicorn chatpilot.server:create_app --factory \
         --port "$E2E_PORT" --host 0.0.0.0 > "$E2E_LOG" 2>&1 &
     E2E_PID=$!
@@ -215,6 +401,56 @@ header "Unknown Platform"
 CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$BASE_URL/webhook/slack" \
     -H "Content-Type: application/json" -d '{}')
 [ "$CODE" = "404" ] && pass "POST /webhook/slack 404 [L1]" || fail "expected 404 got $CODE"
+
+# ─── Route Discovery Onboarding [L1+L2+L3+L4] ───────────────────
+header "Route Discovery Onboarding"
+
+JOIN_CODE=$(line_signed_post_code "$(line_join_body "$DISCOVERY_GROUP_ID")")
+[ "$JOIN_CODE" = "200" ] && pass "LINE join discovery webhook 200 [L1]" || fail "LINE join discovery webhook $JOIN_CODE"
+if wait_for_log "\\[discovery\\] route=$DISCOVERY_GROUP_ROUTE type=join profile=default_group_safe" 15 1; then
+    pass "join discovery applied [L2: log]"
+else
+    fail "join discovery applied [L2: log missing]" "$DISCOVERY_GROUP_ROUTE"
+fi
+if wait_for_route_field "$DISCOVERY_GROUP_ROUTE" "discovered_profile" "default_group_safe" 15 1; then
+    pass "group discovered route visible [L3]"
+else
+    fail "group discovered route visible [L3]" "$DISCOVERY_GROUP_ROUTE"
+fi
+[ "$(cli_route_field "$DISCOVERY_GROUP_ROUTE" "reply_policy" 2>/dev/null)" = "never" ] \
+    && pass "group discovery reply_policy=never [L3]" \
+    || fail "group discovery reply_policy mismatch"
+[ "$(cli_route_field "$DISCOVERY_GROUP_ROUTE" "processing_policy" 2>/dev/null)" = "none" ] \
+    && pass "group discovery processing_policy=none [L3]" \
+    || fail "group discovery processing_policy mismatch"
+
+line_signed_post_code "$(line_group_text_body "$DISCOVERY_GROUP_ID" "Ubottrigger0000000000000000000001" "bot onboarding group ping" "msg-join-1")" > /dev/null
+sleep 3
+assert_log "group first message uses onboarding state" "\\[hub\\] $DISCOVERY_GROUP_ROUTE terminal drop (reply=never processing=none capture=False)"
+assert_log_absent "group first message no SDK send" "\\[SDK\\].*$DISCOVERY_GROUP_ROUTE.*sending"
+
+FOLLOW_CODE=$(line_signed_post_code "$(line_follow_body "$DISCOVERY_USER_ID")")
+[ "$FOLLOW_CODE" = "200" ] && pass "LINE follow discovery webhook 200 [L1]" || fail "LINE follow discovery webhook $FOLLOW_CODE"
+if wait_for_log "\\[discovery\\] route=$DISCOVERY_USER_ROUTE type=follow profile=default_private_cheap" 15 1; then
+    pass "follow discovery applied [L2: log]"
+else
+    fail "follow discovery applied [L2: log missing]" "$DISCOVERY_USER_ROUTE"
+fi
+if wait_for_route_field "$DISCOVERY_USER_ROUTE" "discovered_profile" "default_private_cheap" 15 1; then
+    pass "private discovered route visible [L3]"
+else
+    fail "private discovered route visible [L3]" "$DISCOVERY_USER_ROUTE"
+fi
+[ "$(cli_route_field "$DISCOVERY_USER_ROUTE" "reply_policy" 2>/dev/null)" = "addressed" ] \
+    && pass "private discovery reply_policy=addressed [L3]" \
+    || fail "private discovery reply_policy mismatch"
+[ "$(cli_route_field "$DISCOVERY_USER_ROUTE" "processing_policy" 2>/dev/null)" = "interactive" ] \
+    && pass "private discovery processing_policy=interactive [L3]" \
+    || fail "private discovery processing_policy mismatch"
+
+line_signed_post_code "$(line_private_text_body "$DISCOVERY_USER_ID" "你好 discovery private" "msg-follow-1")" > /dev/null
+sleep 12
+assert_log "private first message uses onboarding state" "\\[route\\] $DISCOVERY_USER_ROUTE → chatbot=buddy"
 
 # ─── Keyword Trigger [L2] ───────────────────────────────────────
 header "Keyword Trigger"
@@ -398,22 +634,22 @@ OBS_MSGS=(
 for msg_json in "${OBS_MSGS[@]}"; do
     uname=$(echo "$msg_json" | python3 -c "import sys,json; print(json.load(sys.stdin)['user_name'])")
     text=$(echo "$msg_json" | python3 -c "import sys,json; print(json.load(sys.stdin)['text'])")
-    mock_webhook "{\"text\": \"$text\", \"user_id\": \"$OBS_ROUTE\", \"user_name\": \"$uname\", \"platform\": \"line\", \"is_mention\": false}" > /dev/null
+    mock_webhook "{\"text\": \"$text\", \"user_id\": \"$OBS_ROUTE\", \"user_name\": \"$uname\", \"platform\": \"line:demo\", \"is_mention\": false}" > /dev/null
     sleep 0.2
 done
 
 # Wait for the observer LLM batch to fully finish and persist.
-if wait_for_log "\\[observer\\].*$OBS_ROUTE.*saved to DB" 90 2; then
+if wait_for_log "\\[observer\\].*$OBS_ROUTE_ID.*saved to DB" 90 2; then
     pass "observer batch persisted [L4: saved to DB log]"
 else
-    fail "observer batch persisted [L4: timeout]" "pattern: [observer] $OBS_ROUTE saved to DB"
+    fail "observer batch persisted [L4: timeout]" "pattern: [observer] $OBS_ROUTE_ID saved to DB"
 fi
 
 # L2: batch triggered
-assert_log "observer batch triggered" "\[observer\].*$OBS_ROUTE.*batch triggered"
+assert_log "observer batch triggered" "\[observer\].*$OBS_ROUTE_ID.*batch triggered"
 
 # L2: no chatbot response (no SDK sending for this route)
-assert_log_absent "observer silent (no SDK)" "\[SDK\].*$OBS_ROUTE.*sending"
+assert_log_absent "observer silent (no SDK)" "\[SDK\].*$OBS_ROUTE_ID.*sending"
 
 # L3: observations stored in DB
 if wait_for_db_count "$E2E_DB" \
@@ -437,15 +673,15 @@ fi
 header "Observer Silence (attack vectors)"
 
 # @mention
-mock_webhook "{\"text\": \"@bot hello\", \"user_id\": \"$OBS_ROUTE\", \"platform\": \"line\", \"is_mention\": true}" > /dev/null
+mock_webhook "{\"text\": \"@bot hello\", \"user_id\": \"$OBS_ROUTE\", \"platform\": \"line:demo\", \"is_mention\": true}" > /dev/null
 sleep 2
 # command
-mock_webhook "{\"text\": \"/chatbot list\", \"user_id\": \"$OBS_ROUTE\", \"platform\": \"line\", \"is_mention\": true}" > /dev/null
+mock_webhook "{\"text\": \"/chatbot list\", \"user_id\": \"$OBS_ROUTE\", \"platform\": \"line:demo\", \"is_mention\": true}" > /dev/null
 sleep 2
 # media
-mock_webhook "{\"text\": \"[圖片 ref:line:img123]\", \"user_id\": \"$OBS_ROUTE\", \"platform\": \"line\", \"is_mention\": true}" > /dev/null
+mock_webhook "{\"text\": \"[圖片 ref:line:demo:img123]\", \"user_id\": \"$OBS_ROUTE\", \"platform\": \"line:demo\", \"is_mention\": true}" > /dev/null
 sleep 2
-assert_log_absent "observer: @mention blocked" "\[SDK\].*$OBS_ROUTE.*sending"
+assert_log_absent "observer: @mention blocked" "\[SDK\].*$OBS_ROUTE_ID.*sending"
 pass "observer: all attacks blocked [L2]"
 
 # ─── Observer VNext: Addressed + Capture [L2+L3+L4] ─────────────
@@ -467,28 +703,28 @@ for msg_json in "${CAP_MSGS[@]}"; do
     uname=$(echo "$msg_json" | python3 -c "import sys,json; print(json.load(sys.stdin)['user_name'])")
     text=$(echo "$msg_json" | python3 -c "import sys,json; print(json.load(sys.stdin)['text'])")
     mention=$(echo "$msg_json" | python3 -c "import sys,json; print('true' if json.load(sys.stdin)['is_mention'] else 'false')")
-    mock_webhook "{\"text\": \"$text\", \"user_id\": \"cap-$uname\", \"user_name\": \"$uname\", \"group_id\": \"$ASSISTANT_GROUP\", \"platform\": \"line\", \"is_mention\": $mention}" > /dev/null
+    mock_webhook "{\"text\": \"$text\", \"user_id\": \"cap-$uname\", \"user_name\": \"$uname\", \"group_id\": \"$ASSISTANT_GROUP\", \"platform\": \"line:demo\", \"is_mention\": $mention}" > /dev/null
     sleep 0.2
 done
 
-if wait_for_log "\\[observer\\].*line:$ASSISTANT_GROUP.*saved to DB" 90 2; then
+if wait_for_log "\\[observer\\].*$ASSISTANT_ROUTE_ID.*saved to DB" 90 2; then
     pass "addressed route observation persisted [L4: saved to DB log]"
 else
-    fail "addressed route observation persisted [L4: timeout]" "pattern: [observer] line:$ASSISTANT_GROUP saved to DB"
+    fail "addressed route observation persisted [L4: timeout]" "pattern: [observer] $ASSISTANT_ROUTE_ID saved to DB"
 fi
-assert_log "addressed+capture fanout" "\\[hub\\] line:$ASSISTANT_GROUP fanout reply_intent=True observation_intent=True"
-assert_log "assistant reply lane session" "\\[Chatbot\\] my-assistant sending lane=reply session=line-${ASSISTANT_GROUP}__my-assistant"
-assert_log "assistant observation worker session" "\\[observer\\] line:$ASSISTANT_GROUP worker_session=observer-.* lane=observation"
+assert_log "addressed+capture fanout" "\\[hub\\] $ASSISTANT_ROUTE_ID fanout reply_intent=True observation_intent=True"
+assert_log "assistant reply lane session" "\\[Chatbot\\] my-assistant sending lane=reply session=line-demo-${ASSISTANT_GROUP}__my-assistant"
+assert_log "assistant observation worker session" "\\[observer\\] $ASSISTANT_ROUTE_ID worker_session=observer-.* lane=observation"
 assert_db_exists "addressed route observation in DB" \
-    "SELECT count(*) FROM memory_observations WHERE route_id='line:$ASSISTANT_GROUP'"
+    "SELECT count(*) FROM memory_observations WHERE route_id='$ASSISTANT_ROUTE_ID'"
 
 # ─── Observer Group Query [L2+L3] ───────────────────────────────
 header "Observer Group Query"
 
-mock_webhook "{\"text\": \"bot 請直接使用 query_observations 工具查詢 ops 群組過去 30 天請假紀錄，然後簡短回答\", \"user_id\": \"ops-admin\", \"group_id\": \"$ASSISTANT_GROUP\", \"platform\": \"line\", \"is_mention\": false}" > /dev/null
+mock_webhook "{\"text\": \"bot 請直接使用 query_observations 工具查詢 ops 群組過去 30 天請假紀錄，然後簡短回答\", \"user_id\": \"ops-admin\", \"group_id\": \"$ASSISTANT_GROUP\", \"platform\": \"line:demo\", \"is_mention\": false}" > /dev/null
 sleep 15
 assert_tool_called "group query tool called" "query_observations"
-assert_log "group query executed" "\\[query_obs\\] group=ops caller=line:$ASSISTANT_GROUP"
+assert_log "group query executed" "\\[query_obs\\] group=ops caller=$ASSISTANT_ROUTE_ID"
 
 # ─── TimeService [L4] ───────────────────────────────────────────
 header "TimeService Integration"

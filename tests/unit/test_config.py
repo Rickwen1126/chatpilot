@@ -128,6 +128,72 @@ chatbots:
         raise AssertionError("expected invalid policy combination error")
 
 
+def test_load_config_parses_discovery_profiles_and_rules(tmp_path):
+    path = tmp_path / "routes.yaml"
+    path.write_text(
+        """
+route_groups:
+  ops:
+    description: ops
+
+observation_profiles:
+  warehouse_ops:
+    mode: batch
+    batch_size: 10
+    instructions: capture ops
+
+discovery_profiles:
+  safe_group:
+    chatbot: buddy
+    reply_policy: never
+    processing_policy: none
+    observation:
+      capture:
+        group: ops
+        profile: warehouse_ops
+
+discovery_rules:
+  - platform: line:shinyipaint
+    route_type: group
+    label_keywords: ["信益"]
+    profile: safe_group
+
+chatbots:
+  buddy:
+    model: gpt-5.4-mini
+    system_message: test
+""".strip(),
+        encoding="utf-8",
+    )
+
+    config = load_config(path)
+
+    assert "safe_group" in config.discovery_profiles
+    assert config.discovery_rules[0].profile == "safe_group"
+    assert config.discovery_profiles["safe_group"].observation is not None
+
+
+def test_load_config_rejects_discovery_profile_unknown_chatbot(tmp_path):
+    path = tmp_path / "routes.yaml"
+    path.write_text(
+        """
+discovery_profiles:
+  safe_group:
+    chatbot: missing
+    reply_policy: never
+    processing_policy: none
+""".strip(),
+        encoding="utf-8",
+    )
+
+    try:
+        load_config(path)
+    except ValueError as exc:
+        assert "references unknown chatbot" in str(exc)
+    else:
+        raise AssertionError("expected invalid discovery profile chatbot error")
+
+
 def _write_tmp_config(content: str) -> str:
     from tempfile import NamedTemporaryFile
 
