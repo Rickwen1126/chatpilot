@@ -263,39 +263,41 @@ group membership **不是靜態表**，而是 binding 推導結果：
 
 ## Migration Strategy
 
-### Phase 1: dual config support
+### Phase 1: config schema replacement
 
-先支援新舊模式共存：
+這輪不保留舊 observer config。
 
-- 舊：
-  - `chatbot.observer_mode`
-  - `observer_batch_size`
-  - `observer_categories`
-  - `observer_allowed_consumers`
-- 新：
-  - `route_groups`
-  - `observation_profiles`
-  - `binding.reply_policy`
-  - `binding.observation`
+舊欄位：
 
-### Phase 2: runtime normalization
+- `chatbot.observer_mode`
+- `observer_batch_size`
+- `observer_categories`
+- `observer_allowed_consumers`
 
-在 config load / server wiring 時，把舊 observer config 正規化成新 runtime 結構，確保：
+直接由新 schema 取代：
 
-- 舊 config 仍可跑
-- 新 config 可直接驅動 vNext 行為
+- `route_groups`
+- `observation_profiles`
+- `binding.reply_policy`
+- `binding.observation`
 
-### Phase 3: query path migration
+### Phase 2: runtime rewrite
 
-`query_observations` 從：
+server wiring / observer registration / query path 直接改用新結構：
 
-- `source label`
+- 觀察能力不再從 chatbot config 啟動
+- 改由 binding 上的 observation policy 啟動
+- query identity 不再使用 source label
 
-逐步過渡到：
+### Phase 3: query API cutover
 
-- `group`
+`query_observations` 直接改為以 `group` 為 canonical API。
 
-在 migration 期間可以保留 source label alias，但 canonical path 應往 `group` 收斂。
+這輪不保留：
+
+- source label alias
+- chatbot name fallback
+- 舊 observer source map UX
 
 ## Validation
 
@@ -303,9 +305,9 @@ group membership **不是靜態表**，而是 binding 推導結果：
 
 - binding schema 能正確解析 `reply_policy` 與 `observation`
 - `route_group` 不接受 `members`
-- 舊 observer config 能被正規化成新 runtime state
 - `addressed` 在 private/group route 的判定語意正確
 - `capture` 與 `consume` membership 推導正確
+- `query_observations(group=...)` 能正確展開 source routes
 
 ### E2E
 
@@ -327,7 +329,7 @@ group membership **不是靜態表**，而是 binding 推導結果：
 
 ## Risks
 
-- 舊 observer config 與新 binding policy 並存期間，runtime normalization 容易出錯
+- 直接替換舊 observer config 代表 migration 必須一次到位
 - `addressed` 若沒有明確平台語意測試，可能在不同 adapter 上行為不一致
 - 若太早把 `group` 擴成 ACL / onboarding / sync 中樞，scope 容易爆掉
 
@@ -336,9 +338,8 @@ group membership **不是靜態表**，而是 binding 推導結果：
 這份 spec 刻意保留但不在本輪拍板：
 
 1. `route_group` 未來要不要帶 retention / sync metadata
-2. `query_observations` 的 user-facing API 是否直接改成 `group=...`
-3. `follow/join` discovery onboarding 之後怎麼把 route attach 到預設 profile
-4. `smart` reply policy 何時引入，以及它與 `addressed` 的優先關係
+2. `follow/join` discovery onboarding 之後怎麼把 route attach 到預設 profile
+3. `smart` reply policy 何時引入，以及它與 `addressed` 的優先關係
 
 ## Acceptance
 
