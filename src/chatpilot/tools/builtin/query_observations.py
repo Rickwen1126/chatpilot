@@ -15,18 +15,18 @@ logger = logging.getLogger(__name__)
 
 def create_query_observations_tool(
     memory_store: Any,
-    observer_sources: dict[str, dict] | None = None,
+    observation_groups: dict[str, dict] | None = None,
 ) -> ToolDefinition:
     """Create query_observations tool.
 
-    observer_sources: {
+    observation_groups: {
         "main_group": {
             "source_route_ids": ["line:shinyipaint:Csource"],
             "consumer_route_ids": ["line:shinyipaint:Ufc68"]
         }
     }
     """
-    sources = observer_sources or {}
+    sources = observation_groups or {}
 
     async def handler(invocation: ToolInvocation) -> ToolResult:
         args = invocation.get("arguments") or {}

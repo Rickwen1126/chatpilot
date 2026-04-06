@@ -49,7 +49,7 @@ class _FakeHub:
 
 def test_refresh_observer_state_registers_named_adapter_routes() -> None:
     hub = _FakeHub()
-    observer_sources: dict[str, dict] = {}
+    observation_groups: dict[str, dict] = {}
     config = GatewayConfig(
         route_groups={
             "ops": {"description": "ops"},
@@ -102,7 +102,7 @@ def test_refresh_observer_state_registers_named_adapter_routes() -> None:
         hub=hub,
         adapters=adapters,
         config=config,
-        observer_sources=observer_sources,
+        observation_groups=observation_groups,
     )
 
     assert hub.cleared == 1
@@ -111,7 +111,7 @@ def test_refresh_observer_state_registers_named_adapter_routes() -> None:
     } == {
         "line:shinyipaint:C123",
     }
-    assert observer_sources == {
+    assert observation_groups == {
         "ops": {
             "source_route_ids": [
                 "line:shinyipaint:C123",
@@ -123,7 +123,7 @@ def test_refresh_observer_state_registers_named_adapter_routes() -> None:
 
 def test_refresh_observer_state_replaces_old_observer_bindings() -> None:
     hub = _FakeHub()
-    observer_sources = {
+    observation_groups = {
         "old-group": {
             "source_route_ids": ["line:shinyipaint:Cold"],
             "consumer_route_ids": [],
@@ -187,13 +187,13 @@ def test_refresh_observer_state_replaces_old_observer_bindings() -> None:
         hub=hub,
         adapters=adapters,
         config=first,
-        observer_sources=observer_sources,
+        observation_groups=observation_groups,
     )
     _refresh_observer_state(
         hub=hub,
         adapters=adapters,
         config=second,
-        observer_sources=observer_sources,
+        observation_groups=observation_groups,
     )
 
     assert hub.cleared == 2
@@ -202,15 +202,15 @@ def test_refresh_observer_state_replaces_old_observer_bindings() -> None:
     } == {
         "line:shinyipaint:Cnew",
     }
-    assert list(observer_sources) == ["ops_new"]
-    assert observer_sources["ops_new"]["source_route_ids"] == [
+    assert list(observation_groups) == ["ops_new"]
+    assert observation_groups["ops_new"]["source_route_ids"] == [
         "line:shinyipaint:Cnew",
     ]
 
 
 def test_refresh_observer_state_registers_interactive_capture_routes() -> None:
     hub = _FakeHub()
-    observer_sources: dict[str, dict] = {}
+    observation_groups: dict[str, dict] = {}
     config = GatewayConfig(
         route_groups={"ops": {"description": "ops"}},
         observation_profiles={
@@ -243,11 +243,11 @@ def test_refresh_observer_state_registers_interactive_capture_routes() -> None:
         hub=hub,
         adapters=adapters,
         config=config,
-        observer_sources=observer_sources,
+        observation_groups=observation_groups,
     )
 
     assert hub.registered == [("line:shinyipaint:C123", 10, [])]
-    assert observer_sources == {
+    assert observation_groups == {
         "ops": {
             "source_route_ids": ["line:shinyipaint:C123"],
             "consumer_route_ids": [],

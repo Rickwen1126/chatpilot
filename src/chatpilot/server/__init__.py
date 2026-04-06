@@ -111,7 +111,7 @@ def _refresh_observer_state(
     hub: InMemoryMessageHub,
     adapters: dict[str, ChannelAdapter],
     config: GatewayConfig,
-    observer_sources: dict[str, dict],
+    observation_groups: dict[str, dict],
 ) -> None:
     """Rebuild observer registrations and group membership metadata.
 
@@ -122,7 +122,7 @@ def _refresh_observer_state(
 
     hub.clear_observers()
     hub.clear_route_policies()
-    observer_sources.clear()
+    observation_groups.clear()
 
     for binding in config.bindings:
         gid = binding.match.get("group_id", "")
@@ -144,7 +144,7 @@ def _refresh_observer_state(
         # Register group memberships first; source routes are only those that
         # actually capture in the current runtime phase.
         def _ensure_group(name: str) -> dict[str, list[str]]:
-            return observer_sources.setdefault(
+            return observation_groups.setdefault(
                 name,
                 {
                     "source_route_ids": [],
@@ -342,7 +342,7 @@ def _register_tools(
     response_injector=None,
     r2_storage: Any = None,
     get_available_tools: Any = None,
-    observer_sources: dict | None = None,
+    observation_groups: dict | None = None,
 ) -> None:
     from chatpilot.tools.builtin.add_reminder import create_add_reminder_tool
     from chatpilot.tools.builtin.batch_image_analyze import (
@@ -446,13 +446,13 @@ def _register_tools(
     tool_factory.register(create_manage_keywords_tool(memory_store))
 
     # Observer query tool
-    if observer_sources:
+    if observation_groups:
         from chatpilot.tools.builtin.query_observations import (
             create_query_observations_tool,
         )
 
         tool_factory.register(
-            create_query_observations_tool(memory_store, observer_sources)
+            create_query_observations_tool(memory_store, observation_groups)
         )
 
 
@@ -588,14 +588,14 @@ async def lifespan(app: FastAPI):
     app.state.session_context_registry = session_context_registry
 
     # Observer mode — register observer routes + batch callback
-    observer_sources: dict[str, dict] = {}
+    observation_groups: dict[str, dict] = {}
     _refresh_observer_state(
         hub=hub,
         adapters=adapters,
         config=config,
-        observer_sources=observer_sources,
+        observation_groups=observation_groups,
     )
-    app.state.observer_sources = observer_sources
+    app.state.observation_groups = observation_groups
 
     async def on_observer_batch(
         route_id: str, formatted: str, categories: list[str]
@@ -733,7 +733,7 @@ async def lifespan(app: FastAPI):
     _register_tools(
         tool_factory, scheduler, adapters, file_center, memory_store,
         chatbot_manager, response_injector, r2_storage,
-        get_available_tools, observer_sources,
+        get_available_tools, observation_groups,
     )
     app.state.scheduler = scheduler
 
@@ -771,7 +771,7 @@ async def lifespan(app: FastAPI):
             hub=hub,
             adapters=adapters,
             config=new_config,
-            observer_sources=observer_sources,
+            observation_groups=observation_groups,
         )
         # Rebuild config keyword cache (DB cache untouched)
         configure_keywords(new_config.trigger_keywords)
