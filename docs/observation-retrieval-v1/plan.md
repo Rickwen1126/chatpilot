@@ -38,6 +38,7 @@ Planned on 2026-04-07.
 - 強制 cross-source merge
 - runtime schema mutation
 - capabilities / admin control plane
+- `rebuild_entries(route_id)` / `rebuild_entries(group)` 與 projection reindex flow
 
 ## Design Principles
 
@@ -64,6 +65,20 @@ tool 先把可能有答案的來源排出來，
 
 V1 預設回 per-source result array，  
 merge / synthesis 交給 LLM。
+
+### 5. DB rows 不與 current group/profile 深綁
+
+V1 原則：
+
+- `memory_observations` 與 `observation_entries` 都以 `route_id` 為主體
+- current group membership 不作為 persisted row truth
+- current profile 也不作為 persisted row truth
+
+row 裡若保留 profile，只記錄 historical provenance：
+
+- `captured_profile_name`
+
+group / visibility 由 query time 的當前 bindings 決定。
 
 ## Implementation Strategy
 
@@ -109,18 +124,25 @@ observation_profiles:
 
 - `id`
 - `route_id`
-- `group`
-- `profile_name`
+- `captured_profile_name`
 - `kind`
 - `canonical_entry_id`
 - `category`
-- `who`
+- `subject`
 - `record_date`
 - `content`
 - `search_text`
+- `reported_by_user_id`
+- `reported_by_name`
 - `facets_json`
 - `source_observation_id`
 - `created_at`
+
+補充原則：
+
+- `captured_profile_name` 只代表 projection 當下的方法 provenance
+- 不存 current `group` 作為 row truth
+- `reported_by_*` 盡量從原始 message metadata 帶入，不靠 LLM 猜
 
 #### capture dataflow
 
@@ -134,6 +156,11 @@ observation_profiles:
 5. 寫 `memory_observations`
 6. 同步投影 `observation_entries`
 
+此時寫入的 `observation_entries`：
+
+- 仍然以 `route_id` 為主
+- 不因 current group/profile 改變而要求同步 migration
+
 ### Phase 3 — Candidate Shortlist Tool
 
 #### 新增 tool
@@ -142,11 +169,11 @@ observation_profiles:
 
 #### 候選來源
 
-從 `group` 展開所有 source routes，  
+從 `group` 依 query time 的當前 bindings / `observation_groups` 展開所有 eligible source routes，  
 每個 source route 取：
 
 - route label
-- `profile_name`
+- current profile name
 - `profile.retrieval.description`
 - `profile.retrieval.keywords`
 - `profile.categories`
@@ -199,7 +226,7 @@ observation_profiles:
 #### 核心責任
 
 - 接單一 source route
-- 找到這個 route 對應的 `observation_profile`
+- 找到這個 route **目前**對應的 `observation_profile`
 - 依 profile 方法查 `observation_entries`
 - 回傳 per-source entries
 
@@ -241,14 +268,20 @@ V1 可先：
 2. chatbot session 判斷需要 group knowledge
 3. tool call：
    - `list_observation_candidates(group, query, top_k)`
-4. tool 展開該 group 的 source routes
-5. 依 profile retrieval metadata 算 score
+4. tool 依當前 bindings / `observation_groups` 展開該 group 的 eligible source routes
+5. 依各 source route 的 current profile retrieval metadata 算 score
 6. tool 回 shortlist
 7. chatbot session 根據 shortlist 決定查 1~N 個 members
 8. tool call：
    - `query_observation_member(route_id, query, ...)`
 9. 各 member 回 per-source entries
 10. chatbot session 自己 synthesize 最終回答
+
+注意：
+
+- 第 4 步使用的是 query-time current group membership
+- 第 8 步查到的 rows 仍然是 route-owned projection
+- 不要求 rows 內 current group/current profile 與當前 config 永遠同步
 
 ## Tool Call Stack
 
@@ -345,6 +378,17 @@ V1 可先：
 - prompt 明寫：先查最相關的 1~2 個
 - shortlist default `top_k = 3`
 - 不鼓勵全查
+
+### 4. profile/group 變更後 rows 與 current config 看起來不同步
+
+這是刻意接受的 V1 行為。
+
+對策：
+
+- 把 `observation_entries` 視為 route-owned projection
+- `captured_profile_name` 只當 historical provenance
+- current group membership / current profile 由 query time 決定
+- rebuild / reindex 明確 defer 到後續 phase
 
 ## Deliverable
 

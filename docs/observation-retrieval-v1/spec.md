@@ -138,7 +138,27 @@ observation:
 
 `semantic` row 只作為 retrieval aid，不可創造新事實。
 
-### 5. group query 不必全查，也不必先 merge
+### 5. `observation_entries` 仍然是 route-owned，不深綁 current group/profile
+
+V1 定案：
+
+- `memory_observations` 的 canonical ownership 仍然是 `route_id`
+- `observation_entries` 也是 route-owned projection
+- current `group` / current `profile` 不應成為 DB row 的 authoritative relationship
+
+這代表：
+
+- route 移到新 group 時，不需要做 DB migration
+- route 換新 profile 時，不需要同步改寫既有 rows
+- group membership 與可見性應在 query time 由當前 bindings/config 推導
+
+row 裡若保留 profile 資訊，也只代表：
+
+> 這筆 entry 在 capture / projection 當下，是用哪個 profile 生出來的
+
+它是 historical provenance，不是 current truth。
+
+### 6. group query 不必全查，也不必先 merge
 
 `route_group` 底下有 N 個 source routes，不代表每次都要：
 
@@ -152,7 +172,7 @@ observation:
 - 每個 member 各自查、各自回
 - 最終回答的 merge / synthesize 交給 LLM
 
-### 6. candidate selection 是 query-aware top-k shortlist
+### 7. candidate selection 是 query-aware top-k shortlist
 
 這輪不做 vector score。
 
@@ -166,7 +186,7 @@ observation:
 
 > 在這個 group 的所有 source members 裡，哪些值得先查
 
-### 7. candidate selection 由 tool 做 shortlist，LLM 做最終決策
+### 8. candidate selection 由 tool 做 shortlist，LLM 做最終決策
 
 這輪不讓 tool 直接替 LLM 決定要查誰。
 
@@ -182,7 +202,7 @@ observation:
 - selection 的前半可控
 - 最後的查詢策略仍交給 LLM
 
-### 8. top-k scoring 先採 heuristic relevance score
+### 9. top-k scoring 先採 heuristic relevance score
 
 V1 的 candidate score 來自：
 
@@ -194,7 +214,7 @@ V1 的 candidate score 來自：
 
 先不做 embeddings。
 
-### 9. `observation_profile` 需要新增 `retrieval` metadata
+### 10. `observation_profile` 需要新增 `retrieval` metadata
 
 V1 在 profile 補：
 
@@ -222,8 +242,7 @@ V1 最小欄位：
 
 - `id`
 - `route_id`
-- `group`
-- `profile_name`
+- `captured_profile_name`
 - `kind`
   - `fact`
   - `semantic`
@@ -231,13 +250,21 @@ V1 最小欄位：
   - `fact` 可為空
   - `semantic` 指向對應 `fact`
 - `category`
-- `who`
+- `subject`
 - `record_date`
 - `content`
 - `search_text`
+- `reported_by_user_id`
+- `reported_by_name`
 - `facets_json`
 - `source_observation_id`
 - `created_at`
+
+說明：
+
+- 不把 current `group` 存成 authoritative row field
+- query 時要查某個 group，應由當前 `observation_groups` / bindings 先展開 eligible source routes，再查這些 routes 的 entries
+- `captured_profile_name` 只表示這筆 entry 當時使用的 profile，不代表 route 現在仍然是那個 profile
 
 ### `kind=fact`
 
@@ -253,6 +280,25 @@ V1 最小欄位：
   - search-friendly paraphrase
   - intent hint
 - **不得創造新事實**
+
+### `subject` vs `reported_by_*`
+
+V1 明確拆開：
+
+- `subject`
+  - 這筆知識主要在說誰 / 哪個對象
+  - 例如：
+    - `阿明請假` → `subject=阿明`
+    - `底漆剩 12 桶` → `subject=底漆`
+- `reported_by_user_id`
+  - 主要資訊提供者的 platform user id
+- `reported_by_name`
+  - 主要資訊提供者的顯示名稱
+
+其中：
+
+- `subject` 偏 extraction 結果
+- `reported_by_*` 盡量取自原始 message metadata，而不是讓 LLM 猜
 
 ## Tool Surface
 
@@ -285,6 +331,7 @@ V1 最小欄位：
 
 - 給 LLM 看 query-aware shortlist
 - 不是直接回最終答案
+- candidate 來自 query-time group expansion，不依賴 `observation_entries` 內存了某個 current group 欄位
 
 ### 2. `query_observation_member`
 
@@ -304,7 +351,7 @@ V1 最小欄位：
   "entries": [
     {
       "category": "請假",
-      "who": "阿明",
+      "subject": "阿明",
       "record_date": "2026-04-08",
       "content": "明天下午請假",
       "evidence_ref": "obs_123"
@@ -390,13 +437,15 @@ V1 先採明確、可 debug 的 heuristic score。
 2. chatbot session 判斷需要 group knowledge
 3. tool call:
    - `list_observation_candidates(group, query, top_k)`
-4. tool 根據 group members + profile retrieval metadata 算 shortlist
-5. LLM 看 shortlist，決定查 1~N 個 members
-6. tool call:
+4. tool 先用當前 bindings / `observation_groups` 把 group 展開成 eligible source routes
+5. tool 根據 source routes 的 profile retrieval metadata 算 shortlist
+6. tool 回 shortlist
+7. LLM 看 shortlist，決定查 1~N 個 members
+8. tool call:
    - `query_observation_member(route_id, query, ...)`
-7. 各 member 依自己的 profile 方法查 `observation_entries`
-8. 每個 member 各回一包結果
-9. LLM 自己 synthesize 最終答案
+9. 各 member 依自己的 profile 方法查 `observation_entries`
+10. 每個 member 各回一包結果
+11. LLM 自己 synthesize 最終答案
 
 ## Tool Call Stack
 
@@ -425,6 +474,7 @@ V1 先採明確、可 debug 的 heuristic score。
 - `observation_profile.instructions` 必須正式接進 capture worker prompt，否則 profile 仍是半套
 - `query_observation_member` 的 per-profile retrieval adapter 必須有統一輸出 shape
 - `observation_entries` 的 `semantic` row 只能做 retrieval aid，不得創造新事實
+- group/profile 改變後，V1 不做自動 rebuild / migration；若未來需要，應以 `memory_observations` 為 source 做 explicit rebuild，而不是直接改寫既有 rows
 
 ## Success Criteria
 
