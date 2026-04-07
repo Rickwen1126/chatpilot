@@ -19,6 +19,12 @@ class _MatchedDiscoveryRule:
     profile_name: str
 
 
+def _fallback_chatbot_name(config: GatewayConfig) -> str | None:
+    if "buddy" in config.chatbots:
+        return "buddy"
+    return next(iter(config.chatbots), None)
+
+
 def _keyword_match(label: str | None, keywords: list[str]) -> bool:
     if not label or not keywords:
         return False
@@ -74,7 +80,38 @@ def materialize_onboarding_state(
 ) -> RouteOnboardingState | None:
     matched = select_discovery_profile(config, event, label=label)
     if matched is None:
-        return None
+        chatbot = _fallback_chatbot_name(config)
+        if chatbot is None:
+            return None
+        if event.route_type == "group":
+            return RouteOnboardingState(
+                route_id=event.route_id,
+                platform=event.platform,
+                conversation_id=event.conversation_id,
+                route_type=event.route_type,
+                chatbot=chatbot,
+                reply_policy="never",
+                processing_policy="none",
+                observation=None,
+                label=label,
+                profile_name="_builtin_group_default",
+                discovery_type=event.discovery_type,
+                discovered_at=event.timestamp,
+            )
+        return RouteOnboardingState(
+            route_id=event.route_id,
+            platform=event.platform,
+            conversation_id=event.conversation_id,
+            route_type=event.route_type,
+            chatbot=chatbot,
+            reply_policy="addressed",
+            processing_policy="interactive",
+            observation=None,
+            label=label,
+            profile_name="_builtin_user_default",
+            discovery_type=event.discovery_type,
+            discovered_at=event.timestamp,
+        )
 
     profile_name, profile = matched
     return RouteOnboardingState(

@@ -186,6 +186,21 @@ profile materialization 後，盡量沿用既有型別：
 4. 若無命中：
    - 回到 static bindings
 
+## Reload Semantics
+
+`/cli/reload` 對 discovery onboarding 採 **snapshot semantics**：
+
+- reload 會讀新的 disk config
+- 影響之後新發現的 routes
+- 也會把既有記憶體 onboarding state 重新掛回 runtime
+- 但**不會**對已 discovery route 重新套用新 profile
+
+若未來需要：
+- 依新 config 對既有 discovered routes 做 reconcile
+- 或手動重套 profile
+
+那應作為另一個顯式功能，不和 reload 混在一起。
+
 ## Safe Defaults
 
 ### New Group
@@ -207,6 +222,15 @@ profile materialization 後，盡量沿用既有型別：
 理由：
 - 私聊風險較低
 - 但 discovery 階段仍不應主動發話
+
+### Hard Fallback
+
+即使 config 遺漏了 channel/global default，runtime 仍保留 hard fallback：
+
+- new group → `never + none`
+- new private route → `addressed + interactive`
+
+chatbot 優先使用 `buddy`；若不存在，再退回第一個可用 chatbot。
 
 ## Validation Plan
 
@@ -259,6 +283,14 @@ profile materialization 後，盡量沿用既有型別：
 若 server 重啟，discovery route 可能要重新補回。
 
 這輪先接受，因為目標是先把 path 打通。
+
+### 4. LINE room (`R...`) 行為弱於一般 group
+
+目前 room route 可被 discovery，但：
+- label enrichment 較弱
+- pre-message guarantee 也不如一般 group 明確
+
+這輪先列已知限制，不把 room 拉進和 group 同等的 onboarding 保證。
 
 ## Out of Scope For This Round
 

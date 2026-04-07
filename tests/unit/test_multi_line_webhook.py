@@ -366,6 +366,65 @@ def test_cli_routes_merges_discovered_metadata_for_known_session_route(tmp_path,
     ]
 
 
+def test_webhook_line_discovery_falls_back_to_builtin_default_when_no_rule_matches(
+    tmp_path, monkeypatch
+):
+    monkeypatch.chdir(tmp_path)
+
+    class _DiscoveryLineAdapter(_StubLineAdapter):
+        async def parse_messages(self, request) -> list[Message]:
+            return []
+
+        async def parse_discovery_events(self, request) -> list[DiscoveryEvent]:
+            return [
+                DiscoveryEvent(
+                    discovery_type="join",
+                    route_type="group",
+                    platform=self.platform,
+                    conversation_id="C999",
+                )
+            ]
+
+        def get_route_label(self, conversation_id: str) -> str | None:
+            assert conversation_id == "C999"
+            return "未配置群組"
+
+    config = GatewayConfig(
+        chatbots={
+            "buddy": {
+                "name": "buddy",
+                "model": "gpt-5.4-mini",
+                "system_message": "test",
+            }
+        }
+    )
+    registry = RouteOnboardingRegistry()
+    client, hub = _build_test_client(
+        {
+            "line:shinyipaint": _DiscoveryLineAdapter("line:shinyipaint", "sig-c"),
+        },
+        config=config,
+        onboarding_registry=registry,
+    )
+
+    response = client.post(
+        "/webhook/line",
+        content=b'{"events":[]}',
+        headers={"X-Line-Signature": "sig-c"},
+    )
+
+    assert response.status_code == 200
+    state = registry.resolve("line:shinyipaint:C999")
+    assert state is not None
+    assert state.profile_name == "_builtin_group_default"
+    assert state.chatbot == "buddy"
+    assert hub.route_policies["line:shinyipaint:C999"] == {
+        "reply_policy": "never",
+        "processing_policy": "none",
+        "capture_enabled": False,
+    }
+
+
 def test_webhook_line_logs_error_when_legacy_adapter_selected(caplog):
     client, hub = _build_test_client({
         "line": _StubLineAdapter("line", "sig-legacy"),

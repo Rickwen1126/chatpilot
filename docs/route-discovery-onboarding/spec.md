@@ -208,6 +208,41 @@ label 不是附屬功能，而是 onboarding 的一部分，因為：
 - admin route catalog 需要它
 - 使用者需要看得懂 route
 
+### 9. Discovery onboarding 是 snapshot semantics
+
+discovery profile / rule 的套用時機，是 **route 被發現的當下**。
+
+這代表：
+
+- `follow` / `join` 命中哪個 profile，會 materialize 成該 `route_id` 的 onboarding state
+- `/cli/reload` 讀到新的 disk config，只會影響**未來新發現**的 routes
+- 已經 discovery 過的 route，不應因為單純 reload 而被重新套用新 profile
+
+如果未來需要：
+
+- 重新依新 config 對已 discovery route 做 reconcile
+- 或手動重套 profile
+
+那應作為另一個明確功能，而不是隱含在 `reload` 裡。
+
+### 10. unmatched discovery event 仍保留 hard fallback
+
+這輪雖然支援：
+
+- exact id
+- label keyword
+- channel default
+- global default
+
+但 runtime 仍應保留 hard fallback，避免 config 漏配時 discovery event 整條消失。
+
+最小 hard fallback：
+
+- new group → `reply_policy=never`、`processing_policy=none`
+- new private route → `reply_policy=addressed`、`processing_policy=interactive`
+
+chatbot 優先使用 `buddy`；若不存在，再退回第一個可用 chatbot。
+
 ## Proposed Config Model
 
 ### `discovery_profiles`
@@ -312,6 +347,8 @@ discovery_rules:
 9. 群組 route 在沒有更特別規則時，必須採用安全預設，不先回話。
 10. 私聊 route discovery 本身不得回話；真正回話從第一則 user message 開始。
 11. discovery keyword matching 只能用於 onboarding convenience，不得被定義成高風險授權機制。
+12. `/cli/reload` 對 discovery onboarding 採 snapshot semantics；它不會重套已 discovery route 的 profile。
+13. 若 config 漏配 discovery rule，runtime 仍必須有 hard fallback，避免 route 在 discovery 當下消失。
 
 ## Success Criteria
 
@@ -327,6 +364,7 @@ discovery_rules:
   - persisted sidecar / JSON
   - 或 route metadata store
 - discovery profile 是否應與後續 `/cli` 手動調整 route policy 共用同一份 runtime state 模型
+- LINE room (`R...`) 是否正式納入 onboarding 保證範圍；目前可 discovery，但 label enrichment 與 pre-message guarantee 都弱於一般 group
 - `label keyword match` 是否需要支援：
   - 任一 keyword match
   - 全部 match

@@ -134,3 +134,57 @@ def test_route_onboarding_registry_round_trip() -> None:
 
     assert registry.resolve("line:shinyipaint:C123") == state
     assert registry.list_states() == [state]
+
+
+def test_materialize_onboarding_state_falls_back_to_builtin_group_default() -> None:
+    config = GatewayConfig(
+        chatbots={
+            "buddy": {
+                "name": "buddy",
+                "model": "gpt-5.4-mini",
+                "system_message": "test",
+            }
+        }
+    )
+
+    state = materialize_onboarding_state(
+        config,
+        _event("C-NO-RULE"),
+        label="未配置群組",
+    )
+
+    assert state is not None
+    assert state.chatbot == "buddy"
+    assert state.reply_policy == "never"
+    assert state.processing_policy == "none"
+    assert state.profile_name == "_builtin_group_default"
+
+
+def test_materialize_onboarding_state_falls_back_to_builtin_user_default() -> None:
+    config = GatewayConfig(
+        chatbots={
+            "buddy": {
+                "name": "buddy",
+                "model": "gpt-5.4-mini",
+                "system_message": "test",
+            }
+        }
+    )
+
+    state = materialize_onboarding_state(
+        config,
+        DiscoveryEvent(
+            discovery_type="follow",
+            route_type="user",
+            platform="line:shinyipaint",
+            conversation_id="U-NO-RULE",
+            timestamp=datetime(2026, 4, 7, tzinfo=timezone.utc),
+        ),
+        label="未配置私聊",
+    )
+
+    assert state is not None
+    assert state.chatbot == "buddy"
+    assert state.reply_policy == "addressed"
+    assert state.processing_policy == "interactive"
+    assert state.profile_name == "_builtin_user_default"
