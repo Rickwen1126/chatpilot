@@ -105,7 +105,7 @@ cron_scheduler:
 
 ```yaml
 # config/route_bindings.yaml
-route_bindings:
+route_bindings_manual:
   line:demo:Cxxx:
     match:
       platform: line:demo
@@ -114,6 +114,16 @@ route_bindings:
     reply_policy: addressed
     processing_policy: interactive
     source: manual
+
+route_bindings_auto:
+  line:demo:Cyyy:
+    match:
+      platform: line:demo
+      group_id: Cyyy
+    chatbot: buddy
+    reply_policy: never
+    processing_policy: none
+    source: discovered
 
 fallback_bindings:
   - match: { platform: line:demo }
@@ -157,7 +167,7 @@ observation_profiles:
       Summarize reusable background knowledge from this route.
 
 # config/route_bindings.yaml
-route_bindings:
+route_bindings_manual:
   line:demo:Cxxx:
     match:
       platform: line:demo
@@ -169,6 +179,16 @@ route_bindings:
       capture:
         group: ops
         profile: ops_batch
+
+route_bindings_auto:
+  line:demo:Cauto:
+    match:
+      platform: line:demo
+      group_id: Cauto...
+    chatbot: buddy
+    reply_policy: never
+    processing_policy: none
+    source: discovered
 
   line:demo:Uxxx:
     match:

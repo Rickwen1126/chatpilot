@@ -1,4 +1,4 @@
-route_bindings:
+route_bindings_manual:
   line:demo:Ua1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4:
     match:
       platform: line:demo
@@ -30,6 +30,7 @@ route_bindings:
     source: manual
     profile_name: null
     discovered_at: null
+route_bindings_auto:
   line:demo:C2b6ee7a474074f7db7498229df64bfcc:
     match:
       platform: line:demo
@@ -89,6 +90,28 @@ route_bindings:
     match:
       platform: line:demo
       user_id: U30730c9772f74f3892bc3267a1f2b91c
+    chatbot: buddy
+    reply_policy: addressed
+    processing_policy: interactive
+    observation: null
+    source: discovered
+    profile_name: default_private_cheap
+    discovered_at: '2024-03-09T16:00:00Z'
+  line:demo:C4dd96e2a59d34642a0e9d908b766cdde:
+    match:
+      platform: line:demo
+      group_id: C4dd96e2a59d34642a0e9d908b766cdde
+    chatbot: buddy
+    reply_policy: never
+    processing_policy: none
+    observation: null
+    source: discovered
+    profile_name: default_group_safe
+    discovered_at: '2024-03-09T16:00:00Z'
+  line:demo:U4dd96e2a59d34642a0e9d908b766cdde:
+    match:
+      platform: line:demo
+      user_id: U4dd96e2a59d34642a0e9d908b766cdde
     chatbot: buddy
     reply_policy: addressed
     processing_policy: interactive

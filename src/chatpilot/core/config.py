@@ -117,7 +117,9 @@ def load_config(path: Path, bindings_path: Path | None = None) -> GatewayConfig:
         else None
     )
     if bindings_doc is not None and (
-        bindings_doc.route_bindings or bindings_doc.fallback_bindings
+        bindings_doc.route_bindings_manual
+        or bindings_doc.route_bindings_auto
+        or bindings_doc.fallback_bindings
     ):
         raw["bindings"] = bindings_doc.merged_bindings()
     elif legacy_bindings is not None:
@@ -145,16 +147,21 @@ class _ConfigReloadHandler(FileSystemEventHandler):
         paths: list[Path],
         loader: Callable[[], GatewayConfig],
         callback: Callable[[GatewayConfig], None],
+        should_skip: Callable[[Path], bool] | None = None,
     ):
         self._paths = [path.resolve() for path in paths]
         self._loader = loader
         self._callback = callback
+        self._should_skip = should_skip
 
     def on_modified(self, event: FileSystemEvent) -> None:
         if event.is_directory:
             return
         event_path = Path(event.src_path).resolve()
         if event_path not in self._paths:
+            return
+        if self._should_skip is not None and self._should_skip(event_path):
+            logger.info("Skipping self-authored config write: %s", event_path)
             return
         try:
             config = self._loader()
@@ -168,10 +175,11 @@ def watch_config(
     paths: list[Path],
     loader: Callable[[], GatewayConfig],
     callback: Callable[[GatewayConfig], None],
+    should_skip: Callable[[Path], bool] | None = None,
 ) -> Observer:
     """Start watching config files for changes. Returns the Observer (call .stop() to stop)."""
     resolved_paths = [path.resolve() for path in paths]
-    handler = _ConfigReloadHandler(resolved_paths, loader, callback)
+    handler = _ConfigReloadHandler(resolved_paths, loader, callback, should_skip)
     observer = Observer()
     seen_dirs: set[Path] = set()
     for path in resolved_paths:

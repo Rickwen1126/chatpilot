@@ -11,13 +11,17 @@ def test_load_example_config():
         Path("config/route_settings.example.yaml"),
         Path("config/route_bindings.example.yaml"),
     )
-    assert len(config.bindings) == 8
+    assert len(config.bindings) == 10
     assert "buddy" in config.chatbots
     assert "my-observer" in config.chatbots
     bot = config.chatbots["buddy"]
     assert bot.model == "gpt-5.4-mini"
     assert bot.context_window == 50
-    observer_binding = config.bindings[0]
+    observer_binding = next(
+        binding
+        for binding in config.bindings
+        if binding.chatbot == "my-observer"
+    )
     assert observer_binding.reply_policy == "never"
     assert observer_binding.processing_policy == "none"
     assert observer_binding.observation is not None

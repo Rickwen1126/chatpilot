@@ -158,7 +158,7 @@ discovery / admin 對 route binding 的變更：
 建議結構：
 
 ```yaml
-route_bindings:
+route_bindings_manual:
   line:shinyipaint:Ceead1a4ba637518e00059ac73ba2cd8a:
     match:
       platform: line:shinyipaint
@@ -170,6 +170,17 @@ route_bindings:
       consume: [shinyipaint_ops]
     source: manual
 
+route_bindings_auto:
+  line:shinyipaint:Cdog:
+    match:
+      platform: line:shinyipaint
+      group_id: Cdog
+    chatbot: shinyipaint
+    reply_policy: addressed
+    processing_policy: interactive
+    source: discovered
+    profile_name: shinyipaint_main_group
+
 fallback_bindings:
   - match: { platform: "line:shinyipaint" }
     chatbot: buddy
@@ -179,8 +190,10 @@ fallback_bindings:
 設計原則：
 
 - exact route binding 用 `route_id` 當 key，方便 upsert
+- `route_bindings_manual` 給人手寫與明確覆蓋
+- `route_bindings_auto` 給 discovery / runtime 自動補齊
+- `manual > auto > fallback`
 - generic platform/default fallback 仍用 list
-- 人寫、機器寫都在同一個檔案，但語意分區
 
 ## Runtime Plan
 
@@ -204,6 +217,7 @@ server startup / reload 時：
 4. materialize 成 exact route binding
 5. upsert 到 `route_bindings.yaml`
 6. 同步刷新 router / hub 的 in-memory state
+7. 若寫入來自 server 自己，watcher 應跳過這次 self-write，不做第二次 full reload
 
 ### CLI
 

@@ -828,11 +828,17 @@ async def lifespan(app: FastAPI):
         _load_gateway_config(settings_path, bindings_path)
     )
 
+    def should_skip_reload(path: Path) -> bool:
+        if path.resolve() != bindings_path.resolve():
+            return False
+        return route_binding_service.should_skip_self_write(path)
+
     observer = (
         watch_config(
             [settings_path, bindings_path],
             lambda: _load_gateway_config(settings_path, bindings_path),
             on_config_reload,
+            should_skip=should_skip_reload,
         )
         if settings_path.exists() or bindings_path.exists()
         else None
