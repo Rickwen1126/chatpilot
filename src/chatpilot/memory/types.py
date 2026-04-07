@@ -60,6 +60,24 @@ class Observation(BaseModel):
     created_at: datetime = Field(default_factory=_utcnow)
 
 
+class ObservationEntry(BaseModel):
+    id: str = Field(default_factory=_uuid)
+    route_id: str = ""
+    captured_profile_name: str = ""
+    kind: str = "fact"
+    canonical_entry_id: str | None = None
+    category: str = "其他"
+    subject: str = ""
+    record_date: str = ""
+    content: str = ""
+    search_text: str = ""
+    reported_by_user_id: str | None = None
+    reported_by_name: str | None = None
+    facets_json: dict = Field(default_factory=dict)
+    source_observation_id: str = ""
+    created_at: datetime = Field(default_factory=_utcnow)
+
+
 class TriggerKeyword(BaseModel):
     id: str = Field(default_factory=_uuid)
     route_id: str = ""

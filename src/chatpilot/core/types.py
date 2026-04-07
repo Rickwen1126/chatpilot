@@ -188,6 +188,13 @@ class RouteGroupConfig(BaseModel):
         return self
 
 
+class ObservationProfileRetrievalConfig(BaseModel):
+    """Query-time retrieval hints for shortlist scoring."""
+
+    description: str = ""
+    keywords: list[str] = Field(default_factory=list)
+
+
 class ObservationProfileConfig(BaseModel):
     """Prompt-backed observation interpretation profile."""
 
@@ -197,6 +204,9 @@ class ObservationProfileConfig(BaseModel):
     batch_size: int = 10
     instructions: str
     categories: list[str] = Field(default_factory=list)
+    retrieval: ObservationProfileRetrievalConfig = Field(
+        default_factory=ObservationProfileRetrievalConfig
+    )
 
 
 class ObservationCaptureConfig(BaseModel):
@@ -369,6 +379,20 @@ class ContextMessage(BaseModel):
     text: str
     timestamp: datetime
     message_type: ContextMessageType
+
+
+class ObserverBatchPayload(BaseModel):
+    """Structured batch payload handed from observation lane to worker."""
+
+    route_id: str
+    captured_profile_name: str
+    instructions: str
+    categories: list[str] = Field(default_factory=list)
+    messages: list[ContextMessage] = Field(default_factory=list)
+    formatted_messages: str
+    batch_time: datetime = Field(
+        default_factory=lambda: TimeService.get().utc_now()
+    )
 
 
 # ── Pipeline ──────────────────────────────────────────────────────────

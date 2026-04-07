@@ -64,7 +64,11 @@ class _StubHub:
         }
 
     def register_capture(
-        self, route_id: str, batch_size: int, categories: list[str]
+        self,
+        route_id: str,
+        batch_size: int,
+        categories: list[str],
+        **_: object,
     ) -> None:
         self.captures.append((route_id, batch_size, categories))
 

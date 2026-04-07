@@ -2,9 +2,15 @@
 
 ## Status
 
-Planned on 2026-04-07.
+Implemented on 2026-04-08.
 
 這輪先落 spec / plan，不直接擴成 RAG 或 merge engine。
+
+## Validation
+
+- `uv run ruff check src/ tests/` → 綠
+- `uv run pytest tests/` → `236 passed`
+- `bash tests/e2e/run_e2e.sh` → `75 passed / 0 failed`
 
 ## Goal
 

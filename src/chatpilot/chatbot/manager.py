@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any
+from typing import Any, Awaitable, Callable
 
 from chatpilot.chatbot.session import ChatbotSession
 from chatpilot.core.types import ChatbotConfig, SessionContext
@@ -20,6 +20,8 @@ DEFAULT_WORKSPACE_ROOT = "data/workspace"
 
 logger = logging.getLogger(__name__)
 
+RoutePromptHintBuilder = Callable[[str], str | None | Awaitable[str | None]]
+
 
 class ChatbotManager:
     """Manages chatbot sessions per route."""
@@ -31,6 +33,7 @@ class ChatbotManager:
         tool_factory: ToolFactory,
         memory_store: Any = None,
         session_context_registry: SessionContextRegistry | None = None,
+        route_prompt_hint_builder: RoutePromptHintBuilder | None = None,
     ) -> None:
         self._sdk = sdk_client
         self._configs = chatbot_configs
@@ -40,12 +43,18 @@ class ChatbotManager:
             session_context_registry
             or tool_factory.session_context_registry
         )
+        self._route_prompt_hint_builder = route_prompt_hint_builder
         self._sessions: dict[str, ChatbotSession] = {}
         self._route_model_overrides: dict[str, str] = {}
         self._route_chatbot_overrides: dict[str, str] = {}
 
     def update_configs(self, configs: dict[str, ChatbotConfig]) -> None:
         self._configs = configs
+
+    def set_route_prompt_hint_builder(
+        self, builder: RoutePromptHintBuilder | None
+    ) -> None:
+        self._route_prompt_hint_builder = builder
 
     def has_chatbot(self, name: str) -> bool:
         return name in self._configs
@@ -224,6 +233,13 @@ class ChatbotManager:
             if lines:
                 custom_section = "\n- ".join(lines)
                 parts.append(f"\n[使用者偏好]\n- {custom_section}")
+
+        if self._route_prompt_hint_builder is not None:
+            hint = self._route_prompt_hint_builder(route_id)
+            if hasattr(hint, "__await__"):
+                hint = await hint
+            if hint:
+                parts.append(f"\n{hint}")
 
         return "".join(parts)
 

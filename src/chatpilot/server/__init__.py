@@ -6,6 +6,7 @@ import asyncio
 import logging
 import os
 import time
+import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
@@ -17,7 +18,7 @@ from chatpilot.adapters.protocol import ChannelAdapter
 from chatpilot.chatbot.manager import ChatbotManager
 from chatpilot.core.config import GatewayConfig, load_config, watch_config
 from chatpilot.core.route_bindings import RouteBindingService
-from chatpilot.core.types import Message, Response
+from chatpilot.core.types import Message, ObserverBatchPayload, Response
 from chatpilot.files.center import FileHandleCenter
 from chatpilot.files.ingress import InboundFilePreprocessor
 from chatpilot.files.policy import DEFAULT_CLEANUP_INTERVAL_SECONDS
@@ -25,6 +26,15 @@ from chatpilot.files.store import SqliteFileStore
 from chatpilot.hub.context_buffer import ContextBuffer
 from chatpilot.hub.hub import InMemoryMessageHub
 from chatpilot.memory.store import SqliteMemoryStore as MemoryStore
+from chatpilot.observer.projection import (
+    build_memory_observation_entries,
+    parse_observation_worker_result,
+    project_observation_entries,
+)
+from chatpilot.observer.prompting import (
+    build_observation_worker_prompt,
+    build_observation_worker_system_message,
+)
 from chatpilot.pipeline.executor import PipelineExecutor
 from chatpilot.pipeline.samples.browser import BrowserPipeline
 from chatpilot.pipeline.samples.echo import EchoPipeline
@@ -33,7 +43,7 @@ from chatpilot.scheduler.runner import RunnerPool
 from chatpilot.scheduler.scheduler import InMemoryTaskScheduler
 from chatpilot.scheduler.store import SqliteTaskStore
 from chatpilot.sdk.session import SdkClient
-from chatpilot.server.webhook import router
+from chatpilot.server.webhook import _load_route_labels, router
 from chatpilot.tools.factory import ToolFactory
 from chatpilot.tools.session_context import (
     SessionContextRegistry,
@@ -175,6 +185,8 @@ def _refresh_observer_state(
             route_id,
             batch_size=profile.batch_size,
             categories=profile.categories,
+            profile_name=capture.profile,
+            instructions=profile.instructions,
         )
         if _is_queryable_observer_platform(platform):
             if route_id not in state["source_route_ids"]:
@@ -345,6 +357,8 @@ def _register_tools(
     file_handle_center: FileHandleCenter,
     memory_store: MemoryStore,
     chatbot_manager: ChatbotManager,
+    route_binding_service: RouteBindingService,
+    get_config: Any,
     response_injector=None,
     r2_storage: Any = None,
     get_available_tools: Any = None,
@@ -453,10 +467,32 @@ def _register_tools(
 
     # Observer query tool
     if observation_groups:
+        from chatpilot.tools.builtin.list_observation_candidates import (
+            create_list_observation_candidates_tool,
+        )
+        from chatpilot.tools.builtin.query_observation_member import (
+            create_query_observation_member_tool,
+        )
         from chatpilot.tools.builtin.query_observations import (
             create_query_observations_tool,
         )
 
+        tool_factory.register(
+            create_list_observation_candidates_tool(
+                observation_groups,
+                route_binding_service,
+                get_config,
+                _load_route_labels,
+            )
+        )
+        tool_factory.register(
+            create_query_observation_member_tool(
+                memory_store,
+                observation_groups,
+                route_binding_service,
+                _load_route_labels,
+            )
+        )
         tool_factory.register(
             create_query_observations_tool(memory_store, observation_groups)
         )
@@ -637,43 +673,59 @@ async def lifespan(app: FastAPI):
     refresh_routing_runtime()
     app.state.refresh_routing_runtime = refresh_routing_runtime
 
-    async def on_observer_batch(
-        route_id: str, formatted: str, categories: list[str]
-    ) -> None:
-        """Process observer batch: LLM summarize → store observation."""
-        import uuid
+    def build_observation_access_hint(route_id: str) -> str | None:
+        entry = route_binding_service.get_entry(route_id)
+        if entry is None or entry.observation is None:
+            return None
+        consume = entry.observation.consume
+        if not consume:
+            return None
 
-        ts = TimeService.get()
-        record_date = ts.today()
-        cat_hint = ", ".join(categories) if categories else "自動分類"
-        prompt = (
-            f"今天日期：{record_date}\n"
-            f"整理以下群組對話，按分類（{cat_hint}）提取重點。\n"
-            "回傳 JSON array，每筆格式：\n"
-            '{"category":"分類","who":"誰","content":"原文",'
-            f'"record_date":"{record_date}"}}\n\n'
-            "規則：\n"
-            "- who：用 user_name\n"
-            "- content：保留原文，不改寫不推理\n"
-            "- 閒聊（天氣、吃飯等）跳過\n"
-            "- 只回傳 JSON array\n\n"
-            f"{formatted}"
+        current_config = app.state.config
+        lines = ["[觀察知識查詢]"]
+        lines.append("你可查詢以下 observation groups：")
+        for group_name in consume:
+            group_cfg = current_config.route_groups.get(group_name)
+            description = group_cfg.description if group_cfg else ""
+            if description:
+                lines.append(f"- {group_name}: {description}")
+            else:
+                lines.append(f"- {group_name}")
+        lines.append("查群組背景知識時，先用 list_observation_candidates(group, query)。")
+        lines.append(
+            "再從 shortlist 選 1~N 個 route_id，逐一用 "
+            "query_observation_member(route_id, query)。"
         )
+        lines.append("shortlist 本身不是答案；至少要實查一個 member route 才能回答。")
+        lines.append("每個 member 會各自回傳結果，不需要先假設 group 全查或硬 merge。")
+        return "\n".join(lines)
+
+    chatbot_manager.set_route_prompt_hint_builder(build_observation_access_hint)
+
+    async def on_observer_batch(payload) -> None:
+        """Process observer batch into canonical observation + projection rows."""
+        if not isinstance(payload, ObserverBatchPayload):
+            logger.warning("[observer] invalid batch payload type: %r", type(payload))
+            return
+
+        prompt = build_observation_worker_prompt(payload)
         logger.info(
-            "[observer] %s processing batch, categories=%s",
-            route_id, categories,
+            "[observer] %s processing batch profile=%s categories=%s",
+            payload.route_id,
+            payload.captured_profile_name,
+            payload.categories,
         )
         try:
             sid = f"observer-{uuid.uuid4().hex[:8]}"
             sdk_session = await sdk_client.create_session(
                 sid,
                 model="gpt-5.4",
-                system_message="你是資訊整理助手。只回傳 JSON array。",
+                system_message=build_observation_worker_system_message(),
             )
             try:
                 logger.info(
                     "[observer] %s worker_session=%s lane=observation",
-                    route_id,
+                    payload.route_id,
                     sid,
                 )
                 result = await sdk_session.send_and_wait(
@@ -681,44 +733,60 @@ async def lifespan(app: FastAPI):
                 )
                 logger.info(
                     "[observer] %s LLM result: %d chars",
-                    route_id, len(result),
+                    payload.route_id,
+                    len(result),
                 )
-                import json as _json
-
-                # Parse LLM result as JSON entries
-                entries = []
                 try:
-                    entries = _json.loads(result)
-                except (_json.JSONDecodeError, TypeError):
-                    import re
+                    parsed = parse_observation_worker_result(result)
+                except Exception:
+                    logger.exception(
+                        "[observer] %s failed to parse worker result",
+                        payload.route_id,
+                    )
+                    return
 
-                    match = re.search(r"\[.*\]", result, re.DOTALL)
-                    if match:
-                        entries = _json.loads(match.group())
+                entry_count = len(parsed.facts) + len(parsed.semantic)
 
                 logger.info(
                     "[observer] %s parsed %d entries from LLM",
-                    route_id, len(entries),
+                    payload.route_id,
+                    entry_count,
                 )
-                if entries:
-                    await memory_store.save(route_id, "observation", {
-                        "message_count": len(formatted.split("\n")),
-                        "entries": entries,
-                        "summary": f"{len(entries)} 筆紀錄",
-                    })
+                if parsed.facts or parsed.semantic:
+                    observation_id = await memory_store.save(
+                        payload.route_id,
+                        "observation",
+                        {
+                            "message_count": len(payload.messages),
+                            "entries": build_memory_observation_entries(parsed),
+                            "summary": parsed.summary or f"{len(parsed.facts)} 筆紀錄",
+                            "batch_time": payload.batch_time,
+                        },
+                    )
+                    projected_entries = project_observation_entries(
+                        route_id=payload.route_id,
+                        source_observation_id=observation_id,
+                        captured_profile_name=payload.captured_profile_name,
+                        messages=payload.messages,
+                        result=parsed,
+                    )
+                    if projected_entries:
+                        await memory_store.save_observation_entries(projected_entries)
                     logger.info(
-                        "[observer] %s saved to DB: %d entries",
-                        route_id, len(entries),
+                        "[observer] %s saved to DB: observation=%s projected=%d",
+                        payload.route_id,
+                        observation_id[:8],
+                        len(projected_entries),
                     )
                 else:
                     logger.info(
                         "[observer] %s no entries to save (all chat?)",
-                        route_id,
+                        payload.route_id,
                     )
             finally:
                 await sdk_session.destroy()
         except Exception:
-            logger.exception("[observer] batch failed for %s", route_id)
+            logger.exception("[observer] batch failed for %s", payload.route_id)
 
     hub._on_observer_batch = on_observer_batch
 
@@ -772,7 +840,8 @@ async def lifespan(app: FastAPI):
 
     _register_tools(
         tool_factory, scheduler, adapters, file_center, memory_store,
-        chatbot_manager, response_injector, r2_storage,
+        chatbot_manager, route_binding_service, lambda: app.state.config,
+        response_injector, r2_storage,
         get_available_tools, observation_groups,
     )
     app.state.scheduler = scheduler

@@ -28,6 +28,11 @@ observation_profiles:
       Summarize operational knowledge from the source route.
       Ignore pure chit-chat and keep only reusable background knowledge.
     categories: [leave, inventory, shipping]
+    retrieval:
+      description: |
+        Suitable for leave, inventory, inbound, outbound, and general
+        operational context queries.
+      keywords: [leave, vacation, inventory, stock, inbound, outbound, shipping]
 
 discovery_profiles:
   default_group_safe:
@@ -78,9 +83,13 @@ chatbots:
     model: gpt-5.4-mini
     system_message: |
       You are a domain-specific assistant with warehouse and document tools.
-      Use query_observations with group=ops when asked about observed operational history.
+      When you need observed operational history, first use
+      list_observation_candidates(group=ops, query=...),
+      then use query_observation_member(route_id=..., query=...).
+      The shortlist itself is not the answer; always query at least one member route.
+      query_observations is a compatibility fallback only.
       Reply concisely. Use tools to complete tasks, don't describe what you would do.
-    tools: [get_calendar, warehouse, quote_search, document_edit, web_search, download_media, show_image, query_observations, save_memo, list_memos, delete_memo, save_custom_prompt, list_custom_prompts, delete_custom_prompt, add_reminder, schedule_task_cron, list_schedules, cancel_schedule, manage_trigger_keywords]
+    tools: [get_calendar, warehouse, quote_search, document_edit, web_search, download_media, show_image, list_observation_candidates, query_observation_member, query_observations, save_memo, list_memos, delete_memo, save_custom_prompt, list_custom_prompts, delete_custom_prompt, add_reminder, schedule_task_cron, list_schedules, cancel_schedule, manage_trigger_keywords]
     context_window: 50
     timeout: 300
     auto_trigger_keywords: []

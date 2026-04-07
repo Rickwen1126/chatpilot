@@ -98,11 +98,19 @@ def create_query_observations_tool(
         total_entries = 0
         for obs in observations:
             for entry in obs.get("entries", []):
-                who = entry.get("who", "?")
+                who = entry.get("subject") or entry.get("who", "?")
                 cat = entry.get("category", "")
                 content = entry.get("content", "")
-                ts = entry.get("timestamp", "")
-                lines.append(f"• [{cat}] {who}: {content} ({ts})")
+                ts = entry.get("record_date") or entry.get("timestamp", "")
+                reported_by = entry.get("reported_by_name", "")
+                suffix = f" ({ts})" if ts else ""
+                if reported_by and reported_by != who:
+                    suffix = (
+                        f"（提供者: {reported_by}，{ts}）"
+                        if ts
+                        else f"（提供者: {reported_by}）"
+                    )
+                lines.append(f"• [{cat}] {who}: {content}{suffix}")
                 total_entries += 1
 
         header = f"觀察紀錄（group={group_name}，{total_entries} 筆"
@@ -120,6 +128,8 @@ def create_query_observations_tool(
         name="query_observations",
         description=(
             "查詢 observation group 收集的背景知識。"
+            "這是 compatibility path；優先使用 list_observation_candidates + "
+            "query_observation_member。"
             "可查詢請假、進料、出料、工程進度等分類。"
             f"可用 group：{available}。"
             "category: 分類過濾（選填）。"

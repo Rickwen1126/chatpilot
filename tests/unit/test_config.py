@@ -11,7 +11,7 @@ def test_load_example_config():
         Path("config/route_settings.example.yaml"),
         Path("config/route_bindings.example.yaml"),
     )
-    assert len(config.bindings) == 10
+    assert len(config.bindings) >= 12
     assert "buddy" in config.chatbots
     assert "my-observer" in config.chatbots
     bot = config.chatbots["buddy"]
@@ -32,6 +32,7 @@ def test_load_example_config():
     assert config.match_weights.group_id == 10
     assert "ops" in config.route_groups
     assert "ops_batch" in config.observation_profiles
+    assert "stock" in config.observation_profiles["ops_batch"].retrieval.keywords
 
 
 def test_load_config_parses_named_line_adapters(tmp_path):

@@ -720,6 +720,8 @@ assert_log "assistant reply lane session" "\\[Chatbot\\] my-assistant sending la
 assert_log "assistant observation worker session" "\\[observer\\] $ASSISTANT_ROUTE_ID worker_session=observer-.* lane=observation"
 assert_db_exists "addressed route observation in DB" \
     "SELECT count(*) FROM memory_observations WHERE route_id='$ASSISTANT_ROUTE_ID'"
+assert_db_exists "addressed route observation entries in DB" \
+    "SELECT count(*) FROM observation_entries WHERE route_id='$ASSISTANT_ROUTE_ID'"
 
 # ─── Observer Group Query [L2+L3] ───────────────────────────────
 header "Observer Group Query"
@@ -729,14 +731,29 @@ sleep 15
 assert_tool_called "group query tool called" "query_observations"
 assert_log "group query executed" "\\[query_obs\\] group=ops caller=$ASSISTANT_ROUTE_ID"
 
+# ─── Observation Retrieval V1 [L2+L3+L4] ───────────────────────
+header "Observation Retrieval V1"
+
+mock_webhook "{\"text\": \"bot 請先用 list_observation_candidates 找出 ops 群組最相關的知識來源，shortlist 不是答案，你必須至少選一個 route_id 再用 query_observation_member 查最近 30 天請假紀錄，最後簡短回答\", \"user_id\": \"ops-admin-v1\", \"group_id\": \"$ASSISTANT_GROUP\", \"platform\": \"line:demo\", \"is_mention\": false}" > /dev/null
+sleep 15
+assert_tool_called "candidate shortlist tool called" "list_observation_candidates"
+assert_tool_called "member query tool called" "query_observation_member"
+assert_log "candidate shortlist executed" "\\[obs_candidates\\] group=ops caller=$ASSISTANT_ROUTE_ID"
+assert_log "member query executed" "\\[obs_member\\] caller=$ASSISTANT_ROUTE_ID route=.* hits=[1-9]"
+assert_db_exists "leave observation entries persisted for retrieval" \
+    "SELECT count(*) FROM observation_entries WHERE route_id='$ASSISTANT_ROUTE_ID' AND kind='fact' AND content LIKE '%請假%'"
+assert_log "retrieval answer includes leave facts" \
+    "\\[response\\] $ASSISTANT_ROUTE_ID → .*小王請假"
+
 # ─── TimeService [L4] ───────────────────────────────────────────
 header "TimeService Integration"
-TS_RESP=$(cli_chat "今天幾號星期幾")
-sleep 2
 TODAY_DASH=$(date +%Y-%m-%d)
 TODAY_Y=$(date +%Y)
 TODAY_M=$(date +%-m)
 TODAY_D=$(date +%-d)
+TIME_USER="e2e-time-$(date +%s)"
+TS_RESP=$(cli_chat "今天幾號星期幾" "$TIME_USER")
+sleep 2
 # Accept: "2026-03-28" or "2026年3月28日" (spaces optional)
 if echo "$TS_RESP" | grep -q "$TODAY_DASH"; then
     pass "today's date exact match [L4: $TODAY_DASH]"

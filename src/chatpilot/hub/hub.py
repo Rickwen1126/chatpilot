@@ -13,6 +13,7 @@ from chatpilot.core.types import (
     ContextMessage,
     ContextMessageType,
     Message,
+    ObserverBatchPayload,
     Response,
 )
 from chatpilot.files.center import FileHandleCenter
@@ -49,9 +50,9 @@ OnPipelineResultCallback = Callable[
 ]
 # Returns bound chatbot name for a route_id, or None
 ResolveBindingCallback = Callable[[Message], str | None]
-# Observer batch callback: (route_id, formatted_messages, categories) -> None
+# Observer batch callback: structured payload -> None
 OnObserverBatchCallback = Callable[
-    [str, str, list[str]], Coroutine[Any, Any, None]
+    [ObserverBatchPayload], Coroutine[Any, Any, None]
 ]
 
 
@@ -99,12 +100,20 @@ class InMemoryMessageHub:
         self._on_pipeline_result = callback
 
     def register_capture(
-        self, route_id: str, batch_size: int, categories: list[str]
+        self,
+        route_id: str,
+        batch_size: int,
+        categories: list[str],
+        *,
+        profile_name: str = "",
+        instructions: str = "",
     ) -> None:
         """Register a route as an observation capture source."""
         self._observer_configs[route_id] = {
             "batch_size": batch_size,
             "categories": categories,
+            "profile_name": profile_name,
+            "instructions": instructions,
         }
         current = self._observation_buffer._get_window(route_id)
         if current < batch_size:
@@ -115,7 +124,13 @@ class InMemoryMessageHub:
         )
 
     def register_observer(
-        self, route_id: str, batch_size: int, categories: list[str]
+        self,
+        route_id: str,
+        batch_size: int,
+        categories: list[str],
+        *,
+        profile_name: str = "",
+        instructions: str = "",
     ) -> None:
         """Legacy helper: register silent observer source semantics."""
         self.register_route_policy(
@@ -124,7 +139,13 @@ class InMemoryMessageHub:
             processing_policy="none",
             capture_enabled=True,
         )
-        self.register_capture(route_id, batch_size, categories)
+        self.register_capture(
+            route_id,
+            batch_size,
+            categories,
+            profile_name=profile_name,
+            instructions=instructions,
+        )
 
     def clear_observers(self) -> None:
         """Clear all observer registrations.
@@ -224,10 +245,16 @@ class InMemoryMessageHub:
                     route_id, len(messages),
                     self._observation_buffer.count(route_id),
                 )
+                payload = ObserverBatchPayload(
+                    route_id=route_id,
+                    captured_profile_name=obs_config.get("profile_name", ""),
+                    instructions=obs_config.get("instructions", ""),
+                    categories=categories,
+                    messages=messages,
+                    formatted_messages=formatted,
+                )
                 task = asyncio.create_task(
-                    self._on_observer_batch(
-                        route_id, formatted, categories
-                    )
+                    self._on_observer_batch(payload)
                 )
                 self._background_tasks.add(task)
                 task.add_done_callback(self._background_tasks.discard)

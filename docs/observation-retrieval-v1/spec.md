@@ -20,6 +20,16 @@
 - 每個 source 各自查、各自回
 - 最終要不要 merge，交給 LLM
 
+## Implementation Status
+
+Implemented on 2026-04-08.
+
+驗證結果：
+
+- `uv run ruff check src/ tests/` → 綠
+- `uv run pytest tests/` → `236 passed`
+- `bash tests/e2e/run_e2e.sh` → `75 passed / 0 failed`
+
 ## Problem
 
 目前 observer query 有三個明顯缺口：

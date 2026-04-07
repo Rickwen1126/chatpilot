@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -15,6 +16,7 @@ from chatpilot.memory.types import (
     Memo,
     MemoryStatus,
     Observation,
+    ObservationEntry,
     Reminder,
     Schedule,
 )
@@ -93,6 +95,32 @@ CREATE INDEX IF NOT EXISTS idx_observations_route
     ON memory_observations(route_id);
 CREATE INDEX IF NOT EXISTS idx_observations_time
     ON memory_observations(route_id, batch_time);
+
+CREATE TABLE IF NOT EXISTS observation_entries (
+    id                   TEXT PRIMARY KEY,
+    route_id             TEXT NOT NULL,
+    captured_profile_name TEXT NOT NULL DEFAULT '',
+    kind                 TEXT NOT NULL DEFAULT 'fact',
+    canonical_entry_id   TEXT,
+    category             TEXT NOT NULL DEFAULT '其他',
+    subject              TEXT NOT NULL DEFAULT '',
+    record_date          TEXT NOT NULL DEFAULT '',
+    content              TEXT NOT NULL DEFAULT '',
+    search_text          TEXT NOT NULL DEFAULT '',
+    reported_by_user_id  TEXT,
+    reported_by_name     TEXT,
+    facets_json          TEXT NOT NULL DEFAULT '{}',
+    source_observation_id TEXT NOT NULL,
+    created_at           TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_observation_entries_route
+    ON observation_entries(route_id);
+CREATE INDEX IF NOT EXISTS idx_observation_entries_route_date
+    ON observation_entries(route_id, record_date);
+CREATE INDEX IF NOT EXISTS idx_observation_entries_source
+    ON observation_entries(source_observation_id);
+CREATE INDEX IF NOT EXISTS idx_observation_entries_kind
+    ON observation_entries(kind);
 
 CREATE TABLE IF NOT EXISTS trigger_keywords (
     id          TEXT PRIMARY KEY,
@@ -312,6 +340,104 @@ class SqliteMemoryStore:
 
         return results
 
+    async def save_observation_entries(
+        self, entries: list[ObservationEntry]
+    ) -> list[str]:
+        """Persist route-owned retrieval projection rows."""
+        if self._db is None:
+            raise RuntimeError("MemoryStore not initialized")
+        if not entries:
+            return []
+
+        rows: list[dict] = []
+        for entry in entries:
+            row = entry.model_dump(mode="json")
+            _serialize_json_fields(row)
+            rows.append(row)
+
+        cols = ", ".join(rows[0].keys())
+        placeholders = ", ".join(["?"] * len(rows[0]))
+        values = [tuple(row.values()) for row in rows]
+        await self._db.executemany(
+            f"INSERT INTO observation_entries ({cols}) VALUES ({placeholders})",
+            values,
+        )
+        await self._db.commit()
+        logger.info(
+            "[db] SAVE observation_entries route=%s count=%d source=%s",
+            entries[0].route_id[:16],
+            len(entries),
+            entries[0].source_observation_id[:8],
+        )
+        return [entry.id for entry in entries]
+
+    async def list_observation_entries(self, route_id: str) -> list[dict]:
+        if self._db is None:
+            raise RuntimeError("MemoryStore not initialized")
+
+        async with self._db.execute(
+            "SELECT * FROM observation_entries "
+            "WHERE route_id = ? ORDER BY created_at DESC",
+            (route_id,),
+        ) as cursor:
+            rows = await cursor.fetchall()
+            cols = [d[0] for d in cursor.description]
+            return [_deserialize_row(dict(zip(cols, r))) for r in rows]
+
+    async def query_observation_entries(
+        self,
+        route_id: str,
+        query: str = "",
+        *,
+        days: int = 30,
+        limit: int = 20,
+        kinds: tuple[str, ...] = ("fact", "semantic"),
+    ) -> list[dict]:
+        """Query projected observation entries for a single source route."""
+        if self._db is None:
+            raise RuntimeError("MemoryStore not initialized")
+
+        from datetime import timedelta
+
+        from chatpilot.core.time_service import TimeService
+
+        since = (
+            TimeService.get().utc_now() - timedelta(days=days)
+        ).date().isoformat()
+        placeholders = ", ".join(["?"] * len(kinds))
+        sql = (
+            "SELECT * FROM observation_entries "
+            f"WHERE route_id = ? AND kind IN ({placeholders}) "
+            "AND (record_date = '' OR record_date >= ?)"
+            " ORDER BY record_date DESC, created_at DESC"
+        )
+        params: list[str | int] = [route_id, *kinds, since]
+
+        async with self._db.execute(sql, tuple(params)) as cursor:
+            rows = await cursor.fetchall()
+            cols = [d[0] for d in cursor.description]
+            hydrated = [_deserialize_row(dict(zip(cols, r))) for r in rows]
+
+        if not query.strip():
+            return hydrated[:limit]
+
+        scored: list[tuple[int, dict]] = []
+        for row in hydrated:
+            score = _score_observation_entry(query, row)
+            if score <= 0:
+                continue
+            scored.append((score, row))
+
+        scored.sort(
+            key=lambda item: (
+                item[0],
+                str(item[1].get("record_date", "")),
+                str(item[1].get("created_at", "")),
+            ),
+            reverse=True,
+        )
+        return [row for _, row in scored[:limit]]
+
     # ── Trigger Keywords ─────────────────────────────────────────
 
     async def load_all_trigger_keywords(self) -> dict[str, list[str]]:
@@ -385,6 +511,10 @@ def _serialize_json_fields(data: dict) -> None:
         data["entries"] = json.dumps(
             data["entries"], ensure_ascii=False
         )
+    if "facets_json" in data and isinstance(data["facets_json"], dict):
+        data["facets_json"] = json.dumps(
+            data["facets_json"], ensure_ascii=False
+        )
 
 
 def _deserialize_row(row: dict) -> dict:
@@ -404,4 +534,79 @@ def _deserialize_row(row: dict) -> dict:
             row["entries"] = json.loads(row["entries"])
         except (json.JSONDecodeError, TypeError):
             row["entries"] = []
+    if "facets_json" in row and isinstance(row["facets_json"], str):
+        try:
+            row["facets_json"] = json.loads(row["facets_json"])
+        except (json.JSONDecodeError, TypeError):
+            row["facets_json"] = {}
     return row
+
+
+def _score_observation_entry(query: str, row: dict) -> int:
+    normalized_query = query.casefold().strip()
+    terms = _extract_query_terms(query)
+    if not terms:
+        return 1
+
+    category = str(row.get("category", "")).casefold()
+    subject = str(row.get("subject", "")).casefold()
+    content = str(row.get("content", "")).casefold()
+    search_text = str(row.get("search_text", "")).casefold()
+    reporter = str(row.get("reported_by_name", "")).casefold()
+    score = 0
+
+    if category and category in normalized_query:
+        score += 6
+    if subject and subject in normalized_query:
+        score += 5
+
+    for term in terms:
+        if term and category and term in category:
+            score += 5
+        if term and subject and term in subject:
+            score += 4
+        if term and search_text and term in search_text:
+            score += 3
+        if term and content and term in content:
+            score += 2
+        if term and reporter and term in reporter:
+            score += 1
+
+    return score
+
+
+def _extract_query_terms(query: str) -> list[str]:
+    raw_terms = [term.strip().casefold() for term in query.split() if term.strip()]
+    terms: list[str] = []
+    seen: set[str] = set()
+    for term in raw_terms or [query.casefold().strip()]:
+        for candidate in _expand_term(term):
+            if candidate in seen:
+                continue
+            seen.add(candidate)
+            terms.append(candidate)
+    return terms
+
+
+def _expand_term(term: str) -> list[str]:
+    candidates: list[str] = []
+    text = term.strip().casefold()
+    if not text:
+        return candidates
+    candidates.append(text)
+    for part in re.findall(r"[a-z0-9_]{2,}|[\u4e00-\u9fff]{2,}", text):
+        if part not in candidates:
+            candidates.append(part)
+        if _contains_cjk(part) and len(part) >= 4:
+            for size in (2, 3):
+                if len(part) < size:
+                    continue
+                for index in range(0, len(part) - size + 1):
+                    piece = part[index : index + size]
+                    if piece not in candidates:
+                        candidates.append(piece)
+    return candidates
+
+
+def _contains_cjk(text: str) -> bool:
+    return any("\u4e00" <= ch <= "\u9fff" for ch in text)
