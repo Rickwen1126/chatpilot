@@ -16,6 +16,7 @@ from fastapi import FastAPI
 from chatpilot.adapters.protocol import ChannelAdapter
 from chatpilot.chatbot.manager import ChatbotManager
 from chatpilot.core.config import GatewayConfig, load_config, watch_config
+from chatpilot.core.route_bindings import RouteBindingService
 from chatpilot.core.types import Message, Response
 from chatpilot.files.center import FileHandleCenter
 from chatpilot.files.ingress import InboundFilePreprocessor
@@ -27,7 +28,6 @@ from chatpilot.memory.store import SqliteMemoryStore as MemoryStore
 from chatpilot.pipeline.executor import PipelineExecutor
 from chatpilot.pipeline.samples.browser import BrowserPipeline
 from chatpilot.pipeline.samples.echo import EchoPipeline
-from chatpilot.routing.onboarding import RouteOnboardingRegistry
 from chatpilot.routing.router import BindingRouter
 from chatpilot.scheduler.runner import RunnerPool
 from chatpilot.scheduler.scheduler import InMemoryTaskScheduler
@@ -46,11 +46,14 @@ logger = logging.getLogger(__name__)
 # ── Startup helpers ──────────────────────────────────────────────
 
 
-def _load_gateway_config(config_path: Path) -> GatewayConfig:
+def _load_gateway_config(
+    settings_path: Path,
+    bindings_path: Path | None = None,
+) -> GatewayConfig:
     try:
-        return load_config(config_path)
+        return load_config(settings_path, bindings_path)
     except FileNotFoundError:
-        logger.warning("Config not found: %s — using defaults", config_path)
+        logger.warning("Config not found: %s — using defaults", settings_path)
         return GatewayConfig()
 
 
@@ -200,64 +203,6 @@ def _refresh_observer_state(
                 processing_policy=binding.processing_policy,
                 observation=obs,
             )
-
-
-def _apply_onboarding_state(
-    *,
-    hub: InMemoryMessageHub,
-    config: GatewayConfig,
-    observation_groups: dict[str, dict],
-    route_id: str,
-    platform: str,
-    reply_policy: str,
-    processing_policy: str,
-    observation,
-) -> None:
-    capture = observation.capture if observation is not None else None
-    consume = observation.consume if observation is not None else []
-    hub.register_route_policy(
-        route_id,
-        reply_policy=reply_policy,
-        processing_policy=processing_policy,
-        capture_enabled=capture is not None,
-    )
-
-    def _ensure_group(name: str) -> dict[str, list[str]]:
-        return observation_groups.setdefault(
-            name,
-            {
-                "source_route_ids": [],
-                "consumer_route_ids": [],
-            },
-        )
-
-    for group in consume:
-        state = _ensure_group(group)
-        if route_id not in state["consumer_route_ids"]:
-            state["consumer_route_ids"].append(route_id)
-
-    if capture is None:
-        return
-
-    profile = config.observation_profiles.get(capture.profile)
-    if profile is None:
-        logger.warning(
-            "Onboarding capture profile missing for route=%s group=%s profile=%s",
-            route_id,
-            capture.group,
-            capture.profile,
-        )
-        return
-
-    state = _ensure_group(capture.group)
-    hub.register_capture(
-        route_id,
-        batch_size=profile.batch_size,
-        categories=profile.categories,
-    )
-    if _is_queryable_observer_platform(platform):
-        if route_id not in state["source_route_ids"]:
-            state["source_route_ids"].append(route_id)
 
 
 def _init_hub(
@@ -528,12 +473,33 @@ async def lifespan(app: FastAPI):
         level=logging.INFO,
         format="%(asctime)s %(name)s %(levelname)s %(message)s",
     )
+    logging.getLogger("chatpilot").setLevel(logging.INFO)
     app.state.start_time = time.time()
 
     # Config
-    config_path = Path(os.environ.get("ROUTES_PATH", "config/routes.yaml"))
-    app.state.config_path = config_path
-    config = _load_gateway_config(config_path)
+    settings_env = (
+        os.environ.get("ROUTE_SETTINGS_PATH")
+        or os.environ.get("ROUTES_PATH")
+    )
+    settings_path = Path(
+        settings_env
+        or (
+            "config/route_settings.yaml"
+            if Path("config/route_settings.yaml").exists()
+            else "config/routes.yaml"
+        )
+    )
+    bindings_path = Path(
+        os.environ.get("ROUTE_BINDINGS_PATH", "config/route_bindings.yaml")
+    )
+    app.state.route_settings_path = settings_path
+    app.state.route_bindings_path = bindings_path
+    config = _load_gateway_config(settings_path, bindings_path)
+    route_binding_service = RouteBindingService(bindings_path)
+    route_binding_service.load()
+    if not route_binding_service.merged_bindings() and config.bindings:
+        route_binding_service.replace_fallback_bindings(config.bindings)
+    config.bindings = route_binding_service.merged_bindings()
 
     # TimeService — must be first, everything depends on it
     from chatpilot.core.time_service import TimeService
@@ -600,11 +566,9 @@ async def lifespan(app: FastAPI):
         )
 
     # Routing + chatbot
-    route_onboarding_registry = RouteOnboardingRegistry()
     binding_router = BindingRouter(
         config.bindings,
         config.match_weights,
-        onboarding_registry=route_onboarding_registry,
     )
     chatbot_manager = ChatbotManager(
         sdk_client,
@@ -651,19 +615,27 @@ async def lifespan(app: FastAPI):
     app.state.hub = hub
     app.state.chatbot_manager = chatbot_manager
     app.state.binding_router = binding_router
+    app.state.route_binding_service = route_binding_service
     app.state.session_context_registry = session_context_registry
-    app.state.route_onboarding_registry = route_onboarding_registry
     app.state.config = config
 
     # Observer mode — register observer routes + batch callback
     observation_groups: dict[str, dict] = {}
-    _refresh_observer_state(
-        hub=hub,
-        adapters=adapters,
-        config=config,
-        observation_groups=observation_groups,
-    )
     app.state.observation_groups = observation_groups
+
+    def refresh_routing_runtime() -> None:
+        current_config = app.state.config
+        current_config.bindings = route_binding_service.merged_bindings()
+        binding_router.update(current_config.bindings, current_config.match_weights)
+        _refresh_observer_state(
+            hub=hub,
+            adapters=adapters,
+            config=current_config,
+            observation_groups=observation_groups,
+        )
+
+    refresh_routing_runtime()
+    app.state.refresh_routing_runtime = refresh_routing_runtime
 
     async def on_observer_batch(
         route_id: str, formatted: str, categories: list[str]
@@ -831,28 +803,16 @@ async def lifespan(app: FastAPI):
 
     # Hot reload
     def on_config_reload(new_config: GatewayConfig) -> None:
+        route_binding_service.load()
+        if not route_binding_service.merged_bindings() and new_config.bindings:
+            route_binding_service.replace_fallback_bindings(new_config.bindings)
+        new_config.bindings = route_binding_service.merged_bindings()
         adapters.clear()
         adapters.update(_init_adapters(new_config))
         binding_router.update(new_config.bindings, new_config.match_weights)
         chatbot_manager.update_configs(new_config.chatbots)
         app.state.config = new_config
-        _refresh_observer_state(
-            hub=hub,
-            adapters=adapters,
-            config=new_config,
-            observation_groups=observation_groups,
-        )
-        for state in route_onboarding_registry.list_states():
-            _apply_onboarding_state(
-                hub=hub,
-                config=new_config,
-                observation_groups=observation_groups,
-                route_id=state.route_id,
-                platform=state.platform,
-                reply_policy=state.reply_policy,
-                processing_policy=state.processing_policy,
-                observation=state.observation,
-            )
+        refresh_routing_runtime()
         # Rebuild config keyword cache (DB cache untouched)
         configure_keywords(new_config.trigger_keywords)
         configure_auto_triggers({
@@ -864,7 +824,19 @@ async def lifespan(app: FastAPI):
             "Config reloaded successfully (keywords/observers refreshed)"
         )
 
-    observer = watch_config(config_path, on_config_reload) if config_path.exists() else None
+    app.state.reload_config = lambda: on_config_reload(
+        _load_gateway_config(settings_path, bindings_path)
+    )
+
+    observer = (
+        watch_config(
+            [settings_path, bindings_path],
+            lambda: _load_gateway_config(settings_path, bindings_path),
+            on_config_reload,
+        )
+        if settings_path.exists() or bindings_path.exists()
+        else None
+    )
 
     logger.info("Server started. Webhook: POST /webhook/{platform}")
     yield

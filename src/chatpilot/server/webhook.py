@@ -13,6 +13,7 @@ from fastapi.responses import JSONResponse
 
 from chatpilot.core.errors import AdapterError
 from chatpilot.core.types import DiscoveryEvent, Message, Response
+from chatpilot.routing.binding import NO_MATCH, calculate_score
 from chatpilot.routing.onboarding import materialize_onboarding_state
 from chatpilot.tools.session_context import (
     DEFAULT_WORKSPACE_ROOT,
@@ -86,56 +87,38 @@ def _resolve_route_label(adapter: object, conversation_id: str) -> str | None:
     return None
 
 
-def _apply_onboarding_state_to_runtime(request: Request, state) -> None:
-    hub = request.app.state.hub
-    config = request.app.state.config
-    observation_groups = request.app.state.observation_groups
-    observation = state.observation
-    capture = observation.capture if observation is not None else None
-    consume = observation.consume if observation is not None else []
-    hub.register_route_policy(
-        state.route_id,
-        reply_policy=state.reply_policy,
-        processing_policy=state.processing_policy,
-        capture_enabled=capture is not None,
+def _resolve_static_binding(binding_router, info: dict) -> str | None:
+    """Resolve the best static binding for an admin route view.
+
+    This intentionally ignores discovery onboarding state and only evaluates the
+    configured binding rules against a synthetic message for the route.
+    """
+    bindings = getattr(binding_router, "_bindings", None)
+    weights = getattr(binding_router, "_weights", None)
+    if bindings is None or weights is None:
+        return None
+
+    conversation_id = info["conversation_id"]
+    route_type = "user" if conversation_id.startswith("U") else "group"
+    message = Message(
+        text="[admin route view]",
+        user_id="admin-view" if route_type == "group" else conversation_id,
+        user_name="",
+        platform=info["platform"],
+        group_id=conversation_id if route_type == "group" else None,
+        conversation_id=conversation_id,
     )
 
-    def _ensure_group(name: str) -> dict[str, list[str]]:
-        return observation_groups.setdefault(
-            name,
-            {
-                "source_route_ids": [],
-                "consumer_route_ids": [],
-            },
-        )
-
-    for group in consume:
-        group_state = _ensure_group(group)
-        if state.route_id not in group_state["consumer_route_ids"]:
-            group_state["consumer_route_ids"].append(state.route_id)
-
-    if capture is None:
-        return
-
-    profile = config.observation_profiles.get(capture.profile)
-    if profile is None:
-        logger.warning(
-            "Discovery capture profile missing for route=%s group=%s profile=%s",
-            state.route_id,
-            capture.group,
-            capture.profile,
-        )
-        return
-
-    group_state = _ensure_group(capture.group)
-    hub.register_capture(
-        state.route_id,
-        batch_size=profile.batch_size,
-        categories=profile.categories,
-    )
-    if state.platform not in {"cli", "mock"}:
-        if state.route_id not in group_state["source_route_ids"]:
-            group_state["source_route_ids"].append(state.route_id)
+    best_binding = None
+    best_score = NO_MATCH
+    for binding in bindings:
+        score = calculate_score(binding, message, weights)
+        if score == NO_MATCH:
+            continue
+        if score >= best_score:
+            best_score = score
+            best_binding = binding
+    return best_binding.chatbot if best_binding is not None else None
 
 
 def _apply_discovery_event(
@@ -144,7 +127,8 @@ def _apply_discovery_event(
     event: DiscoveryEvent,
 ) -> None:
     config = request.app.state.config
-    registry = request.app.state.route_onboarding_registry
+    route_binding_service = request.app.state.route_binding_service
+    refresh_runtime = request.app.state.refresh_routing_runtime
     label = _resolve_route_label(adapter, event.conversation_id)
     state = materialize_onboarding_state(config, event, label=label)
     if state is None:
@@ -155,8 +139,9 @@ def _apply_discovery_event(
         )
         return
 
-    registry.register(state)
-    _apply_onboarding_state_to_runtime(request, state)
+    entry = route_binding_service.upsert_from_onboarding(state)
+    route_binding_service.save()
+    refresh_runtime()
     if label:
         labels = _load_route_labels()
         labels[state.route_id] = label
@@ -165,10 +150,10 @@ def _apply_discovery_event(
         "[discovery] route=%s type=%s profile=%s chatbot=%s reply=%s processing=%s",
         state.route_id,
         state.discovery_type,
-        state.profile_name,
-        state.chatbot,
-        state.reply_policy,
-        state.processing_policy,
+        entry.profile_name,
+        entry.chatbot,
+        entry.reply_policy,
+        entry.processing_policy,
     )
 
 
@@ -332,7 +317,7 @@ async def cli_routes(request: Request) -> JSONResponse:
     """
     chatbot_manager = request.app.state.chatbot_manager
     binding_router = request.app.state.binding_router
-    onboarding_registry = getattr(request.app.state, "route_onboarding_registry", None)
+    route_binding_service = request.app.state.route_binding_service
 
     # Load labels
     labels: dict = _load_route_labels()
@@ -348,50 +333,39 @@ async def cli_routes(request: Request) -> JSONResponse:
                 "sessions": [],
             }
         known_routes[route_id]["sessions"].append(context.chatbot_name)
-    if onboarding_registry is not None:
-        for state in onboarding_registry.list_states():
-            info = known_routes.setdefault(
-                state.route_id,
-                {
-                    "route_id": state.route_id,
-                    "platform": state.platform,
-                    "conversation_id": state.conversation_id,
-                    "sessions": [],
-                },
-            )
-            info["discovered"] = state
-            info.setdefault("platform", state.platform)
-            info.setdefault("conversation_id", state.conversation_id)
+    for route_id, entry in route_binding_service.list_entries():
+        conversation_id = route_id.rsplit(":", 1)[-1]
+        platform = route_id[: -(len(conversation_id) + 1)]
+        info = known_routes.setdefault(
+            route_id,
+            {
+                "route_id": route_id,
+                "platform": platform,
+                "conversation_id": conversation_id,
+                "sessions": [],
+            },
+        )
+        info["binding_entry"] = entry
+        info.setdefault("platform", platform)
+        info.setdefault("conversation_id", conversation_id)
 
     # Enrich known-route metadata with current binding/override state.
     routes = []
     for route_id, info in sorted(known_routes.items()):
-        discovered = info.get("discovered")
+        exact_entry = info.get("binding_entry")
         override = chatbot_manager.get_current_chatbot(route_id)
         active_session = None
         get_session = getattr(chatbot_manager, "get_session", None)
         if get_session is not None:
             active_session = get_session(route_id)
-        # Find default binding (check all match dimensions)
-        default_binding = None
-        for b in binding_router._bindings:
-            match = b.match
-            if not match:
-                default_binding = default_binding or b.chatbot
-                continue
-            cid = info["conversation_id"]
-            if match.get("group_id") == cid:
-                default_binding = b.chatbot
-                break
-            if match.get("user_id") == cid:
-                default_binding = b.chatbot
-                break
-            if match.get("platform") == info["platform"] and not default_binding:
-                default_binding = b.chatbot
+        default_binding = _resolve_static_binding(binding_router, info)
 
-        current_chatbot = override or default_binding
-        if current_chatbot is None and discovered is not None:
-            current_chatbot = discovered.chatbot
+        current_chatbot = (
+            override
+            or getattr(exact_entry, "chatbot", None)
+            or getattr(active_session, "chatbot_name", None)
+            or default_binding
+        )
         if current_chatbot is None:
             current_chatbot = info["sessions"][0] if info["sessions"] else "unknown"
         configured_model = None
@@ -413,7 +387,7 @@ async def cli_routes(request: Request) -> JSONResponse:
 
         item = {
             "route_id": route_id,
-            "label": labels.get(route_id) or getattr(discovered, "label", None),
+            "label": labels.get(route_id),
             "platform": info["platform"],
             "conversation_id": info["conversation_id"],
             "current_chatbot": current_chatbot,
@@ -425,10 +399,12 @@ async def cli_routes(request: Request) -> JSONResponse:
             "sdk_current_model": sdk_current_model,
             "sessions": sorted(set(info["sessions"])),
         }
-        if discovered is not None:
-            item["discovered_profile"] = discovered.profile_name
-            item["reply_policy"] = discovered.reply_policy
-            item["processing_policy"] = discovered.processing_policy
+        if exact_entry is not None:
+            item["binding_source"] = exact_entry.source
+            item["reply_policy"] = exact_entry.reply_policy
+            item["processing_policy"] = exact_entry.processing_policy
+            if exact_entry.profile_name is not None:
+                item["discovered_profile"] = exact_entry.profile_name
         routes.append(item)
 
     return JSONResponse(content={"routes": routes, "total": len(routes)})
@@ -460,7 +436,7 @@ async def cli_routes_sync(request: Request) -> JSONResponse:
     """Sync route labels from platform APIs (LINE group names, user profiles)."""
     adapters: dict = request.app.state.adapters
     synced: list[dict] = []
-    onboarding_registry = getattr(request.app.state, "route_onboarding_registry", None)
+    route_binding_service = request.app.state.route_binding_service
 
     # LINE: query group summary / profile for known conversations
     seen: set[str] = set()
@@ -471,9 +447,10 @@ async def cli_routes_sync(request: Request) -> JSONResponse:
             context.platform,
             context.conversation_id,
         ))
-    if onboarding_registry is not None:
-        for state in onboarding_registry.list_states():
-            route_records.append((state.route_id, state.platform, state.conversation_id))
+    for route_id, _entry in route_binding_service.list_entries():
+        conversation_id = route_id.rsplit(":", 1)[-1]
+        platform = route_id[: -(len(conversation_id) + 1)]
+        route_records.append((route_id, platform, conversation_id))
     for route_id, route_platform, conversation_id in route_records:
         if not route_platform.startswith("line"):
             continue
@@ -502,11 +479,12 @@ async def cli_routes_sync(request: Request) -> JSONResponse:
 
 @router.post("/cli/reload")
 async def cli_reload(request: Request) -> JSONResponse:
-    """Force reload config from routes.yaml."""
-    import os
-    config_path = request.app.state.config_path
-    os.utime(config_path)  # touch to trigger watchdog
-    return JSONResponse(content={"status": "reloaded"})
+    """Force reload config from disk."""
+    reload_config = getattr(request.app.state, "reload_config", None)
+    if callable(reload_config):
+        reload_config()
+        return JSONResponse(content={"status": "reloaded"})
+    return JSONResponse(status_code=500, content={"error": "reload unavailable"})
 
 
 @router.get("/health")

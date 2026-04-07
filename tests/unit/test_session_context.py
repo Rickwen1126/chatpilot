@@ -257,7 +257,8 @@ def test_cli_routes_reads_workspace_session_context_metadata(
     app.state.chatbot_manager = SimpleNamespace(
         get_current_chatbot=lambda route_id: None,
     )
-    app.state.binding_router = SimpleNamespace(_bindings=[])
+    app.state.binding_router = SimpleNamespace(_bindings=[], _weights=None)
+    app.state.route_binding_service = SimpleNamespace(list_entries=lambda: [])
 
     client = TestClient(app)
     response = client.get("/cli/routes")
@@ -307,8 +308,10 @@ def test_cli_routes_reports_effective_and_runtime_models(monkeypatch):
         get_effective_model=lambda route_id, chatbot_name=None: "gpt-5.4",
     )
     app.state.binding_router = SimpleNamespace(
-        _bindings=[SimpleNamespace(match={"platform": "line:webric"}, chatbot="buddy")]
+        _bindings=[SimpleNamespace(match={"platform": "line:webric"}, chatbot="buddy")],
+        _weights=SimpleNamespace(platform=5, group_id=3, user_id=3),
     )
+    app.state.route_binding_service = SimpleNamespace(list_entries=lambda: [])
 
     client = TestClient(app)
     response = client.get("/cli/routes")

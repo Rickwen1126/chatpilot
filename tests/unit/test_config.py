@@ -7,8 +7,11 @@ from chatpilot.server.__init__ import _init_adapters
 
 
 def test_load_example_config():
-    config = load_config(Path("config/routes.example.yaml"))
-    assert len(config.bindings) == 4
+    config = load_config(
+        Path("config/route_settings.example.yaml"),
+        Path("config/route_bindings.example.yaml"),
+    )
+    assert len(config.bindings) == 8
     assert "buddy" in config.chatbots
     assert "my-observer" in config.chatbots
     bot = config.chatbots["buddy"]

@@ -26,6 +26,8 @@ Thumbs.db
 
 # Config (user-specific, not tracked)
 config/routes.yaml
+config/route_settings.yaml
+config/route_bindings.yaml
 
 # uv
 .python-version

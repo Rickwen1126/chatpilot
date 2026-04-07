@@ -1,10 +1,7 @@
 """Tests for binding router."""
 
-from datetime import datetime, timezone
-
-from chatpilot.core.types import Binding, MatchWeights, Message, RouteOnboardingState
+from chatpilot.core.types import Binding, MatchWeights, Message
 from chatpilot.routing.binding import calculate_score
-from chatpilot.routing.onboarding import RouteOnboardingRegistry
 from chatpilot.routing.router import BindingRouter
 
 
@@ -31,6 +28,13 @@ def test_calculate_score_platform_match():
 def test_calculate_score_group_match():
     b = Binding(match={"group_id": "g1"}, chatbot="bot")
     assert calculate_score(b, _msg(group_id="g1"), MatchWeights()) == 10
+
+
+def test_calculate_score_user_id_does_not_match_group_sender():
+    b = Binding(match={"platform": "line", "user_id": "u1"}, chatbot="bot")
+    assert calculate_score(
+        b, _msg(platform="line", group_id="g1", user_id="u1"), MatchWeights()
+    ) == -1
 
 
 def test_calculate_score_multi_match():
@@ -67,30 +71,15 @@ def test_router_resolve_no_match():
     assert route is None
 
 
-def test_router_prefers_onboarding_state_over_static_binding():
-    registry = RouteOnboardingRegistry()
-    registry.register(
-        RouteOnboardingState(
-            route_id="line:g1",
-            platform="line",
-            conversation_id="g1",
-            route_type="group",
-            chatbot="onboarded",
-            reply_policy="never",
-            processing_policy="none",
-            observation=None,
-            profile_name="default_group",
-            discovery_type="join",
-            discovered_at=datetime(2026, 4, 7, tzinfo=timezone.utc),
-        )
-    )
+def test_router_prefers_exact_route_binding_over_platform_default():
     bindings = [
-        Binding(match={"platform": "line", "group_id": "g1"}, chatbot="static"),
+        Binding(match={"platform": "line"}, chatbot="buddy"),
+        Binding(match={"platform": "line", "group_id": "g1"}, chatbot="onboarded"),
     ]
-    router = BindingRouter(bindings, MatchWeights(), onboarding_registry=registry)
+    router = BindingRouter(bindings, MatchWeights())
 
     route = router.resolve(_msg(group_id="g1"))
 
     assert route is not None
     assert route.chatbot_name == "onboarded"
-    assert route.binding_score == 10_000
+    assert route.binding_score == 15

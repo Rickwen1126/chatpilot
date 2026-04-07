@@ -1,7 +1,7 @@
 """Mention filter — determines if a message is directed at the bot.
 
 Two-layer keyword system:
-- Layer 1 (_chatbot_keywords): per-bot config seed, loaded from routes.yaml
+- Layer 1 (_chatbot_keywords): per-bot config seed, loaded from route settings
 - Layer 2 (_route_keywords): per-channel DB additions, write-through cache
 """
 

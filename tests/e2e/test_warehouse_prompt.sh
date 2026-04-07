@@ -5,7 +5,7 @@
 
 PORT="${1:-2999}"
 BASE_URL="http://localhost:$PORT"
-# shinyipaint group_id from routes.yaml
+# shinyipaint group_id from route_bindings.yaml
 GROUP_ID="C0069917b022d280805149bf9a8709453"
 
 green() { printf "\033[32m%s\033[0m\n" "$1"; }

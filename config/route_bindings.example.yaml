@@ -1,0 +1,110 @@
+route_bindings:
+  line:demo:Ua1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4:
+    match:
+      platform: line:demo
+      user_id: Ua1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4
+    chatbot: my-observer
+    reply_policy: never
+    processing_policy: none
+    observation:
+      capture:
+        group: ops
+        profile: ops_batch
+      consume: []
+    source: manual
+    profile_name: null
+    discovered_at: null
+  line:demo:Ca1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4:
+    match:
+      platform: line:demo
+      group_id: Ca1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4
+    chatbot: my-assistant
+    reply_policy: addressed
+    processing_policy: interactive
+    observation:
+      capture:
+        group: ops
+        profile: ops_batch
+      consume:
+      - ops
+    source: manual
+    profile_name: null
+    discovered_at: null
+  line:demo:C2b6ee7a474074f7db7498229df64bfcc:
+    match:
+      platform: line:demo
+      group_id: C2b6ee7a474074f7db7498229df64bfcc
+    chatbot: buddy
+    reply_policy: never
+    processing_policy: none
+    observation: null
+    source: discovered
+    profile_name: default_group_safe
+    discovered_at: '2024-03-09T16:00:00Z'
+  line:demo:U2b6ee7a474074f7db7498229df64bfcc:
+    match:
+      platform: line:demo
+      user_id: U2b6ee7a474074f7db7498229df64bfcc
+    chatbot: buddy
+    reply_policy: addressed
+    processing_policy: interactive
+    observation: null
+    source: discovered
+    profile_name: default_private_cheap
+    discovered_at: '2024-03-09T16:00:00Z'
+  line:demo:Cbb71f0d2757448d895969c5afb7c421f:
+    match:
+      platform: line:demo
+      group_id: Cbb71f0d2757448d895969c5afb7c421f
+    chatbot: buddy
+    reply_policy: never
+    processing_policy: none
+    observation: null
+    source: discovered
+    profile_name: default_group_safe
+    discovered_at: '2024-03-09T16:00:00Z'
+  line:demo:Ubb71f0d2757448d895969c5afb7c421f:
+    match:
+      platform: line:demo
+      user_id: Ubb71f0d2757448d895969c5afb7c421f
+    chatbot: buddy
+    reply_policy: addressed
+    processing_policy: interactive
+    observation: null
+    source: discovered
+    profile_name: default_private_cheap
+    discovered_at: '2024-03-09T16:00:00Z'
+  line:demo:C30730c9772f74f3892bc3267a1f2b91c:
+    match:
+      platform: line:demo
+      group_id: C30730c9772f74f3892bc3267a1f2b91c
+    chatbot: buddy
+    reply_policy: never
+    processing_policy: none
+    observation: null
+    source: discovered
+    profile_name: default_group_safe
+    discovered_at: '2024-03-09T16:00:00Z'
+  line:demo:U30730c9772f74f3892bc3267a1f2b91c:
+    match:
+      platform: line:demo
+      user_id: U30730c9772f74f3892bc3267a1f2b91c
+    chatbot: buddy
+    reply_policy: addressed
+    processing_policy: interactive
+    observation: null
+    source: discovered
+    profile_name: default_private_cheap
+    discovered_at: '2024-03-09T16:00:00Z'
+fallback_bindings:
+- match:
+    platform: line:demo
+  chatbot: buddy
+  reply_policy: addressed
+  processing_policy: interactive
+  observation: null
+- match: {}
+  chatbot: buddy
+  reply_policy: addressed
+  processing_policy: interactive
+  observation: null

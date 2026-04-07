@@ -1,4 +1,4 @@
-"""Config loader — parses routes.yaml into GatewayConfig."""
+"""Config loader — parses route settings + route bindings into GatewayConfig."""
 
 from __future__ import annotations
 
@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field, model_validator
 from watchdog.events import FileSystemEvent, FileSystemEventHandler
 from watchdog.observers import Observer
 
+from chatpilot.core.route_bindings import load_route_bindings
 from chatpilot.core.types import (
     AdapterChannelConfig,
     AgentConfig,
@@ -104,11 +105,23 @@ class GatewayConfig(BaseModel):
         return self
 
 
-def load_config(path: Path) -> GatewayConfig:
-    """Load and validate gateway config from YAML file."""
+def load_config(path: Path, bindings_path: Path | None = None) -> GatewayConfig:
+    """Load and validate gateway config from settings YAML plus route bindings."""
     raw = yaml.safe_load(path.read_text(encoding="utf-8"))
     if raw is None:
         raw = {}
+    legacy_bindings = raw.pop("bindings", None)
+    bindings_doc = (
+        load_route_bindings(bindings_path)
+        if bindings_path is not None
+        else None
+    )
+    if bindings_doc is not None and (
+        bindings_doc.route_bindings or bindings_doc.fallback_bindings
+    ):
+        raw["bindings"] = bindings_doc.merged_bindings()
+    elif legacy_bindings is not None:
+        raw["bindings"] = legacy_bindings
     # Inject chatbot name from dict key
     chatbots = {}
     for name, cfg in raw.get("chatbots", {}).items():
@@ -127,29 +140,47 @@ def load_config(path: Path) -> GatewayConfig:
 
 
 class _ConfigReloadHandler(FileSystemEventHandler):
-    def __init__(self, path: Path, callback: Callable[[GatewayConfig], None]):
-        self._path = path
+    def __init__(
+        self,
+        paths: list[Path],
+        loader: Callable[[], GatewayConfig],
+        callback: Callable[[GatewayConfig], None],
+    ):
+        self._paths = [path.resolve() for path in paths]
+        self._loader = loader
         self._callback = callback
 
     def on_modified(self, event: FileSystemEvent) -> None:
         if event.is_directory:
             return
-        if Path(event.src_path).resolve() != self._path.resolve():
+        event_path = Path(event.src_path).resolve()
+        if event_path not in self._paths:
             return
         try:
-            config = load_config(self._path)
+            config = self._loader()
             self._callback(config)
-            logger.info("Config reloaded from %s", self._path)
+            logger.info("Config reloaded from %s", event_path)
         except Exception:
-            logger.exception("Failed to reload config from %s", self._path)
+            logger.exception("Failed to reload config from %s", event_path)
 
 
-def watch_config(path: Path, callback: Callable[[GatewayConfig], None]) -> Observer:
-    """Start watching config file for changes. Returns the Observer (call .stop() to stop)."""
-    handler = _ConfigReloadHandler(path.resolve(), callback)
+def watch_config(
+    paths: list[Path],
+    loader: Callable[[], GatewayConfig],
+    callback: Callable[[GatewayConfig], None],
+) -> Observer:
+    """Start watching config files for changes. Returns the Observer (call .stop() to stop)."""
+    resolved_paths = [path.resolve() for path in paths]
+    handler = _ConfigReloadHandler(resolved_paths, loader, callback)
     observer = Observer()
-    observer.schedule(handler, str(path.resolve().parent), recursive=False)
+    seen_dirs: set[Path] = set()
+    for path in resolved_paths:
+        parent = path.parent
+        if parent in seen_dirs:
+            continue
+        observer.schedule(handler, str(parent), recursive=False)
+        seen_dirs.add(parent)
     observer.daemon = True
     observer.start()
-    logger.info("Watching config file: %s", path)
+    logger.info("Watching config files: %s", ", ".join(str(p) for p in resolved_paths))
     return observer

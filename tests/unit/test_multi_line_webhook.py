@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -11,11 +13,11 @@ from fastapi.testclient import TestClient
 
 from chatpilot.core.config import GatewayConfig
 from chatpilot.core.errors import AdapterError
+from chatpilot.core.route_bindings import RouteBindingEntry, RouteBindingService
 from chatpilot.core.types import (
     DiscoveryEvent,
     MatchWeights,
     Message,
-    RouteOnboardingState,
     SessionContext,
 )
 from chatpilot.files.center import FileHandleCenter
@@ -23,11 +25,19 @@ from chatpilot.files.models import FileKind, SourceFetchResult, SourceHandleInpu
 from chatpilot.files.store import SqliteFileStore
 from chatpilot.hub.context_buffer import ContextBuffer
 from chatpilot.hub.hub import _AUDIO_REF_PATTERN, InMemoryMessageHub
-from chatpilot.routing.onboarding import RouteOnboardingRegistry
 from chatpilot.routing.router import BindingRouter
 from chatpilot.server.webhook import router
 from chatpilot.tools.builtin.download_media import create_download_media_tool
 from chatpilot.tools.session_context import SessionContextRegistry
+
+
+def _write_labels(tmp_path: Path, labels: dict[str, str]) -> None:
+    labels_path = tmp_path / "data" / "route_labels.json"
+    labels_path.parent.mkdir(parents=True, exist_ok=True)
+    labels_path.write_text(
+        json.dumps(labels, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
 
 
 class _StubHub:
@@ -114,7 +124,7 @@ def _build_test_client(
     config: GatewayConfig | None = None,
     binding_router: BindingRouter | None = None,
     chatbot_manager: object | None = None,
-    onboarding_registry: RouteOnboardingRegistry | None = None,
+    route_binding_service: RouteBindingService | None = None,
     session_context_registry: SessionContextRegistry | None = None,
 ) -> tuple[TestClient, _StubHub]:
     app = FastAPI()
@@ -130,9 +140,41 @@ def _build_test_client(
         get_effective_model=lambda route_id, chatbot: None,
         get_session=lambda route_id: None,
     )
-    app.state.route_onboarding_registry = onboarding_registry or RouteOnboardingRegistry()
+    if route_binding_service is None:
+        service = RouteBindingService(Path("route_bindings.yaml"))
+        service.load()
+    else:
+        service = route_binding_service
+    if not service.merged_bindings() and app.state.config.bindings:
+        service.replace_fallback_bindings(app.state.config.bindings)
+    app.state.route_binding_service = service
     app.state.session_context_registry = session_context_registry or SessionContextRegistry()
     app.state.observation_groups = {}
+
+    def _refresh_routing_runtime() -> None:
+        bindings = service.merged_bindings() or app.state.config.bindings
+        app.state.config.bindings = bindings
+        app.state.binding_router.update(bindings, app.state.config.match_weights)
+        hub.route_policies.clear()
+        hub.captures.clear()
+        for route_id, entry in service.list_entries():
+            observation = entry.observation
+            capture = observation.capture if observation is not None else None
+            hub.register_route_policy(
+                route_id,
+                reply_policy=entry.reply_policy,
+                processing_policy=entry.processing_policy,
+                capture_enabled=capture is not None,
+            )
+            if capture is None:
+                continue
+            profile = app.state.config.observation_profiles.get(capture.profile)
+            if profile is not None:
+                hub.register_capture(route_id, profile.batch_size, profile.categories)
+
+    app.state.refresh_routing_runtime = _refresh_routing_runtime
+    app.state.reload_config = lambda: None
+    _refresh_routing_runtime()
     return TestClient(app), hub
 
 
@@ -231,13 +273,14 @@ def test_webhook_line_follow_discovery_materializes_onboarding_state(tmp_path, m
             }
         },
     )
-    registry = RouteOnboardingRegistry()
+    service = RouteBindingService(tmp_path / "route_bindings.yaml")
+    service.load()
     client, hub = _build_test_client(
         {
             "line:shinyipaint": _DiscoveryLineAdapter("line:shinyipaint", "sig-b"),
         },
         config=config,
-        onboarding_registry=registry,
+        route_binding_service=service,
     )
 
     response = client.post(
@@ -248,39 +291,42 @@ def test_webhook_line_follow_discovery_materializes_onboarding_state(tmp_path, m
 
     assert response.status_code == 200
     assert hub.received == []
-    state = registry.resolve("line:shinyipaint:U123")
-    assert state is not None
-    assert state.chatbot == "buddy"
-    assert state.label == "Rick（私訊）"
+    entry = service.get_entry("line:shinyipaint:U123")
+    assert entry is not None
+    assert entry.chatbot == "buddy"
+    assert entry.source == "discovered"
+    assert entry.profile_name == "default_private"
     assert hub.route_policies["line:shinyipaint:U123"] == {
         "reply_policy": "addressed",
         "processing_policy": "interactive",
         "capture_enabled": False,
     }
+    labels = json.loads(
+        (tmp_path / "data" / "route_labels.json").read_text(encoding="utf-8")
+    )
+    assert labels["line:shinyipaint:U123"] == "Rick（私訊）"
 
 
 def test_cli_routes_includes_discovered_routes_without_sessions(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    registry = RouteOnboardingRegistry()
-    registry.register(
-        RouteOnboardingState(
-            route_id="line:shinyipaint:C123",
-            platform="line:shinyipaint",
-            conversation_id="C123",
-            route_type="group",
+    service = RouteBindingService(tmp_path / "route_bindings.yaml")
+    service.load()
+    service.upsert_entry(
+        "line:shinyipaint:C123",
+        RouteBindingEntry(
+            match={"platform": "line:shinyipaint", "group_id": "C123"},
             chatbot="buddy",
             reply_policy="never",
             processing_policy="none",
-            observation=None,
-            label="Bot 測試群",
+            source="discovered",
             profile_name="default_group_safe",
-            discovery_type="join",
             discovered_at=datetime(2026, 4, 7, tzinfo=timezone.utc),
-        )
+        ),
     )
+    _write_labels(tmp_path, {"line:shinyipaint:C123": "Bot 測試群"})
     client, _ = _build_test_client(
         {},
-        onboarding_registry=registry,
+        route_binding_service=service,
     )
 
     response = client.get("/cli/routes")
@@ -294,12 +340,13 @@ def test_cli_routes_includes_discovered_routes_without_sessions(tmp_path, monkey
             "conversation_id": "C123",
             "current_chatbot": "buddy",
             "override": None,
-            "default_binding": None,
+            "default_binding": "buddy",
             "configured_model": None,
             "effective_model": None,
             "session_model": None,
             "sdk_current_model": None,
             "sessions": [],
+            "binding_source": "discovered",
             "discovered_profile": "default_group_safe",
             "reply_policy": "never",
             "processing_policy": "none",
@@ -307,25 +354,89 @@ def test_cli_routes_includes_discovered_routes_without_sessions(tmp_path, monkey
     ]
 
 
+def test_cli_routes_static_binding_does_not_treat_group_sender_as_user_binding(
+    tmp_path, monkeypatch
+):
+    monkeypatch.chdir(tmp_path)
+    session_registry = SessionContextRegistry(metadata_dir=tmp_path / "ctx")
+    session_registry.register(
+        SessionContext(
+            sdk_session_id="line-shinyipaint-C777__shinyipaint-admin",
+            route_id="line:shinyipaint:C777",
+            platform="line:shinyipaint",
+            conversation_id="C777",
+            chatbot_name="shinyipaint-admin",
+        )
+    )
+    config = GatewayConfig(
+        chatbots={
+            "buddy": {"name": "buddy", "model": "gpt-5.4-mini", "system_message": "x"},
+            "shinyipaint-admin": {
+                "name": "shinyipaint-admin",
+                "model": "gpt-5.4-mini",
+                "system_message": "x",
+            },
+        },
+        bindings=[
+            {
+                "match": {
+                    "platform": "line:shinyipaint",
+                    "user_id": "Ufc68d77c84b42995d970dc6639da4316",
+                },
+                "chatbot": "shinyipaint-admin",
+            },
+            {
+                "match": {"platform": "line:shinyipaint"},
+                "chatbot": "buddy",
+            },
+        ],
+        match_weights=MatchWeights(),
+    )
+    client, _ = _build_test_client(
+        {},
+        config=config,
+        binding_router=BindingRouter(config.bindings, config.match_weights),
+        session_context_registry=session_registry,
+    )
+
+    response = client.get("/cli/routes")
+
+    assert response.status_code == 200
+    assert response.json()["routes"] == [
+        {
+            "route_id": "line:shinyipaint:C777",
+            "label": None,
+            "platform": "line:shinyipaint",
+            "conversation_id": "C777",
+            "current_chatbot": "buddy",
+            "override": None,
+            "default_binding": "buddy",
+            "configured_model": None,
+            "effective_model": None,
+            "session_model": None,
+            "sdk_current_model": None,
+            "sessions": ["shinyipaint-admin"],
+        }
+    ]
+
+
 def test_cli_routes_merges_discovered_metadata_for_known_session_route(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    registry = RouteOnboardingRegistry()
-    registry.register(
-        RouteOnboardingState(
-            route_id="line:shinyipaint:U123",
-            platform="line:shinyipaint",
-            conversation_id="U123",
-            route_type="user",
+    service = RouteBindingService(tmp_path / "route_bindings.yaml")
+    service.load()
+    service.upsert_entry(
+        "line:shinyipaint:U123",
+        RouteBindingEntry(
+            match={"platform": "line:shinyipaint", "user_id": "U123"},
             chatbot="buddy",
             reply_policy="addressed",
             processing_policy="interactive",
-            observation=None,
-            label="Rick（私訊）",
+            source="discovered",
             profile_name="default_private_cheap",
-            discovery_type="follow",
             discovered_at=datetime(2026, 4, 7, tzinfo=timezone.utc),
-        )
+        ),
     )
+    _write_labels(tmp_path, {"line:shinyipaint:U123": "Rick（私訊）"})
     session_registry = SessionContextRegistry(metadata_dir=tmp_path / "ctx")
     session_registry.register(
         SessionContext(
@@ -338,7 +449,7 @@ def test_cli_routes_merges_discovered_metadata_for_known_session_route(tmp_path,
     )
     client, _ = _build_test_client(
         {},
-        onboarding_registry=registry,
+        route_binding_service=service,
         session_context_registry=session_registry,
     )
 
@@ -353,15 +464,145 @@ def test_cli_routes_merges_discovered_metadata_for_known_session_route(tmp_path,
             "conversation_id": "U123",
             "current_chatbot": "buddy",
             "override": None,
-            "default_binding": None,
+            "default_binding": "buddy",
             "configured_model": None,
             "effective_model": None,
             "session_model": None,
             "sdk_current_model": None,
             "sessions": ["buddy"],
+            "binding_source": "discovered",
             "discovered_profile": "default_private_cheap",
             "reply_policy": "addressed",
             "processing_policy": "interactive",
+        }
+    ]
+
+
+def test_cli_routes_prefers_discovered_chatbot_over_static_platform_binding(
+    tmp_path, monkeypatch
+):
+    monkeypatch.chdir(tmp_path)
+    service = RouteBindingService(tmp_path / "route_bindings.yaml")
+    service.load()
+    service.replace_fallback_bindings(
+        GatewayConfig(
+            bindings=[
+                {
+                    "match": {
+                        "platform": "line:shinyipaint",
+                        "user_id": "Uadmin",
+                    },
+                    "chatbot": "shinyipaint-admin",
+                },
+                {
+                    "match": {
+                        "platform": "line:shinyipaint",
+                    },
+                    "chatbot": "buddy",
+                },
+                {"chatbot": "buddy"},
+            ]
+        ).bindings
+    )
+    service.upsert_entry(
+        "line:shinyipaint:Cdog",
+        RouteBindingEntry(
+            match={"platform": "line:shinyipaint", "group_id": "Cdog"},
+            chatbot="shinyipaint",
+            reply_policy="addressed",
+            processing_policy="interactive",
+            source="discovered",
+            profile_name="shinyipaint_main_group",
+            discovered_at=datetime(2026, 4, 7, tzinfo=timezone.utc),
+        ),
+    )
+    _write_labels(tmp_path, {"line:shinyipaint:Cdog": "小狗群"})
+    client, _ = _build_test_client(
+        {},
+        route_binding_service=service,
+    )
+
+    response = client.get("/cli/routes")
+
+    assert response.status_code == 200
+    assert response.json()["routes"] == [
+        {
+            "route_id": "line:shinyipaint:Cdog",
+            "label": "小狗群",
+            "platform": "line:shinyipaint",
+            "conversation_id": "Cdog",
+            "current_chatbot": "shinyipaint",
+            "override": None,
+            "default_binding": "shinyipaint",
+            "configured_model": None,
+            "effective_model": None,
+            "session_model": None,
+            "sdk_current_model": None,
+            "sessions": [],
+            "binding_source": "discovered",
+            "discovered_profile": "shinyipaint_main_group",
+            "reply_policy": "addressed",
+            "processing_policy": "interactive",
+        }
+    ]
+
+
+def test_cli_routes_static_binding_ignores_platform_only_user_binding_for_group_route(
+    tmp_path, monkeypatch
+):
+    monkeypatch.chdir(tmp_path)
+    session_registry = SessionContextRegistry(metadata_dir=tmp_path / "ctx")
+    session_registry.register(
+        SessionContext(
+            sdk_session_id="line-shinyipaint-Ccat__buddy",
+            route_id="line:shinyipaint:Ccat",
+            platform="line:shinyipaint",
+            conversation_id="Ccat",
+            chatbot_name="buddy",
+        )
+    )
+    config = GatewayConfig(
+        bindings=[
+            {
+                "match": {
+                    "platform": "line:shinyipaint",
+                    "user_id": "Uadmin",
+                },
+                "chatbot": "shinyipaint-admin",
+            },
+            {
+                "match": {
+                    "platform": "line:shinyipaint",
+                },
+                "chatbot": "buddy",
+            },
+            {"chatbot": "buddy"},
+        ]
+    )
+    client, _ = _build_test_client(
+        {},
+        config=config,
+        binding_router=BindingRouter(config.bindings, config.match_weights),
+        session_context_registry=session_registry,
+    )
+
+    response = client.get("/cli/routes")
+
+    assert response.status_code == 200
+    assert response.json()["routes"] == [
+        {
+            "route_id": "line:shinyipaint:Ccat",
+            "label": None,
+            "platform": "line:shinyipaint",
+            "conversation_id": "Ccat",
+            "current_chatbot": "buddy",
+            "override": None,
+            "default_binding": "buddy",
+            "configured_model": None,
+            "effective_model": None,
+            "session_model": None,
+            "sdk_current_model": None,
+            "sessions": ["buddy"],
         }
     ]
 
@@ -398,13 +639,14 @@ def test_webhook_line_discovery_falls_back_to_builtin_default_when_no_rule_match
             }
         }
     )
-    registry = RouteOnboardingRegistry()
+    service = RouteBindingService(tmp_path / "route_bindings.yaml")
+    service.load()
     client, hub = _build_test_client(
         {
             "line:shinyipaint": _DiscoveryLineAdapter("line:shinyipaint", "sig-c"),
         },
         config=config,
-        onboarding_registry=registry,
+        route_binding_service=service,
     )
 
     response = client.post(
@@ -414,10 +656,10 @@ def test_webhook_line_discovery_falls_back_to_builtin_default_when_no_rule_match
     )
 
     assert response.status_code == 200
-    state = registry.resolve("line:shinyipaint:C999")
-    assert state is not None
-    assert state.profile_name == "_builtin_group_default"
-    assert state.chatbot == "buddy"
+    entry = service.get_entry("line:shinyipaint:C999")
+    assert entry is not None
+    assert entry.profile_name == "_builtin_group_default"
+    assert entry.chatbot == "buddy"
     assert hub.route_policies["line:shinyipaint:C999"] == {
         "reply_policy": "never",
         "processing_policy": "none",

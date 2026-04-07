@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # ChatPilot E2E Test Suite — Self-contained
 # Usage: ./tests/e2e/run_e2e.sh
-# Starts its own server with routes.example.yaml, temp DB, runs all tests, cleans up.
+# Starts its own server with route_settings/route_bindings example config,
+# temp DB, runs all tests, cleans up.
 
 # No set -e: we handle errors per-test
 
@@ -14,7 +15,8 @@ E2E_TASK_DB="$E2E_DIR/tasks.db"
 E2E_FILES_DB="$E2E_DIR/files.db"
 E2E_ASSETS_DIR="$E2E_DIR/file_assets"
 E2E_LOG="$E2E_DIR/server.log"
-ROUTES="config/routes.example.yaml"
+ROUTE_SETTINGS="config/route_settings.example.yaml"
+ROUTE_BINDINGS="config/route_bindings.example.yaml"
 TICK_INTERVAL=5
 CLI_TIMEOUT=60
 PASS=0
@@ -32,7 +34,7 @@ DISCOVERY_GROUP_ROUTE="line:demo:$DISCOVERY_GROUP_ID"
 DISCOVERY_USER_ID="U$DISCOVERY_SUFFIX"
 DISCOVERY_USER_ROUTE="line:demo:$DISCOVERY_USER_ID"
 
-# Observer/chatbot IDs from routes.example.yaml
+# Observer/chatbot IDs from route_bindings.example.yaml
 OBS_ROUTE="Ua1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4"
 OBS_ROUTE_ID="line:demo:$OBS_ROUTE"
 ASSISTANT_GROUP="Ca1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4"
@@ -325,7 +327,8 @@ start_server() {
     mkdir -p "$E2E_DIR"
     echo "Starting E2E server (port=$E2E_PORT, tick=$TICK_INTERVAL)..."
 
-    ROUTES_PATH="$ROUTES" \
+    ROUTE_SETTINGS_PATH="$ROUTE_SETTINGS" \
+    ROUTE_BINDINGS_PATH="$ROUTE_BINDINGS" \
     CHATPILOT_DB="$E2E_DB" \
     CHATPILOT_TASK_DB="$E2E_TASK_DB" \
     CHATPILOT_FILES_DB="$E2E_FILES_DB" \
@@ -747,7 +750,9 @@ fi
 header "Trigger Keyword Lifecycle"
 
 # Step 1: Add keyword via chatbot in GROUP (not CLI — route must be the group)
-mock_webhook "{\"text\": \"幫我新增觸發關鍵字 e2ekw\", \"user_id\": \"kw-admin\", \"group_id\": \"$ASSISTANT_GROUP\", \"is_mention\": true}" > /dev/null
+[ "$(line_signed_post_code "$(line_group_text_body "$ASSISTANT_GROUP" "Ukwadmin" "bot 幫我新增觸發關鍵字 e2ekw" "kw-add")")" = "200" ] \
+    && pass "keyword add webhook 200 [L1]" \
+    || fail "keyword add webhook 200 [L1]"
 sleep 15
 
 # L2: tool was called
@@ -758,12 +763,16 @@ assert_db_exists "keyword in DB (group route)" \
     "SELECT count(*) FROM trigger_keywords WHERE keyword='e2ekw'"
 
 # Step 2 (L4): send group msg with keyword (no mention) → should auto-trigger
-mock_webhook "{\"text\": \"e2ekw 你好\", \"user_id\": \"kw-user\", \"group_id\": \"$ASSISTANT_GROUP\", \"is_mention\": false}" > /dev/null
+[ "$(line_signed_post_code "$(line_group_text_body "$ASSISTANT_GROUP" "Ukwuser" "e2ekw 你好" "kw-hit")")" = "200" ] \
+    && pass "keyword trigger webhook 200 [L1]" \
+    || fail "keyword trigger webhook 200 [L1]"
 sleep 12
 assert_log "keyword triggers in group" "Auto-trigger matched.*$ASSISTANT_GROUP"
 
 # Step 3: remove keyword via chatbot
-mock_webhook "{\"text\": \"移除觸發關鍵字 e2ekw\", \"user_id\": \"kw-admin\", \"group_id\": \"$ASSISTANT_GROUP\", \"is_mention\": true}" > /dev/null
+[ "$(line_signed_post_code "$(line_group_text_body "$ASSISTANT_GROUP" "Ukwadmin" "bot 移除觸發關鍵字 e2ekw" "kw-del")")" = "200" ] \
+    && pass "keyword remove webhook 200 [L1]" \
+    || fail "keyword remove webhook 200 [L1]"
 sleep 15
 assert_db_not_exists "keyword removed from DB" \
     "SELECT count(*) FROM trigger_keywords WHERE keyword='e2ekw'"

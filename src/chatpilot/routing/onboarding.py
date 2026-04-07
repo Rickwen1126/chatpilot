@@ -1,4 +1,4 @@
-"""Runtime route onboarding state and discovery rule matching."""
+"""Route discovery rule matching and onboarding state materialization."""
 
 from __future__ import annotations
 
@@ -129,21 +129,3 @@ def materialize_onboarding_state(
         discovered_at=event.timestamp,
     )
 
-
-class RouteOnboardingRegistry:
-    """In-memory registry of materialized route onboarding states."""
-
-    def __init__(self) -> None:
-        self._states: dict[str, RouteOnboardingState] = {}
-
-    def register(self, state: RouteOnboardingState) -> None:
-        self._states[state.route_id] = state
-
-    def resolve(self, route_id: str) -> RouteOnboardingState | None:
-        return self._states.get(route_id)
-
-    def list_states(self) -> list[RouteOnboardingState]:
-        return list(self._states.values())
-
-    def clear(self) -> None:
-        self._states.clear()

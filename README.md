@@ -10,7 +10,8 @@ uv sync
 
 # Configure
 cp .env.example .env   # Fill in LINE_CHANNEL_SECRET, LINE_CHANNEL_ACCESS_TOKEN, etc.
-vim config/routes.yaml  # Define chatbots, bindings, tools
+vim config/route_settings.yaml  # Define chatbots, discovery rules, shared config
+vim config/route_bindings.yaml  # Define exact route bindings + fallback bindings
 
 # Run
 uv run uvicorn chatpilot.server:create_app --factory --port 2999
@@ -62,7 +63,8 @@ src/chatpilot/
   storage/           # R2 media upload
   tools/builtin/     # 25 builtin tools
 config/
-  routes.yaml        # Routing rules, chatbot configs, tool assignments
+  route_settings.yaml # Chatbots, discovery rules, shared route settings
+  route_bindings.yaml # Single source of truth for all bindings
 tests/
   unit/              # pytest
   e2e/               # Bash-based E2E (run_e2e.sh)
@@ -70,9 +72,11 @@ tests/
 
 ## Configuration
 
-`config/routes.yaml` defines everything:
+`config/route_settings.yaml` defines non-binding settings, while
+`config/route_bindings.yaml` is the single source of truth for bindings:
 
 ```yaml
+# config/route_settings.yaml
 timezone: "Asia/Taipei"            # System display timezone
 
 trigger_keywords: ["bot"]          # Group keyword triggers
@@ -81,13 +85,6 @@ match_weights:                     # Binding score weights
   group_id: 10
   user_id: 8
   platform: 5
-
-bindings:                          # Routing rules (highest score wins)
-  - match: { group_id: "Cxxx" }
-    chatbot: my-assistant
-  - match: { platform: "line" }
-    chatbot: buddy
-  - chatbot: buddy                 # default fallback
 
 chatbots:
   buddy:
@@ -104,6 +101,24 @@ scheduler:
 cron_scheduler:
   tick_interval: 60
   available_tools: [general-agent, browser-search]
+```
+
+```yaml
+# config/route_bindings.yaml
+route_bindings:
+  line:demo:Cxxx:
+    match:
+      platform: line:demo
+      group_id: Cxxx
+    chatbot: my-assistant
+    reply_policy: addressed
+    processing_policy: interactive
+    source: manual
+
+fallback_bindings:
+  - match: { platform: line:demo }
+    chatbot: buddy
+  - chatbot: buddy
 ```
 
 ## Key Features
@@ -129,6 +144,7 @@ Group chat messages are buffered in a sliding window. When the bot is mentioned,
 Observer vNext is configured per-binding, not per-chatbot.
 
 ```yaml
+# config/route_settings.yaml
 route_groups:
   ops:
     description: Shared operational knowledge
@@ -140,8 +156,12 @@ observation_profiles:
     instructions: |
       Summarize reusable background knowledge from this route.
 
-bindings:
-  - match: { group_id: "Cxxx..." }
+# config/route_bindings.yaml
+route_bindings:
+  line:demo:Cxxx:
+    match:
+      platform: line:demo
+      group_id: Cxxx...
     chatbot: my-observer
     reply_policy: never
     processing_policy: none
@@ -150,12 +170,20 @@ bindings:
         group: ops
         profile: ops_batch
 
-  - match: { user_id: "Uxxx..." }
+  line:demo:Uxxx:
+    match:
+      platform: line:demo
+      user_id: Uxxx...
     chatbot: my-admin
     reply_policy: addressed
     processing_policy: interactive
     observation:
       consume: [ops]
+
+fallback_bindings:
+  - match: { platform: line:demo }
+    chatbot: buddy
+  - chatbot: buddy
 ```
 
 Capture remains route-local in SQLite. `query_observations(group=...)` expands an observation group into source routes at query time, with consumer-route permission checks.
@@ -281,7 +309,9 @@ uv run pytest tests/unit/test_time_service.py -v
 LINE_CHANNEL_SECRET          # LINE webhook signature verification
 LINE_CHANNEL_ACCESS_TOKEN    # LINE Messaging API
 PORT                         # Server port (default 2999)
-ROUTES_PATH                  # Config file path (default config/routes.yaml)
+ROUTE_SETTINGS_PATH          # Route settings file path (default config/route_settings.yaml)
+ROUTE_BINDINGS_PATH          # Route bindings file path (default config/route_bindings.yaml)
+ROUTES_PATH                  # Legacy alias for ROUTE_SETTINGS_PATH
 R2_ACCESS_KEY_ID             # Cloudflare R2
 R2_SECRET_ACCESS_KEY
 R2_ENDPOINT

@@ -34,7 +34,11 @@ def _get_dimension(message: Message, key: str) -> str | None:
     if key == "group_id":
         return message.group_id
     if key == "user_id":
-        return message.user_id
+        # Binding user_id is route-scoped private identity, not sender identity
+        # inside a shared group conversation.
+        if message.group_id:
+            return None
+        return message.conversation_id
     return None
 
 

@@ -89,12 +89,12 @@
 
 **Goal**: repo 內正式 config 全面切到 observer vNext schema，沒有 active 舊 observer config
 
-**Independent Test**: `config/routes.yaml` 與 `config/routes.example.yaml` 都可 parse，且不再包含舊 observer config 欄位
+**Independent Test**: `config/route_settings.yaml`、`config/route_bindings.yaml`、`config/route_settings.example.yaml`、`config/route_bindings.example.yaml` 都可 parse，且不再包含舊 observer config 欄位
 
 ### Implementation for User Story 4
 
-- [x] T022 [US4] 更新 production-like config in [config/routes.yaml](/Users/rickwen/code/chatpilot/config/routes.yaml) 改用 `route_groups`、`observation_profiles`、`binding.reply_policy`、`binding.processing_policy`、`binding.observation`
-- [x] T023 [P] [US4] 更新 example config in [config/routes.example.yaml](/Users/rickwen/code/chatpilot/config/routes.example.yaml) 與相關文件範例 in [README.md](/Users/rickwen/code/chatpilot/README.md)
+- [x] T022 [US4] 更新 production-like config in [route_settings.yaml](/Users/rickwen/code/chatpilot/config/route_settings.yaml) 與 [route_bindings.yaml](/Users/rickwen/code/chatpilot/config/route_bindings.yaml)，改用 `route_groups`、`observation_profiles`、`binding.reply_policy`、`binding.processing_policy`、`binding.observation`
+- [x] T023 [P] [US4] 更新 example config in [route_settings.example.yaml](/Users/rickwen/code/chatpilot/config/route_settings.example.yaml) 與 [route_bindings.example.yaml](/Users/rickwen/code/chatpilot/config/route_bindings.example.yaml)，以及相關文件範例 in [README.md](/Users/rickwen/code/chatpilot/README.md)
 - [x] T024 [US4] 更新 observer reload / config tests in [tests/unit/test_observer_reload.py](/Users/rickwen/code/chatpilot/tests/unit/test_observer_reload.py) 與 [tests/unit/test_config.py](/Users/rickwen/code/chatpilot/tests/unit/test_config.py)
 
 **Checkpoint**: repo 不再以舊 observer config 作為正式做法

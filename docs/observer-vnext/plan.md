@@ -173,8 +173,8 @@
 
 要做：
 
-- 更新 `config/routes.yaml`
-- 更新 `config/routes.example.yaml`
+- 更新 `config/route_settings.yaml`
+- 更新 `config/route_bindings.yaml`
 - 若 README / docs 有舊 observer config 範例，一併更新
 - 把目前 observer 相關 production-like 配置映射成：
   - `route_groups`

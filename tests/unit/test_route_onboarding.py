@@ -3,9 +3,8 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from chatpilot.core.config import GatewayConfig
-from chatpilot.core.types import DiscoveryEvent, ObservationConfig, RouteOnboardingState
+from chatpilot.core.types import DiscoveryEvent
 from chatpilot.routing.onboarding import (
-    RouteOnboardingRegistry,
     materialize_onboarding_state,
     select_discovery_profile,
 )
@@ -111,30 +110,6 @@ def test_materialize_onboarding_state_uses_channel_default_without_keyword() -> 
     assert state.profile_name == "channel_group"
     assert state.chatbot == "buddy"
     assert state.route_id == "line:shinyipaint:C-OTHER"
-
-
-def test_route_onboarding_registry_round_trip() -> None:
-    registry = RouteOnboardingRegistry()
-    state = RouteOnboardingState(
-        route_id="line:shinyipaint:C123",
-        platform="line:shinyipaint",
-        conversation_id="C123",
-        route_type="group",
-        chatbot="observer",
-        reply_policy="never",
-        processing_policy="none",
-        observation=ObservationConfig.model_validate({}),
-        label="測試群組",
-        profile_name="default_group",
-        discovery_type="join",
-        discovered_at=datetime(2026, 4, 7, tzinfo=timezone.utc),
-    )
-
-    registry.register(state)
-
-    assert registry.resolve("line:shinyipaint:C123") == state
-    assert registry.list_states() == [state]
-
 
 def test_materialize_onboarding_state_falls_back_to_builtin_group_default() -> None:
     config = GatewayConfig(

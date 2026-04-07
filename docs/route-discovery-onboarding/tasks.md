@@ -88,7 +88,7 @@
 
 - [x] T021 [US3] 擴充 `/cli/routes` 聚合 discovered routes 與 runtime onboarding metadata 在 src/chatpilot/server/webhook.py
 - [x] T022 [US3] 擴充 `/cli/routes/sync` 可處理 discovered routes 與既有 session routes 在 src/chatpilot/server/webhook.py
-- [x] T023 [US3] 更新範例 config 與文件說明 discovery_profiles / discovery_rules 在 config/routes.example.yaml、docs/route-discovery-onboarding/spec.md
+- [x] T023 [US3] 更新範例 config 與文件說明 discovery_profiles / discovery_rules 在 `config/route_settings.example.yaml`、`config/route_bindings.example.yaml`、[spec.md](/Users/rickwen/code/chatpilot/docs/route-discovery-onboarding/spec.md)
 
 **Checkpoint**: 管理者可在不送第一則 message 的前提下看到 discovered routes
 
