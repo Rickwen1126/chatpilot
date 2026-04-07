@@ -119,7 +119,34 @@ observation:
 
 那 `warehouse_ops.instructions` 必須真的進 observation worker session。
 
-### 4. 保留 `memory_observations`，新增 `observation_entries` 作為 retrieval projection
+### 4. capture worker 需要強約束的 system prompt contract
+
+這輪不是只把 `profile.instructions` 字面拼進 prompt。
+
+真正需要的是一個 **強約束的 capture worker system prompt**，同時承接：
+
+- observer 的固定職責
+- `observation_profile.instructions`
+- `observation_profile.categories`
+- 目標輸出欄位的語意
+- `fact` / `semantic` 的邊界
+
+這個 prompt contract 至少要明講：
+
+1. 只整理可回查、可彙總、可同步的知識
+2. 純閒聊、不成知識的內容可忽略
+3. `category` 必須從 profile categories 中選，真的無法歸類才落 `其他`
+4. `subject` 是這筆知識主要在說誰/什麼，不是發話者
+5. `reported_by_*` 優先來自 message metadata，不應由 LLM 自行捏造
+6. `semantic` row 只能做 retrieval aid，不可創造新事實
+7. 若資訊不足，不要補猜；寧可少記，也不要錯記
+8. 若這批沒有值得保存的知識，應回空陣列而不是勉強產出
+
+也就是說，capture worker prompt 的責任不只是「整理對話」，而是：
+
+> 依 profile 規格，產出可安全落到 `memory_observations` 與 `observation_entries` 的結構化知識。
+
+### 5. 保留 `memory_observations`，新增 `observation_entries` 作為 retrieval projection
 
 資料分兩層：
 
@@ -138,7 +165,7 @@ observation:
 
 `semantic` row 只作為 retrieval aid，不可創造新事實。
 
-### 5. `observation_entries` 仍然是 route-owned，不深綁 current group/profile
+### 6. `observation_entries` 仍然是 route-owned，不深綁 current group/profile
 
 V1 定案：
 
@@ -158,7 +185,7 @@ row 裡若保留 profile 資訊，也只代表：
 
 它是 historical provenance，不是 current truth。
 
-### 6. group query 不必全查，也不必先 merge
+### 7. group query 不必全查，也不必先 merge
 
 `route_group` 底下有 N 個 source routes，不代表每次都要：
 
@@ -172,7 +199,7 @@ row 裡若保留 profile 資訊，也只代表：
 - 每個 member 各自查、各自回
 - 最終回答的 merge / synthesize 交給 LLM
 
-### 7. candidate selection 是 query-aware top-k shortlist
+### 8. candidate selection 是 query-aware top-k shortlist
 
 這輪不做 vector score。
 
@@ -186,7 +213,7 @@ row 裡若保留 profile 資訊，也只代表：
 
 > 在這個 group 的所有 source members 裡，哪些值得先查
 
-### 8. candidate selection 由 tool 做 shortlist，LLM 做最終決策
+### 9. candidate selection 由 tool 做 shortlist，LLM 做最終決策
 
 這輪不讓 tool 直接替 LLM 決定要查誰。
 
@@ -202,7 +229,7 @@ row 裡若保留 profile 資訊，也只代表：
 - selection 的前半可控
 - 最後的查詢策略仍交給 LLM
 
-### 9. top-k scoring 先採 heuristic relevance score
+### 10. top-k scoring 先採 heuristic relevance score
 
 V1 的 candidate score 來自：
 
@@ -214,7 +241,7 @@ V1 的 candidate score 來自：
 
 先不做 embeddings。
 
-### 10. `observation_profile` 需要新增 `retrieval` metadata
+### 11. `observation_profile` 需要新增 `retrieval` metadata
 
 V1 在 profile 補：
 
@@ -427,6 +454,8 @@ V1 先採明確、可 debug 的 heuristic score。
    - base observer system prompt
    - `observation_profile.instructions`
    - categories hint
+   - output contract（summary / fact rows / optional semantic rows）
+   - subject / reported_by 的欄位語意約束
 5. worker 輸出 batch JSON
 6. 寫入 `memory_observations`
 7. 同步投影 `observation_entries`
@@ -472,6 +501,7 @@ V1 先採明確、可 debug 的 heuristic score。
 ## Open Constraints
 
 - `observation_profile.instructions` 必須正式接進 capture worker prompt，否則 profile 仍是半套
+- capture worker system prompt 必須是強約束 contract，而不是鬆散的摘要提示
 - `query_observation_member` 的 per-profile retrieval adapter 必須有統一輸出 shape
 - `observation_entries` 的 `semantic` row 只能做 retrieval aid，不得創造新事實
 - group/profile 改變後，V1 不做自動 rebuild / migration；若未來需要，應以 `memory_observations` 為 source 做 explicit rebuild，而不是直接改寫既有 rows

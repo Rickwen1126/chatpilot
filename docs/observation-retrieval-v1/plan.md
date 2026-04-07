@@ -88,6 +88,7 @@ group / visibility 由 query time 的當前 bindings 決定。
 
 - `observation_profile.instructions` 真正進 observer worker prompt
 - profile 補 `retrieval` 區塊
+- 定義 capture worker 的強約束 system prompt contract
 
 #### config shape
 
@@ -111,6 +112,36 @@ observation_profiles:
 - observer worker prompt builder
 - `ObservationProfileConfig` schema
 - config validation
+
+#### prompt contract（必寫）
+
+capture worker prompt 至少拆成四層：
+
+1. base system role
+   - 你是資訊整理 worker，不是對話 assistant
+   - 你的輸出要能安全落成結構化知識
+
+2. profile instructions
+   - 直接注入 `observation_profile.instructions`
+
+3. category contract
+   - 明列 profile categories
+   - 規定只能從 categories 中選，否則退 `其他`
+
+4. output contract
+   - 明列欄位語意：
+     - `summary`
+     - `fact` rows
+     - optional `semantic` rows
+     - `subject`
+     - `reported_by_*`
+   - 明列禁止事項：
+     - 不可創造新事實
+     - `reported_by_*` 不得由 LLM 補猜
+     - 資訊不足寧可不記
+
+這一段不能只停在「把 instructions append 進 prompt」。
+要把 worker 的角色與輸出契約寫死，後面 DB projection 才不會飄。
 
 ### Phase 2 — `observation_entries` Projection
 
@@ -152,6 +183,8 @@ observation_profiles:
    - base system prompt
    - `profile.instructions`
    - categories hint
+   - output contract（summary / fact rows / optional semantic rows）
+   - subject / reported_by 欄位語意
 4. worker 回傳 batch JSON
 5. 寫 `memory_observations`
 6. 同步投影 `observation_entries`
