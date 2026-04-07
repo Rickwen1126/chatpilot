@@ -739,7 +739,7 @@ sleep 15
 assert_tool_called "candidate shortlist tool called" "list_observation_candidates"
 assert_tool_called "member query tool called" "query_observation_member"
 assert_log "candidate shortlist executed" "\\[obs_candidates\\] group=ops caller=$ASSISTANT_ROUTE_ID"
-assert_log "member query executed" "\\[obs_member\\] caller=$ASSISTANT_ROUTE_ID route=.* hits=[1-9]"
+assert_log "member query executed" "\\[obs_member\\] caller=$ASSISTANT_ROUTE_ID route=.*fact_hits=[1-9]"
 assert_db_exists "leave observation entries persisted for retrieval" \
     "SELECT count(*) FROM observation_entries WHERE route_id='$ASSISTANT_ROUTE_ID' AND kind='fact' AND content LIKE '%請假%'"
 assert_log "retrieval answer includes leave facts" \

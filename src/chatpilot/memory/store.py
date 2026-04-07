@@ -384,6 +384,26 @@ class SqliteMemoryStore:
             cols = [d[0] for d in cursor.description]
             return [_deserialize_row(dict(zip(cols, r))) for r in rows]
 
+    async def get_observation_entries_by_ids(
+        self, route_id: str, ids: list[str]
+    ) -> list[dict]:
+        """Fetch specific projected observation entries for one source route."""
+        if self._db is None:
+            raise RuntimeError("MemoryStore not initialized")
+        if not ids:
+            return []
+
+        placeholders = ", ".join(["?"] * len(ids))
+        sql = (
+            "SELECT * FROM observation_entries "
+            f"WHERE route_id = ? AND id IN ({placeholders})"
+        )
+        params: list[str] = [route_id, *ids]
+        async with self._db.execute(sql, tuple(params)) as cursor:
+            rows = await cursor.fetchall()
+            cols = [d[0] for d in cursor.description]
+            return [_deserialize_row(dict(zip(cols, r))) for r in rows]
+
     async def query_observation_entries(
         self,
         route_id: str,

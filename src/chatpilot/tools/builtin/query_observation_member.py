@@ -46,15 +46,17 @@ def create_query_observation_member_tool(
             route_id,
             query,
             days=days,
-            limit=limit,
-            kinds=("fact",),
+            limit=max(limit * 3, limit),
+            kinds=("fact", "semantic"),
         )
+        fact_rows = await _resolve_fact_rows(memory_store, route_id, rows, limit=limit)
         logger.info(
-            "[obs_member] caller=%s route=%s query=%s hits=%d",
+            "[obs_member] caller=%s route=%s query=%s raw_hits=%d fact_hits=%d",
             caller_route,
             route_id,
             query,
             len(rows),
+            len(fact_rows),
         )
         entry = route_binding_service.get_entry(route_id)
         observation = entry.observation if entry is not None else None
@@ -74,7 +76,7 @@ def create_query_observation_member_tool(
                     "reported_by_name": row.get("reported_by_name"),
                     "evidence_ref": row["source_observation_id"],
                 }
-                for row in rows
+                for row in fact_rows
             ],
         }
         return ToolResult(
@@ -112,3 +114,52 @@ def _allowed_source_routes(
             continue
         allowed.update(group.get("source_route_ids", []))
     return allowed
+
+
+async def _resolve_fact_rows(
+    memory_store: Any,
+    route_id: str,
+    rows: list[dict[str, Any]],
+    *,
+    limit: int,
+) -> list[dict[str, Any]]:
+    """Collapse fact+semantic hits into canonical fact rows."""
+    if not rows:
+        return []
+
+    fact_by_id: dict[str, dict[str, Any]] = {
+        str(row.get("id", "")): row for row in rows if row.get("kind") == "fact"
+    }
+    ordered_fact_ids: list[str] = []
+    missing_fact_ids: list[str] = []
+    seen: set[str] = set()
+
+    for row in rows:
+        row_id = str(row.get("id", "")).strip()
+        row_kind = str(row.get("kind", "")).strip()
+        if row_kind == "fact" and row_id:
+            canonical_id = row_id
+        elif row_kind == "semantic":
+            canonical_id = str(row.get("canonical_entry_id", "")).strip()
+        else:
+            canonical_id = ""
+        if not canonical_id or canonical_id in seen:
+            continue
+        seen.add(canonical_id)
+        ordered_fact_ids.append(canonical_id)
+        if canonical_id not in fact_by_id:
+            missing_fact_ids.append(canonical_id)
+
+    if missing_fact_ids and hasattr(memory_store, "get_observation_entries_by_ids"):
+        fetched_rows = await memory_store.get_observation_entries_by_ids(
+            route_id, missing_fact_ids
+        )
+        for row in fetched_rows:
+            if row.get("kind") == "fact":
+                fact_by_id[str(row.get("id", ""))] = row
+
+    return [
+        fact_by_id[fact_id]
+        for fact_id in ordered_fact_ids
+        if fact_id in fact_by_id
+    ][:limit]

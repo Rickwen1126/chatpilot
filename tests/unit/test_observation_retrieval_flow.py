@@ -27,6 +27,7 @@ class _StubMemoryStore:
         return [
             {
                 "id": "oe-1",
+                "kind": "fact",
                 "category": "請假",
                 "subject": "阿明",
                 "record_date": "2026-04-08",
@@ -35,6 +36,11 @@ class _StubMemoryStore:
                 "source_observation_id": "obs-1",
             }
         ]
+
+    async def get_observation_entries_by_ids(
+        self, route_id: str, ids: list[str]
+    ) -> list[dict]:
+        return []
 
 
 class _StubRouteBindingService:

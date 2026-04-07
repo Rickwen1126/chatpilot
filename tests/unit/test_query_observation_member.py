@@ -13,6 +13,7 @@ from chatpilot.tools.builtin.query_observation_member import (
 class _StubMemoryStore:
     def __init__(self) -> None:
         self.calls: list[tuple[str, str, int, int, tuple[str, ...]]] = []
+        self.get_calls: list[tuple[str, tuple[str, ...]]] = []
 
     async def query_observation_entries(
         self,
@@ -27,6 +28,7 @@ class _StubMemoryStore:
         return [
             {
                 "id": "oe-1",
+                "kind": "fact",
                 "category": "請假",
                 "subject": "阿明",
                 "record_date": "2026-04-08",
@@ -35,6 +37,12 @@ class _StubMemoryStore:
                 "source_observation_id": "obs-1",
             }
         ]
+
+    async def get_observation_entries_by_ids(
+        self, route_id: str, ids: list[str]
+    ) -> list[dict]:
+        self.get_calls.append((route_id, tuple(ids)))
+        return []
 
 
 class _StubRouteBindingService:
@@ -103,8 +111,112 @@ async def test_query_observation_member_returns_per_source_results() -> None:
     assert payload["profile"] == "warehouse_ops"
     assert payload["entries"][0]["subject"] == "阿明"
     assert store.calls == [
-        ("line:demo:Cwarehouse", "最近誰請假？", 30, 10, ("fact",))
+        ("line:demo:Cwarehouse", "最近誰請假？", 30, 30, ("fact", "semantic"))
     ]
+    assert store.get_calls == []
+
+
+class _SemanticHitStore(_StubMemoryStore):
+    async def query_observation_entries(
+        self,
+        route_id: str,
+        query: str,
+        *,
+        days: int,
+        limit: int,
+        kinds: tuple[str, ...],
+    ) -> list[dict]:
+        self.calls.append((route_id, query, days, limit, kinds))
+        return [
+            {
+                "id": "oe-sem-1",
+                "kind": "semantic",
+                "canonical_entry_id": "oe-fact-1",
+                "category": "請假",
+                "subject": "阿明",
+                "record_date": "2026-04-08",
+                "content": "阿明明天下午不在",
+                "reported_by_name": "小王",
+                "source_observation_id": "obs-1",
+            }
+        ]
+
+    async def get_observation_entries_by_ids(
+        self, route_id: str, ids: list[str]
+    ) -> list[dict]:
+        self.get_calls.append((route_id, tuple(ids)))
+        return [
+            {
+                "id": "oe-fact-1",
+                "kind": "fact",
+                "category": "請假",
+                "subject": "阿明",
+                "record_date": "2026-04-08",
+                "content": "阿明明天下午請假",
+                "reported_by_name": "小王",
+                "source_observation_id": "obs-1",
+            }
+        ]
+
+
+@pytest.mark.asyncio
+async def test_query_observation_member_resolves_semantic_hits_back_to_fact() -> None:
+    store = _SemanticHitStore()
+    tool = create_query_observation_member_tool(
+        store,
+        {
+            "ops": {
+                "source_route_ids": ["line:demo:Cwarehouse"],
+                "consumer_route_ids": ["line:demo:Uadmin"],
+            }
+        },
+        _StubRouteBindingService(
+            {
+                "line:demo:Cwarehouse": RouteBindingEntry(
+                    match={"platform": "line:demo", "group_id": "Cwarehouse"},
+                    chatbot="buddy",
+                    observation={
+                        "capture": {
+                            "group": "ops",
+                            "profile": "warehouse_ops",
+                        }
+                    },
+                    source="manual",
+                )
+            }
+        ),
+        lambda: {"line:demo:Cwarehouse": "倉庫群"},
+    )
+
+    result = await tool.handler(
+        {
+            "session_context": _session_context("line:demo:Uadmin"),
+            "arguments": {
+                "route_id": "line:demo:Cwarehouse",
+                "query": "明天下午誰不在？",
+                "days": 30,
+                "limit": 10,
+            },
+        }
+    )
+
+    assert result["resultType"] == "success"
+    payload = json.loads(result["textResultForLlm"])
+    assert payload["entries"] == [
+        {
+            "id": "oe-fact-1",
+            "category": "請假",
+            "subject": "阿明",
+            "record_date": "2026-04-08",
+            "content": "阿明明天下午請假",
+            "reported_by_name": "小王",
+            "evidence_ref": "obs-1",
+        }
+    ]
+    assert store.calls == [
+        ("line:demo:Cwarehouse", "明天下午誰不在？", 30, 30, ("fact", "semantic"))
+    ]
+    assert store.get_calls == [("line:demo:Cwarehouse", ("oe-fact-1",))]
 
 
 @pytest.mark.asyncio
