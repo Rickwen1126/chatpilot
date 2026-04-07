@@ -27,7 +27,7 @@ Implemented on 2026-04-08.
 驗證結果：
 
 - `uv run ruff check src/ tests/` → 綠
-- `uv run pytest tests/` → `236 passed`
+- `uv run pytest tests/` → `240 passed`
 - `bash tests/e2e/run_e2e.sh` → `75 passed / 0 failed`
 
 ## Problem
@@ -514,6 +514,7 @@ V1 先採明確、可 debug 的 heuristic score。
 - capture worker system prompt 必須是強約束 contract，而不是鬆散的摘要提示
 - `query_observation_member` 的 per-profile retrieval adapter 必須有統一輸出 shape
 - `observation_entries` 的 `semantic` row 只能做 retrieval aid，不得創造新事實
+- `observation_entries` 的 `semantic` row 必須真的參與 `query_observation_member` 主路徑；不能只是落表不用
 - group/profile 改變後，V1 不做自動 rebuild / migration；若未來需要，應以 `memory_observations` 為 source 做 explicit rebuild，而不是直接改寫既有 rows
 
 ## Success Criteria
@@ -523,3 +524,8 @@ V1 先採明確、可 debug 的 heuristic score。
 - 不同 profile 的 source routes 可以共存在同一 `route_group`
 - chatbot 可以先拿 shortlist，再決定查哪些 members
 - 結果預設以 per-source array 回傳，LLM 可直接做 final synthesis
+- semantic retrieval 已有明確 coverage：
+  - semantic-only hit 會回跳 canonical fact
+  - fact + semantic 同時命中時不重複回傳
+  - 同一 fact 的多個 semantic aliases 不會放大成多筆答案
+  - 缺 canonical 的壞 semantic row 會被安全忽略

@@ -9,7 +9,7 @@ Implemented on 2026-04-08.
 ## Validation
 
 - `uv run ruff check src/ tests/` → 綠
-- `uv run pytest tests/` → `236 passed`
+- `uv run pytest tests/` → `240 passed`
 - `bash tests/e2e/run_e2e.sh` → `75 passed / 0 failed`
 
 ## Goal
@@ -362,6 +362,11 @@ V1 可先：
 - candidate scoring 對 category / keyword / label 的加權正確
 - `top_k` / score threshold 正確
 - `query_observation_member` 能依 route 找到正確 profile
+- semantic retrieval checklist：
+  - semantic-only hit → canonical fact
+  - fact + semantic mixed hits → dedupe
+  - multi-alias semantic hits → dedupe + respect limit
+  - broken semantic row without canonical fact → safe ignore
 
 ### Integration
 
@@ -387,6 +392,9 @@ V1 可先：
 關鍵 query 再補一條 L4：
 
 - 驗「不需要 group 全查，仍能命中正確 member」
+- 驗「semantic retrieval 已進入主路徑，而不是只靠 fact rows 撐住」：
+  - log 可看到 `query_observation_member` 的 `raw_hits` 與 `fact_hits`
+  - 回答最終仍回 canonical fact，不直接把 semantic paraphrase 當新事實
 
 ## Risks
 
