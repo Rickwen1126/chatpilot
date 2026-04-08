@@ -40,8 +40,8 @@ discovery_profiles:
     reply_policy: never
     processing_policy: none
 
-  ops_observer:
-    chatbot: my-observer
+  ops_capture:
+    chatbot: buddy
     reply_policy: never
     processing_policy: none
     observation:
@@ -58,7 +58,7 @@ discovery_rules:
   - platform: line:demo
     route_type: group
     label_keywords: ["營運", "倉庫", "油漆"]
-    profile: ops_observer
+    profile: ops_capture
   - platform: line:demo
     route_type: group
     profile: default_group_safe
@@ -93,11 +93,6 @@ chatbots:
     context_window: 50
     timeout: 300
     auto_trigger_keywords: []
-
-  my-observer:
-    model: gpt-5.4-mini
-    system_message: "Silent observer."
-    tools: []
 
 agents: {}
 

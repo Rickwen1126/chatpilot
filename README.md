@@ -1,6 +1,6 @@
 # ChatPilot
 
-Multi-platform AI chatbot gateway. Routes messages from LINE (and other channels) to configurable chatbots backed by GitHub Copilot SDK, with tools, async pipelines, observer mode, and cron scheduling.
+Multi-platform AI chatbot gateway. Routes messages from LINE (and other channels) to configurable chatbots backed by GitHub Copilot SDK, with tools, async pipelines, observer capture/retrieval, discovery onboarding, and cron scheduling.
 
 ## Quick Start
 
@@ -32,7 +32,7 @@ LINE / Mock / CLI
                │      routing              session pool
                │
                ├── Context Buffer (sliding window, group chat prefix)
-               ├── Observer Mode (silent collect → batch LLM → DB)
+               ├── Observation Capture (batch LLM → memory_observations + observation_entries)
                └── Commands (/chatbot, /model)
                                                │
                                           ToolFactory
@@ -149,7 +149,7 @@ Group chat messages are buffered in a sliding window. When the bot is mentioned,
 [以下是直接對你說的訊息]
 ```
 
-### Observer VNext
+### Observer VNext & Retrieval
 
 Observer vNext is configured per-binding, not per-chatbot.
 
@@ -160,11 +160,15 @@ route_groups:
     description: Shared operational knowledge
 
 observation_profiles:
-  ops_batch:
+  ops_capture:
     mode: batch
     batch_size: 10
     instructions: |
       Summarize reusable background knowledge from this route.
+    retrieval:
+      description: |
+        Suitable for leave, inventory, shipment, and general operational queries.
+      keywords: [leave, inventory, stock, shipment, ops]
 
 # config/route_bindings.yaml
 route_bindings_manual:
@@ -172,13 +176,13 @@ route_bindings_manual:
     match:
       platform: line:demo
       group_id: Cxxx...
-    chatbot: my-observer
+    chatbot: buddy              # schema-required placeholder; no reply lane runs
     reply_policy: never
     processing_policy: none
     observation:
       capture:
         group: ops
-        profile: ops_batch
+        profile: ops_capture
 
 route_bindings_auto:
   line:demo:Cauto:
@@ -194,7 +198,7 @@ route_bindings_auto:
     match:
       platform: line:demo
       user_id: Uxxx...
-    chatbot: my-admin
+    chatbot: my-assistant
     reply_policy: addressed
     processing_policy: interactive
     observation:
@@ -206,7 +210,18 @@ fallback_bindings:
   - chatbot: buddy
 ```
 
-Capture remains route-local in SQLite. `query_observations(group=...)` expands an observation group into source routes at query time, with consumer-route permission checks.
+Capture remains route-local in SQLite:
+
+- `memory_observations` keeps canonical batch summaries
+- `observation_entries` keeps route-owned retrieval projection
+
+Primary retrieval path:
+
+1. `list_observation_candidates(group, query)` → shortlist likely source routes
+2. `query_observation_member(route_id, query)` → query one source route's projection
+3. chatbot session LLM synthesizes the final answer
+
+`query_observations(group=...)` remains as a compatibility path, not the preferred retrieval stack.
 
 ### TimeService
 
@@ -261,7 +276,9 @@ AGENT_TEAM_TRIGGER — chatbot can call to enqueue async task; pipeline cannot (
 | `batch_image_analyze` | Submit batch vision analysis (async) |
 | `submit_task` | Enqueue arbitrary async task |
 | `browse_task` | Enqueue browser search task |
-| `query_observations` | Query group-based observer knowledge (permission-gated) |
+| `list_observation_candidates` | Query-aware shortlist of observation source routes |
+| `query_observation_member` | Query one source route's observation projection |
+| `query_observations` | Compatibility fallback for legacy group-based observer lookup |
 | `save_memo` / `list_memos` / `delete_memo` | Per-route memo CRUD |
 | `save_custom_prompt` / `list_custom_prompts` / `delete_custom_prompt` | Persistent prompt customization |
 | `add_reminder` | Schedule one-time reminder |
@@ -303,7 +320,7 @@ chatpilot-cli --url http://host:2999 chat "hi"  # Custom server
 | Layer | Backend | Data |
 |-------|---------|------|
 | In-memory | Python dicts | Hub state, context buffer, session pool |
-| SQLite (WAL) | `data/chatpilot.db` | Memos, reminders, schedules, observations |
+| SQLite (WAL) | `data/chatpilot.db` | Memos, reminders, schedules, `memory_observations`, `observation_entries` |
 | SQLite (WAL) | `data/tasks.db` | Async task history |
 | Disk JSON | `data/route_labels.json` | Route display labels |
 | Cloudflare R2 | S3-compatible | Uploaded images and files |
@@ -321,7 +338,7 @@ bash tests/e2e/run_e2e.sh
 uv run pytest tests/unit/test_time_service.py -v
 ```
 
-**Dev cycle:** implement → ruff + pytest → E2E (24 tests) → verify logs → commit.
+**Dev cycle:** implement → ruff + pytest → self-contained E2E → verify logs/data → commit.
 
 ## Environment Variables
 
