@@ -46,8 +46,10 @@ from chatpilot.sdk.session import SdkClient
 from chatpilot.server.webhook import _load_route_labels, router
 from chatpilot.tools.factory import ToolFactory
 from chatpilot.tools.session_context import (
+    SessionContext,
     SessionContextRegistry,
     build_sdk_session_id,
+    split_route_id,
 )
 
 logger = logging.getLogger(__name__)
@@ -352,6 +354,7 @@ def _init_hub(
 
 def _register_tools(
     tool_factory: ToolFactory,
+    sdk_client: SdkClient,
     scheduler: InMemoryTaskScheduler,
     adapters: dict[str, ChannelAdapter],
     file_handle_center: FileHandleCenter,
@@ -381,6 +384,9 @@ def _register_tools(
     )
     from chatpilot.tools.builtin.list_memos import create_list_memos_tool
     from chatpilot.tools.builtin.list_schedules import create_list_schedules_tool
+    from chatpilot.tools.builtin.observe_image_ref import (
+        create_observe_image_ref_tool,
+    )
     from chatpilot.tools.builtin.quote_search import create_quote_search_tool
     from chatpilot.tools.builtin.save_custom_prompt import (
         create_save_custom_prompt_tool,
@@ -414,6 +420,13 @@ def _register_tools(
     tool_factory.register(create_calendar_tool())
     tool_factory.register(create_web_search_tool())
     tool_factory.register(create_download_media_tool(adapters, file_handle_center))
+    tool_factory.register(
+        create_observe_image_ref_tool(
+            sdk_client,
+            adapters,
+            file_handle_center,
+        )
+    )
 
     # Browser tools (Chrome CDP)
     from chatpilot.tools.builtin.browser_tools import (
@@ -717,10 +730,24 @@ async def lifespan(app: FastAPI):
         )
         try:
             sid = f"observer-{uuid.uuid4().hex[:8]}"
+            platform, conversation_id = split_route_id(payload.route_id)
+            session_context_registry.register(
+                SessionContext(
+                    sdk_session_id=sid,
+                    route_id=payload.route_id,
+                    platform=platform,
+                    conversation_id=conversation_id,
+                    chatbot_name="observer",
+                ),
+                persist_metadata=False,
+            )
             sdk_session = await sdk_client.create_session(
                 sid,
                 model="gpt-5.4",
                 system_message=build_observation_worker_system_message(),
+                tools=tool_factory.get_tools_for_observer(
+                    ["observe_image_ref"]
+                ),
             )
             try:
                 logger.info(
@@ -785,6 +812,7 @@ async def lifespan(app: FastAPI):
                     )
             finally:
                 await sdk_session.destroy()
+                session_context_registry.unregister(sid)
         except Exception:
             logger.exception("[observer] batch failed for %s", payload.route_id)
 
@@ -839,7 +867,7 @@ async def lifespan(app: FastAPI):
         return config.cron_scheduler.available_tools
 
     _register_tools(
-        tool_factory, scheduler, adapters, file_center, memory_store,
+        tool_factory, sdk_client, scheduler, adapters, file_center, memory_store,
         chatbot_manager, route_binding_service, lambda: app.state.config,
         response_injector, r2_storage,
         get_available_tools, observation_groups,

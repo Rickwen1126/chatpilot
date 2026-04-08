@@ -40,7 +40,7 @@ LINE / Mock / CLI
                                                │
                               ┌────────────────┼────────────────┐
                          Builtin Tools    Async Pipelines    CronScheduler
-                         (25 tools)       (general-agent,    (reminders,
+                         (26 tools)       (general-agent,    (reminders,
                                            browser, vision)   schedules)
 ```
 
@@ -223,6 +223,11 @@ Primary retrieval path:
 
 `query_observations(group=...)` remains as a compatibility path, not the preferred retrieval stack.
 
+Observer workers can also use observer-only media tools. In the current minimal
+implementation, image refs inside capture batches may trigger
+`observe_image_ref` so photo-only messages can still become background
+knowledge without requiring users to add captions.
+
 ### TimeService
 
 Singleton for all time operations. No module should `import datetime` to calculate time directly.
@@ -257,6 +262,7 @@ Chatbot triggers pipelines via `submit_task` / `browse_task` / `batch_image_anal
 ```
 GLOBAL            — chatbot + pipeline can use
 CHATBOT_ONLY      — chatbot only
+OBSERVER_ONLY     — observer worker only
 AGENT_TEAM_ONLY   — pipeline only
 AGENT_TEAM_TRIGGER — chatbot can call to enqueue async task; pipeline cannot (recursion guard)
 ```
@@ -268,6 +274,7 @@ AGENT_TEAM_TRIGGER — chatbot can call to enqueue async task; pipeline cannot (
 | `get_calendar` | Current date/time + weekly calendar (config timezone) |
 | `web_search` | Web search (SearXNG / Brave) |
 | `download_media` | Fetch image/file from platform |
+| `observe_image_ref` | Observer-only single image inspection for capture workers |
 | `show_image` | Push image back to user via R2 |
 | `browser_navigate/eval/tabs` | Chrome CDP browser automation |
 | `warehouse` | Inventory CRUD (search, get_items, replace_layer, lock/unlock) |
@@ -331,7 +338,7 @@ chatpilot-cli --url http://host:2999 chat "hi"  # Custom server
 # Lint + test
 uv run ruff check src/ && uv run pytest tests/
 
-# E2E (requires running server on :2999)
+# E2E (self-contained runner)
 bash tests/e2e/run_e2e.sh
 
 # Single test

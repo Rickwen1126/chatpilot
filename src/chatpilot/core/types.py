@@ -30,6 +30,7 @@ class AccessLevel(IntEnum):
     CHATBOT_ONLY = 2
     AGENT_TEAM_ONLY = 3
     AGENT_TEAM_TRIGGER = 4  # chatbot 可用，觸發 async task，pipeline 禁用
+    OBSERVER_ONLY = 5
 
 
 # ── Message / Response ────────────────────────────────────────────────

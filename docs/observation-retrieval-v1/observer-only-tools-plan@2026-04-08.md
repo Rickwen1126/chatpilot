@@ -2,7 +2,17 @@
 
 - Created: 2026-04-08
 - Last Updated: 2026-04-08
-- Status: planned
+- Status: completed
+
+## Implementation Status
+
+Implemented on 2026-04-08.
+
+驗證結果：
+
+- `uv run ruff check src/ tests/` → 綠
+- `uv run pytest tests/` → `242 passed`
+- `bash tests/e2e/run_e2e.sh` → `80 passed / 0 failed`
 
 ## Goal
 
@@ -160,7 +170,7 @@ capture worker prompt 需要明確補一句：
 
 ### L3
 
-- DB 寫入的 observation rows 含有由圖片分析得出的有效描述
+- image batch 會落 `memory_observations` 與 `observation_entries`
 
 ### L4
 

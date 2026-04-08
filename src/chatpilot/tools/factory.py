@@ -18,6 +18,7 @@ ToolHandler = Callable[..., Any]
 # Access levels allowed per context
 _CHATBOT_LEVELS = (AccessLevel.GLOBAL, AccessLevel.CHATBOT_ONLY, AccessLevel.AGENT_TEAM_TRIGGER)
 _PIPELINE_LEVELS = (AccessLevel.GLOBAL, AccessLevel.AGENT_TEAM_ONLY)
+_OBSERVER_LEVELS = (AccessLevel.GLOBAL, AccessLevel.OBSERVER_ONLY)
 
 
 class ToolFactory:
@@ -79,6 +80,27 @@ class ToolFactory:
                     defn,
                     session_context_registry=self._session_context_registry,
                 ))
+        return result
+
+    def get_tools_for_observer(self, tool_names: list[str]) -> list[SdkTool]:
+        """Get tools available for an observer worker session.
+
+        Allows: GLOBAL, OBSERVER_ONLY.
+        Blocks chatbot and pipeline-specific tools by default.
+        """
+        result: list[SdkTool] = []
+        for name in tool_names:
+            if not self._registry.has(name):
+                logger.warning("Tool '%s' not found, skipping", name)
+                continue
+            defn = self._registry.get(name)
+            if defn.access_level in _OBSERVER_LEVELS:
+                result.append(
+                    _to_sdk_tool(
+                        defn,
+                        session_context_registry=self._session_context_registry,
+                    )
+                )
         return result
 
     def get_handler(self, tool_name: str) -> ToolHandler:

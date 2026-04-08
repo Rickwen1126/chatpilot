@@ -147,6 +147,11 @@ Each item maps to a test scenario. All must pass before release.
 - [ ] >5 張照片 chatbot 呼叫 batch_image_analyze（不自己重複 download）
 - [ ] Pipeline 結果 push 格式化分析文字（非 raw dict）
 
+**Observer Media Enrichment**
+- [ ] capture-only observer route 收到 image ref → `observe_image_ref` tool call 出現在 log
+- [ ] observer image batch 會落 `memory_observations` 與 `observation_entries`
+- [ ] observer image route 仍維持 `reply=never + processing=none`，不對外回話
+
 **FileHandleCenter**
 - [ ] mock image ingress → register canonical file row（`file_assets.fetch_status=registered`，不 eager download）
 - [ ] mock audio ingress → policy `download_now` → local asset materialized（`storage_backend=local` 且 local file 存在）

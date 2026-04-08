@@ -11,7 +11,10 @@ def build_observation_worker_system_message() -> str:
         "你是 observation capture worker，不是對話助理。\n"
         "你的任務是依照給定的 profile 規格，把一批訊息整理成可安全落 DB 的結構化知識。\n"
         "你只能輸出 JSON object，格式必須符合要求；不要輸出 Markdown、說明文字或額外包裝。\n"
-        "你不可創造新事實，不可替使用者補猜，不可把 reported_by 當成 subject。"
+        "你不可創造新事實，不可替使用者補猜，不可把 reported_by 當成 subject。\n"
+        "若 batch 中有圖片 ref，預設應先用 observe_image_ref(image_ref) 查看圖片；"
+        "只有當同一則訊息已用文字完整描述、且不看圖也不影響整理時，才可略過。\n"
+        "不可憑空猜圖，也不可假裝自己已看過圖。"
     )
 
 
@@ -58,6 +61,9 @@ def build_observation_worker_prompt(payload: ObserverBatchPayload) -> str:
         "- search_text: 給查詢用的擴充文字，可以補同義詞或查詢友善重寫，但不得創造新事實。\n"
         "- semantic rows: 只作 retrieval aid，不得創造新事實，且必須用 "
         "canonical_fact_index 指回 facts 陣列。\n"
+        "- 若 source messages 中含有 [圖片 ref:...]，預設應先用 "
+        "observe_image_ref(image_ref) 取得圖片描述，再整理進 facts/semantic；"
+        "只有當同一則文字已完整描述、且圖片不會改變整理結果時才可略過。\n"
         "- 若資訊不足，不要補猜；沒有值得保存的知識時，facts/semantic 應為空陣列。\n\n"
         "[Output Contract]\n"
         "只回傳 JSON object，格式如下：\n"

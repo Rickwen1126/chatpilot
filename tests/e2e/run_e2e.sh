@@ -322,6 +322,20 @@ wait_for_db_count() {
     return 1
 }
 
+wait_for_db_count_gt() {
+    local db_path="$1" query="$2" baseline="$3" timeout="${4:-60}" interval="${5:-2}"
+    local elapsed=0 count
+    while [ "$elapsed" -lt "$timeout" ]; do
+        count=$(sqlite3 "$db_path" "$query" 2>/dev/null)
+        if [ "${count:-0}" -gt "${baseline:-0}" ] 2>/dev/null; then
+            return 0
+        fi
+        sleep "$interval"
+        elapsed=$((elapsed + interval))
+    done
+    return 1
+}
+
 # ─── Server Lifecycle ────────────────────────────────────────────
 start_server() {
     mkdir -p "$E2E_DIR"
@@ -671,6 +685,82 @@ if echo "$OBS_ENTRIES" | python3 -c "import sys,json; entries=json.load(sys.stdi
 else
     fail "observation entries empty" "$OBS_ENTRIES"
 fi
+
+# ─── Observer Image Enrichment [L2+L3+L4] ──────────────────────
+header "Observer Image Enrichment"
+
+OBS_IMG_OBS_BEFORE=$(sqlite3 "$E2E_DB" \
+    "SELECT count(*) FROM memory_observations WHERE route_id='$OBS_ROUTE_ID'" 2>/dev/null)
+OBS_IMG_ENTRIES_BEFORE=$(sqlite3 "$E2E_DB" \
+    "SELECT count(*) FROM observation_entries WHERE route_id='$OBS_ROUTE_ID'" 2>/dev/null)
+
+OBS_IMG_TEXTS=(
+    "小李明天請假半天"
+    "倉庫底漆剩兩桶"
+    "後天要送白漆到工地"
+    "小陳今天晚到"
+    "工地缺黑色面漆一桶"
+    "老闆說下午要盤點缺料"
+    "乳膠漆下週一要補貨"
+    "今天現場工具還沒收完"
+    "明天早上八點前要到場"
+)
+for text in "${OBS_IMG_TEXTS[@]}"; do
+    mock_webhook "{\"text\": \"$text\", \"user_id\": \"$OBS_ROUTE\", \"user_name\": \"FieldOps\", \"platform\": \"line:demo\", \"is_mention\": false}" > /dev/null
+    sleep 0.2
+done
+mock_webhook "{
+  \"text\": \"今天案場成果如下\\n[圖片 ref:mock:site-img-1]\",
+  \"user_id\": \"$OBS_ROUTE\",
+  \"user_name\": \"FieldLead\",
+  \"platform\": \"line:demo\",
+  \"is_mention\": false,
+  \"source_handles\": [
+    {
+      \"route_id\": \"$OBS_ROUTE_ID\",
+      \"platform\": \"mock\",
+      \"kind\": \"image\",
+      \"native_locator\": \"site-img-1\",
+      \"mime_type\": \"image/png\"
+    }
+  ]
+}" > /dev/null
+
+if wait_for_log "\\[tool_call\\] observe_image_ref" 90 2; then
+    pass "observer image tool called [L2]"
+else
+    fail "observer image tool called [L2: timeout]" "pattern: [tool_call] observe_image_ref"
+fi
+
+OBS_IMG_OBS_AFTER=$(sqlite3 "$E2E_DB" \
+    "SELECT count(*) FROM memory_observations WHERE route_id='$OBS_ROUTE_ID'" 2>/dev/null)
+if wait_for_db_count_gt "$E2E_DB" \
+    "SELECT count(*) FROM memory_observations WHERE route_id='$OBS_ROUTE_ID'" \
+    "${OBS_IMG_OBS_BEFORE:-0}" 90 2; then
+    OBS_IMG_OBS_AFTER=$(sqlite3 "$E2E_DB" \
+        "SELECT count(*) FROM memory_observations WHERE route_id='$OBS_ROUTE_ID'" 2>/dev/null)
+    pass "observer image batch persisted [L3]"
+else
+    fail "observer image batch persisted [L3]" \
+        "before=${OBS_IMG_OBS_BEFORE:-0} after=${OBS_IMG_OBS_AFTER:-0}"
+fi
+
+OBS_IMG_ENTRIES_AFTER=$(sqlite3 "$E2E_DB" \
+    "SELECT count(*) FROM observation_entries WHERE route_id='$OBS_ROUTE_ID'" 2>/dev/null)
+if wait_for_db_count_gt "$E2E_DB" \
+    "SELECT count(*) FROM observation_entries WHERE route_id='$OBS_ROUTE_ID'" \
+    "${OBS_IMG_ENTRIES_BEFORE:-0}" 90 2; then
+    OBS_IMG_ENTRIES_AFTER=$(sqlite3 "$E2E_DB" \
+        "SELECT count(*) FROM observation_entries WHERE route_id='$OBS_ROUTE_ID'" 2>/dev/null)
+    pass "observer image projected entries persisted [L3]"
+else
+    fail "observer image projected entries persisted [L3]" \
+        "before=${OBS_IMG_ENTRIES_BEFORE:-0} after=${OBS_IMG_ENTRIES_AFTER:-0}"
+fi
+
+assert_file_db_exists "observer image canonical file row" \
+    "SELECT count(*) FROM file_assets WHERE route_id='$OBS_ROUTE_ID' AND source_platform='mock' AND source_native_locator='site-img-1' AND source_kind='image'"
+assert_log_absent "observer image route still silent" "\\[SDK\\].*$OBS_ROUTE_ID.*sending"
 
 # ─── Observer Silence All Attacks [L2] ───────────────────────────
 header "Observer Silence (attack vectors)"

@@ -377,7 +377,8 @@ class _MultiAliasSemanticStore(_StubMemoryStore):
 
 
 @pytest.mark.asyncio
-async def test_query_observation_member_dedupes_multiple_semantic_aliases_and_respects_limit() -> None:
+async def test_query_observation_member_dedupes_multiple_semantic_aliases_and_respects_limit(  # noqa: E501
+) -> None:
     store = _MultiAliasSemanticStore()
     tool = create_query_observation_member_tool(
         store,
@@ -449,7 +450,8 @@ class _BrokenSemanticStore(_StubMemoryStore):
 
 
 @pytest.mark.asyncio
-async def test_query_observation_member_ignores_broken_semantic_rows_without_canonical_fact() -> None:
+async def test_query_observation_member_ignores_broken_semantic_rows_without_canonical_fact(  # noqa: E501
+) -> None:
     store = _BrokenSemanticStore()
     tool = create_query_observation_member_tool(
         store,

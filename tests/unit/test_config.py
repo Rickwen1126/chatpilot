@@ -13,14 +13,17 @@ def test_load_example_config():
     )
     assert len(config.bindings) >= 12
     assert "buddy" in config.chatbots
-    assert "my-observer" in config.chatbots
+    assert "my-assistant" in config.chatbots
     bot = config.chatbots["buddy"]
     assert bot.model == "gpt-5.4-mini"
     assert bot.context_window == 50
     observer_binding = next(
         binding
         for binding in config.bindings
-        if binding.chatbot == "my-observer"
+        if binding.reply_policy == "never"
+        and binding.processing_policy == "none"
+        and binding.observation is not None
+        and binding.observation.capture is not None
     )
     assert observer_binding.reply_policy == "never"
     assert observer_binding.processing_policy == "none"
