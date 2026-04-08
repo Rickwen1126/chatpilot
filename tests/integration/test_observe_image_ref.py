@@ -11,6 +11,9 @@ from chatpilot.tools.builtin.observe_image_ref import create_observe_image_ref_t
 
 
 class _FakeAdapter:
+    def __init__(self) -> None:
+        self.download_media_calls = 0
+
     async def fetch_source_file(
         self,
         source: SourceHandleInput,
@@ -20,6 +23,10 @@ class _FakeAdapter:
             filename=source.filename,
             mime_type=source.mime_type or "image/jpeg",
         )
+
+    async def download_media(self, media_id: str) -> bytes | None:
+        self.download_media_calls += 1
+        return b"raw-image"
 
 
 class _FakeSession:
@@ -102,5 +109,43 @@ async def test_observe_image_ref_uses_local_attachment_and_returns_text(tmp_path
     assert Path(seen["attachments"][0]["path"]).exists()
     assert seen["tools"] is None
     assert seen["destroyed"] is True
+    assert adapter.download_media_calls == 0
+
+    await store.close()
+
+
+@pytest.mark.asyncio
+async def test_observe_image_ref_fails_closed_on_unregistered_route_ref(tmp_path):
+    store = SqliteFileStore(str(tmp_path / "files.db"))
+    await store.initialize()
+    adapter = _FakeAdapter()
+    center = FileHandleCenter(
+        store,
+        {"line:demo": adapter},
+        asset_root=tmp_path / "assets",
+    )
+
+    tool = create_observe_image_ref_tool(
+        _FakeSdkClient({}),
+        {"line:demo": adapter},
+        center,
+    )
+
+    result = await tool.handler(
+        {
+            "session_context": {
+                "sdk_session_id": "observer-abc",
+                "route_id": "line:demo:C999",
+                "platform": "line:demo",
+                "conversation_id": "C999",
+                "chatbot_name": "observer",
+            },
+            "arguments": {"image_ref": "line:demo:img123"},
+        }
+    )
+
+    assert result["resultType"] == "failure"
+    assert "找不到目前 route 已註冊的圖片 ref" in result["textResultForLlm"]
+    assert adapter.download_media_calls == 0
 
     await store.close()

@@ -149,7 +149,9 @@ Each item maps to a test scenario. All must pass before release.
 
 **Observer Media Enrichment**
 - [ ] capture-only observer route 收到 image ref → `observe_image_ref` tool call 出現在 log
+- [ ] `observe_image_ref` 對未在目前 route 註冊的 image ref fail-closed（不得 raw adapter fallback）
 - [ ] observer image batch 會落 `memory_observations` 與 `observation_entries`
+- [ ] observer image-derived knowledge 需實際出現在最新 batch / projection（不能只驗 row count）
 - [ ] observer image route 仍維持 `reply=never + processing=none`，不對外回話
 
 **FileHandleCenter**

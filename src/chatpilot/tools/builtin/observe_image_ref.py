@@ -72,15 +72,27 @@ def create_observe_image_ref_tool(
         local_path: str | None = None
 
         try:
-            if file_handle_center is not None:
-                handle = await file_handle_center.find_source_handle(
-                    route_id=session_context.route_id,
-                    platform=platform,
-                    native_locator=native_locator,
+            if file_handle_center is None:
+                return ToolResult(
+                    textResultForLlm="observer 圖片分析未配置 file handle center",
+                    resultType="failure",
                 )
-                if handle is not None:
-                    local_path = await file_handle_center.ensure_local(handle.file_id)
 
+            handle = await file_handle_center.find_source_handle(
+                route_id=session_context.route_id,
+                platform=platform,
+                native_locator=native_locator,
+            )
+            if handle is None:
+                return ToolResult(
+                    textResultForLlm=(
+                        "找不到目前 route 已註冊的圖片 ref: "
+                        f"{image_ref}"
+                    ),
+                    resultType="failure",
+                )
+
+            local_path = await file_handle_center.ensure_local(handle.file_id)
             if local_path is None:
                 if not hasattr(adapter, "download_media"):
                     return ToolResult(

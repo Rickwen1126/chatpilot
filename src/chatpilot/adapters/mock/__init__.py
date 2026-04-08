@@ -2,10 +2,16 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from fastapi import Request
 
 from chatpilot.core.types import Message, Response
 from chatpilot.files.models import FileKind, SourceFetchResult, SourceHandleInput
+
+_SITE_IMG_1_FIXTURE = (
+    Path(__file__).resolve().parents[4] / "tests" / "fixtures" / "mock" / "site-img-1.png"
+)
 
 
 class MockAdapter:
@@ -104,26 +110,10 @@ class MockAdapter:
         )
 
     async def download_media(self, media_id: str) -> bytes | None:
-        """Return a tiny test PNG for mock media IDs."""
-        import struct
-        import zlib
-
-        w, h = 2, 2
-        raw = b""
-        for _ in range(h):
-            raw += b"\x00" + bytes([255, 0, 0]) * w  # red pixels
-        compressed = zlib.compress(raw)
-
-        def chunk(ct: bytes, d: bytes) -> bytes:
-            c = ct + d
-            return struct.pack(">I", len(d)) + c + struct.pack(">I", zlib.crc32(c) & 0xFFFFFFFF)
-
-        return (
-            b"\x89PNG\r\n\x1a\n"
-            + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0))
-            + chunk(b"IDAT", compressed)
-            + chunk(b"IEND", b"")
-        )
+        """Return deterministic mock media bytes for testing."""
+        if media_id == "site-img-1":
+            return _build_site_image_png()
+        return _build_tiny_red_png()
 
     async def fetch_source_file(
         self,
@@ -138,3 +128,37 @@ class MockAdapter:
             mime_type=source.mime_type or "image/png",
             size_bytes=len(data),
         )
+
+
+def _build_tiny_red_png() -> bytes:
+    """Return a tiny fallback PNG."""
+    import struct
+    import zlib
+
+    w, h = 2, 2
+    raw = b""
+    for _ in range(h):
+        raw += b"\x00" + bytes([255, 0, 0]) * w
+    compressed = zlib.compress(raw)
+
+    def chunk(ct: bytes, d: bytes) -> bytes:
+        c = ct + d
+        return (
+            struct.pack(">I", len(d))
+            + c
+            + struct.pack(">I", zlib.crc32(c) & 0xFFFFFFFF)
+        )
+
+    return (
+        b"\x89PNG\r\n\x1a\n"
+        + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0))
+        + chunk(b"IDAT", compressed)
+        + chunk(b"IEND", b"")
+    )
+
+
+def _build_site_image_png() -> bytes:
+    """Return a deterministic site photo used by observer E2E."""
+    if _SITE_IMG_1_FIXTURE.exists():
+        return _SITE_IMG_1_FIXTURE.read_bytes()
+    return _build_tiny_red_png()

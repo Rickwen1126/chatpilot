@@ -695,22 +695,22 @@ OBS_IMG_ENTRIES_BEFORE=$(sqlite3 "$E2E_DB" \
     "SELECT count(*) FROM observation_entries WHERE route_id='$OBS_ROUTE_ID'" 2>/dev/null)
 
 OBS_IMG_TEXTS=(
-    "小李明天請假半天"
-    "倉庫底漆剩兩桶"
-    "後天要送白漆到工地"
-    "小陳今天晚到"
-    "工地缺黑色面漆一桶"
-    "老闆說下午要盤點缺料"
-    "乳膠漆下週一要補貨"
-    "今天現場工具還沒收完"
-    "明天早上八點前要到場"
+    "收到"
+    "好"
+    "ok"
+    "了解"
+    "哈哈"
+    "先這樣"
+    "晚點再說"
+    "知道了"
+    "辛苦了"
 )
 for text in "${OBS_IMG_TEXTS[@]}"; do
     mock_webhook "{\"text\": \"$text\", \"user_id\": \"$OBS_ROUTE\", \"user_name\": \"FieldOps\", \"platform\": \"line:demo\", \"is_mention\": false}" > /dev/null
     sleep 0.2
 done
 mock_webhook "{
-  \"text\": \"今天案場成果如下\\n[圖片 ref:mock:site-img-1]\",
+  \"text\": \"[圖片 ref:mock:site-img-1]\",
   \"user_id\": \"$OBS_ROUTE\",
   \"user_name\": \"FieldLead\",
   \"platform\": \"line:demo\",
@@ -760,6 +760,13 @@ fi
 
 assert_file_db_exists "observer image canonical file row" \
     "SELECT count(*) FROM file_assets WHERE route_id='$OBS_ROUTE_ID' AND source_platform='mock' AND source_native_locator='site-img-1' AND source_kind='image'"
+
+assert_db_exists "observer image latest batch contains image-derived knowledge" \
+    "SELECT count(*) FROM memory_observations WHERE route_id='$OBS_ROUTE_ID' AND id=(SELECT id FROM memory_observations WHERE route_id='$OBS_ROUTE_ID' ORDER BY created_at DESC LIMIT 1) AND (entries LIKE '%白漆%' OR entries LIKE '%油漆%' OR entries LIKE '%2桶%' OR entries LIKE '%兩桶%' OR summary LIKE '%白漆%' OR summary LIKE '%油漆%' OR summary LIKE '%2桶%' OR summary LIKE '%兩桶%')"
+
+assert_db_exists "observer image projection contains image-derived knowledge" \
+    "SELECT count(*) FROM observation_entries WHERE route_id='$OBS_ROUTE_ID' AND source_observation_id=(SELECT id FROM memory_observations WHERE route_id='$OBS_ROUTE_ID' ORDER BY created_at DESC LIMIT 1) AND (content LIKE '%白漆%' OR content LIKE '%油漆%' OR content LIKE '%2桶%' OR content LIKE '%兩桶%' OR search_text LIKE '%白漆%' OR search_text LIKE '%油漆%' OR search_text LIKE '%2桶%' OR search_text LIKE '%兩桶%')"
+
 assert_log_absent "observer image route still silent" "\\[SDK\\].*$OBS_ROUTE_ID.*sending"
 
 # ─── Observer Silence All Attacks [L2] ───────────────────────────
