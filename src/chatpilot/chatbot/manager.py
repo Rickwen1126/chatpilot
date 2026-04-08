@@ -137,8 +137,13 @@ class ChatbotManager:
         tools = self._tool_factory.get_tools_for_chatbot(config.tools)
         tool_names = [t.name for t in tools] if tools else []
         logger.info(
-            "Session setup route=%s chatbot=%s model=%s tools=%s workdir=%s",
-            route_id, chatbot_name, model, tool_names, workdir,
+            "Session setup route_id=%s chatbot=%s sdk_session_id=%s model=%s tools=%s workdir=%s",
+            route_id,
+            chatbot_name,
+            sdk_session_id,
+            model,
+            tool_names,
+            workdir,
         )
 
         # Try resume (preserves conversation history for same chatbot)
@@ -151,11 +156,15 @@ class ChatbotManager:
                 working_directory=workdir,
             )
             logger.info(
-                "Resumed route=%s chatbot=%s", route_id, chatbot_name
+                "Resumed route_id=%s chatbot=%s sdk_session_id=%s",
+                route_id,
+                chatbot_name,
+                sdk_session_id,
             )
         except Exception as exc:
             logger.warning(
-                "Resume failed route=%s chatbot=%s session=%s type=%s; creating fresh session",
+                "Resume failed route_id=%s chatbot=%s "
+                "sdk_session_id=%s type=%s; creating fresh session",
                 route_id,
                 chatbot_name,
                 sdk_session_id,
@@ -169,12 +178,16 @@ class ChatbotManager:
                 working_directory=workdir,
             )
             logger.info(
-                "Created route=%s chatbot=%s", route_id, chatbot_name
+                "Created route_id=%s chatbot=%s sdk_session_id=%s",
+                route_id,
+                chatbot_name,
+                sdk_session_id,
             )
 
         session = ChatbotSession(
             sdk_session,
             config,
+            route_id=route_id,
             effective_model=model,
         )
         self._sessions[route_id] = session

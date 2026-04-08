@@ -25,6 +25,7 @@ from chatpilot.files.policy import DEFAULT_CLEANUP_INTERVAL_SECONDS
 from chatpilot.files.store import SqliteFileStore
 from chatpilot.hub.context_buffer import ContextBuffer
 from chatpilot.hub.hub import InMemoryMessageHub
+from chatpilot.logs import configure_local_logging
 from chatpilot.memory.store import SqliteMemoryStore as MemoryStore
 from chatpilot.observer.projection import (
     build_memory_observation_entries,
@@ -544,6 +545,8 @@ async def lifespan(app: FastAPI):
     app.state.route_settings_path = settings_path
     app.state.route_bindings_path = bindings_path
     config = _load_gateway_config(settings_path, bindings_path)
+    logging_runtime = configure_local_logging(config.logging)
+    app.state.logging_runtime = logging_runtime
     route_binding_service = RouteBindingService(bindings_path)
     route_binding_service.load()
     if not route_binding_service.merged_bindings() and config.bindings:
@@ -743,7 +746,7 @@ async def lifespan(app: FastAPI):
             )
             sdk_session = await sdk_client.create_session(
                 sid,
-                model="gpt-5.4",
+                model="gpt-5.4-mini",
                 system_message=build_observation_worker_system_message(),
                 tools=tool_factory.get_tools_for_observer(
                     ["observe_image_ref"]
@@ -756,7 +759,7 @@ async def lifespan(app: FastAPI):
                     sid,
                 )
                 result = await sdk_session.send_and_wait(
-                    prompt, timeout=120.0
+                    prompt, timeout=180.0
                 )
                 logger.info(
                     "[observer] %s LLM result: %d chars",
@@ -900,6 +903,10 @@ async def lifespan(app: FastAPI):
 
     # Hot reload
     def on_config_reload(new_config: GatewayConfig) -> None:
+        current_logging_runtime = getattr(app.state, "logging_runtime", None)
+        if current_logging_runtime is not None:
+            current_logging_runtime.close()
+        app.state.logging_runtime = configure_local_logging(new_config.logging)
         route_binding_service.load()
         if not route_binding_service.merged_bindings() and new_config.bindings:
             route_binding_service.replace_fallback_bindings(new_config.bindings)
@@ -959,6 +966,9 @@ async def lifespan(app: FastAPI):
     if observer:
         observer.stop()
     await chatbot_manager.destroy_all()
+    logging_runtime = getattr(app.state, "logging_runtime", None)
+    if logging_runtime is not None:
+        logging_runtime.close()
     await sdk_client.stop()
     logger.info("Server stopped")
 

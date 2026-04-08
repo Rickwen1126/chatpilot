@@ -19,6 +19,7 @@ def test_observer_worker_system_message_is_strict() -> None:
     assert "reported_by" in system_message
     assert "不可創造新事實" in system_message
     assert "observe_image_ref" in system_message
+    assert "圖片標示白漆 2 桶" in system_message
 
 
 def test_observer_worker_prompt_includes_profile_contract() -> None:
@@ -48,3 +49,4 @@ def test_observer_worker_prompt_includes_profile_contract() -> None:
     assert "canonical_fact_index" in prompt
     assert "[群組近期對話]" in prompt
     assert "observe_image_ref" in prompt
+    assert "圖片標示白漆 2 桶" in prompt

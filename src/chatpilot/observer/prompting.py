@@ -13,7 +13,11 @@ def build_observation_worker_system_message() -> str:
         "你只能輸出 JSON object，格式必須符合要求；不要輸出 Markdown、說明文字或額外包裝。\n"
         "你不可創造新事實，不可替使用者補猜，不可把 reported_by 當成 subject。\n"
         "若 batch 中有圖片 ref，預設應先用 observe_image_ref(image_ref) 查看圖片；"
+        "每批最多查看 1 張最有資訊量的圖片，不要對每一張圖都呼叫工具。\n"
         "只有當同一則訊息已用文字完整描述、且不看圖也不影響整理時，才可略過。\n"
+        "若圖片工具回傳的是具體可見事實（例如文字標示、數量、物料名稱、施工完成狀態），"
+        "即使缺少完整事件背景，也應以保守措辭保留，例如「圖片標示白漆 2 桶」或"
+        "「圖片可見牆面已上第一道底漆」。\n"
         "不可憑空猜圖，也不可假裝自己已看過圖。"
     )
 
@@ -63,7 +67,10 @@ def build_observation_worker_prompt(payload: ObserverBatchPayload) -> str:
         "canonical_fact_index 指回 facts 陣列。\n"
         "- 若 source messages 中含有 [圖片 ref:...]，預設應先用 "
         "observe_image_ref(image_ref) 取得圖片描述，再整理進 facts/semantic；"
+        "每批最多查看 1 張最有資訊量的圖片，避免重複分析相似或無資訊量的圖片；"
         "只有當同一則文字已完整描述、且圖片不會改變整理結果時才可略過。\n"
+        "- 若圖片描述中含有具體可見事實（例如圖片標示的物料名稱、數量、可見施工狀態），"
+        "應以保守措辭保留成 fact，例如「圖片標示白漆 2 桶」；不要因為缺少完整背景就整筆捨棄。\n"
         "- 若資訊不足，不要補猜；沒有值得保存的知識時，facts/semantic 應為空陣列。\n\n"
         "[Output Contract]\n"
         "只回傳 JSON object，格式如下：\n"

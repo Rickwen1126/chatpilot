@@ -7,7 +7,8 @@ from unittest.mock import MagicMock, patch
 from chatpilot.stt.transcriber import SttTranscriber
 
 
-def test_disabled_without_api_key():
+def test_disabled_without_api_key(monkeypatch):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     t = SttTranscriber(api_key="")
     assert not t.enabled
     result = asyncio.run(t.transcribe(b"fake"))

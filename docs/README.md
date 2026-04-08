@@ -54,6 +54,23 @@ observer 的 DB-first retrieval 設計與實作。
 - supporting:
   - [observer-only-tools-plan@2026-04-08.md](/Users/rickwen/code/chatpilot/docs/observation-retrieval-v1/observer-only-tools-plan@2026-04-08.md)
 
+### `observation-self-check-v1/`
+
+observation / retrieval 的定期自我檢測設計。
+
+- canonical:
+  - [README.md](/Users/rickwen/code/chatpilot/docs/observation-self-check-v1/README.md)
+  - [spec.md](/Users/rickwen/code/chatpilot/docs/observation-self-check-v1/spec.md)
+
+### `local-log-system-v1/`
+
+chatpilot 的 local-first、route-centric logging system 設計。
+
+- canonical:
+  - [README.md](/Users/rickwen/code/chatpilot/docs/local-log-system-v1/README.md)
+  - [spec.md](/Users/rickwen/code/chatpilot/docs/local-log-system-v1/spec.md)
+  - [plan.md](/Users/rickwen/code/chatpilot/docs/local-log-system-v1/plan.md)
+
 ### `file-handle-center/`
 
 File ingress / governance boundary 的 canonical 設計與實作記錄。

@@ -20,6 +20,7 @@ from chatpilot.core.types import (
     CronSchedulerConfig,
     DiscoveryProfileConfig,
     DiscoveryRuleConfig,
+    LoggingConfig,
     MatchWeights,
     ObservationProfileConfig,
     RouteGroupConfig,
@@ -31,6 +32,7 @@ logger = logging.getLogger(__name__)
 
 class GatewayConfig(BaseModel):
     timezone: str = "Asia/Taipei"
+    logging: LoggingConfig = Field(default_factory=LoggingConfig)
     match_weights: MatchWeights = Field(default_factory=MatchWeights)
     route_groups: dict[str, RouteGroupConfig] = Field(default_factory=dict)
     observation_profiles: dict[str, ObservationProfileConfig] = Field(

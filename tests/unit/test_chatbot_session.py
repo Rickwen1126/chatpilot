@@ -33,6 +33,7 @@ def test_chatbot_session_reports_effective_and_configured_models():
     session = ChatbotSession(
         _StubSdkSession(),
         _config(),
+        route_id="line:demo:C123",
         effective_model="gpt-5.4",
     )
 

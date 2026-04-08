@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 
 from chatpilot.files.center import FileHandleCenter
@@ -106,7 +104,7 @@ async def test_observe_image_ref_uses_local_attachment_and_returns_text(tmp_path
     assert result["resultType"] == "success"
     assert "兩桶白漆" in result["textResultForLlm"]
     assert seen["attachments"] and seen["attachments"][0]["type"] == "file"
-    assert Path(seen["attachments"][0]["path"]).exists()
+    assert seen["attachments"][0]["path"].endswith(".jpg")
     assert seen["tools"] is None
     assert seen["destroyed"] is True
     assert adapter.download_media_calls == 0

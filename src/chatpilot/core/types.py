@@ -334,6 +334,16 @@ class CronSchedulerConfig(BaseModel):
     available_tools: list[str] = Field(default_factory=list)
 
 
+class LoggingConfig(BaseModel):
+    """App-local logging configuration."""
+
+    enabled: bool = True
+    dir: str = "log"
+    level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
+    max_bytes: int = 20 * 1024 * 1024
+    backup_count: int = 10
+
+
 class AdapterChannelConfig(BaseModel):
     """Named adapter channel loaded from config."""
 

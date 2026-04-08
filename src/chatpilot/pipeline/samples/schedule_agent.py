@@ -98,9 +98,11 @@ class ScheduleAgentNode:
                         safe_tools
                     ) if safe_tools else None
                     logger.info(
-                        "[schedule-agent] delegated_by=%s target_route=%s tools=%s (from %s)",
+                        "[schedule-agent] event=resolve_tools route_id=%s "
+                        "delegated_by=%s sdk_session_id=%s tools=%s from=%s",
+                        target_route_id or "",
                         origin_chatbot_name,
-                        target_route_id or "?",
+                        session_id,
                         safe_tools,
                         chatbot_tools,
                     )
@@ -110,11 +112,18 @@ class ScheduleAgentNode:
                         ["web_search"]
                     )
                     logger.warning(
-                        "[schedule-agent] no chatbot_tools in input, "
-                        "falling back to web_search"
+                        "[schedule-agent] event=fallback_tools route_id=%s "
+                        "sdk_session_id=%s fallback=web_search",
+                        target_route_id or "",
+                        session_id,
                     )
             except Exception:
-                logger.exception("[schedule-agent] failed to resolve tools")
+                logger.exception(
+                    "[schedule-agent] event=resolve_tools_failed route_id=%s "
+                    "sdk_session_id=%s",
+                    target_route_id or "",
+                    session_id,
+                )
 
         registry = (
             self._tool_factory.session_context_registry
@@ -135,6 +144,13 @@ class ScheduleAgentNode:
             )
 
         try:
+            logger.info(
+                "[schedule-agent] event=session_create route_id=%s "
+                "sdk_session_id=%s model=%s",
+                target_route_id or "",
+                session_id,
+                self._model,
+            )
             session = await self._sdk_client.create_session(
                 session_id,
                 model=self._model,
@@ -144,14 +160,31 @@ class ScheduleAgentNode:
             )
             try:
                 result = await session.send_and_wait(prompt, timeout=300.0)
+                logger.info(
+                    "[schedule-agent] event=completed route_id=%s "
+                    "sdk_session_id=%s chars=%d",
+                    target_route_id or "",
+                    session_id,
+                    len(result),
+                )
                 return NodeOutput(
                     status="success",
                     data={"result": result, "prompt": prompt},
                 )
             finally:
+                logger.info(
+                    "[schedule-agent] event=session_destroy route_id=%s "
+                    "sdk_session_id=%s",
+                    target_route_id or "",
+                    session_id,
+                )
                 await session.destroy()
         except Exception as e:
-            logger.exception("[schedule-agent] failed")
+            logger.exception(
+                "[schedule-agent] event=failed route_id=%s sdk_session_id=%s",
+                target_route_id or "",
+                session_id,
+            )
             return NodeOutput(status="error", data={}, error=str(e))
         finally:
             if registry is not None:

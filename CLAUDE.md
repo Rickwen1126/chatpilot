@@ -1,6 +1,6 @@
 # chatpilot Development Guidelines
 
-Last updated: 2026-03-26
+Last updated: 2026-04-08
 
 ## Development Cycle (必須遵守)
 
@@ -50,6 +50,31 @@ config/
 
 uv run pytest && uv run ruff check src/
 
+## Logging Design Principles
+
+- logging 是一等公民。新功能若跨 webhook / router / hub / observer / tool / scheduler / DB 邊界，但無法從 log 讀出主要 dataflow，視為未完成
+- log 預設以單一 stream 思維設計；分類優先靠 `tag + level + key=value`，不是先靠拆多個檔案
+- `route_id` 是 chatpilot log 的主關聯鍵；若有跨 route 行為，必須補 `target_route_id`
+- 若事件與 Copilot SDK session 有關，應能從 log 串起：
+  - `route_id`
+  - `sdk_session_id`
+  - `task_id` / `schedule_id`
+  - `tool_name`
+- 保留 Copilot SDK 原生日誌訊號。`[SDK]` / `[event]` 這類 session runtime log 是重要 debug 資產；chatpilot 應補 correlation，不應把它們過度抽象或改寫到失真
+- INFO 寫 state transition，DEBUG 寫 decision detail，WARNING 寫 degraded/fallback，ERROR 寫 failed path；不要把關鍵狀態塞在 DEBUG，或把大量 payload 噪音塞在 INFO
+- 重要 log 盡量包含：
+  - `event`
+  - `route_id`
+  - `target_route_id`（若有）
+  - `group` / `profile`（若有）
+  - `chatbot`
+  - `session_id` / `sdk_session_id`
+  - `task_id` / `schedule_id`
+  - `tool_name`
+- 文字風格優先用「短描述 + key=value」，讓人可以直接 grep 與肉眼追 dataflow
+- 寫 log 時避免整包敏感原文、token、secret；若需要 debug payload，優先寫 preview / summary / ref / id
+- local logging 最終應由 app 內建 config 控制，不依賴 shell redirect 才能有可用 log；write-file 只是第一個 backend，未來可替換成其他 logging backend
+
 ## Code Style
 
 Python 3.11+: Pydantic v2 models, Protocol for interfaces, async/await, ruff formatting
@@ -67,6 +92,9 @@ Python 3.11+: Pydantic v2 models, Protocol for interfaces, async/await, ruff for
 - SDK 型別參考：`copilot.types` 的 Tool, ToolInvocation, ToolResult, SessionConfig
 - `system_message` 必須用 `mode: "replace"`，不可用 `append`（append 會保留 CLI agent 的 built-in tools）
 - `list_models()` 不一定列出所有可用 model，可直接用 model ID 字串嘗試
+- 設計 Copilot request 時，優先採用「單次大 request + 明確 rubric / todo / success criteria」模式，不要把同一個任務拆成大量一來一回的小 prompt
+- 對 Copilot 而言，成本與穩定性重點更接近 request 次數，而不是 token；能在一次 request 內講清楚完整任務、驗證標準、預期 tool 使用與輸出格式時，應盡量一次講清楚
+- 尤其是 schedule、自動 health check、批次匯入、multi-step semantic probe 這類任務，應優先把 probe queries、must-hit facts、forbidden drift、驗證步驟一起包進單次 request，讓 Copilot 一次規劃並執行
 
 ## Adapter 開發規範
 

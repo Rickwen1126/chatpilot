@@ -3,6 +3,13 @@
 
 timezone: "Asia/Taipei"
 
+logging:
+  enabled: true
+  dir: log
+  level: INFO
+  max_bytes: 20971520
+  backup_count: 10
+
 adapters:
   line:
     - name: demo

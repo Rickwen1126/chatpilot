@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import logging
+import mimetypes
+import shutil
 import tempfile
 import uuid
 from pathlib import Path
@@ -18,7 +20,9 @@ from chatpilot.tools.session_context import get_session_context
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_MODEL = "gpt-5.4"
+DEFAULT_MODEL = "gpt-5.4-mini"
+FALLBACK_MODEL = "gpt-4.1"
+DEFAULT_TIMEOUT = 45.0
 DEFAULT_SYSTEM_MESSAGE = (
     "你是 observer image inspection worker，不是聊天助理。\n"
     "你只根據圖片中實際可見的內容回覆，禁止腦補。\n"
@@ -26,11 +30,54 @@ DEFAULT_SYSTEM_MESSAGE = (
     "若圖片資訊不足，就直接說看不清或無法判定，不要編造。"
 )
 
+IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".tiff"}
+
 
 class ObserveImageRefParams(BaseModel):
     image_ref: str = Field(
         description="圖片參考 ID，格式為 platform:native_locator，例如 line:demo:img123"
     )
+
+
+def _infer_image_suffix(
+    *,
+    local_path: str | None,
+    filename: str | None,
+    mime_type: str | None,
+) -> str:
+    for candidate in (filename, local_path):
+        suffix = Path(candidate or "").suffix.lower()
+        if suffix in IMAGE_SUFFIXES:
+            return suffix
+    guessed = mimetypes.guess_extension(mime_type or "")
+    if guessed and guessed.lower() in IMAGE_SUFFIXES:
+        return guessed.lower()
+    return ".png"
+
+
+def _normalize_attachment_path(
+    *,
+    local_path: str,
+    filename: str | None,
+    mime_type: str | None,
+) -> tuple[str, Path | None]:
+    source_path = Path(local_path)
+    if source_path.suffix.lower() in IMAGE_SUFFIXES:
+        return local_path, None
+
+    suffix = _infer_image_suffix(
+        local_path=local_path,
+        filename=filename,
+        mime_type=mime_type,
+    )
+    with tempfile.NamedTemporaryFile(
+        prefix="observer-image-attachment-",
+        suffix=suffix,
+        delete=False,
+    ) as fp:
+        normalized_path = Path(fp.name)
+    shutil.copyfile(source_path, normalized_path)
+    return str(normalized_path), normalized_path
 
 
 def create_observe_image_ref_tool(
@@ -69,6 +116,7 @@ def create_observe_image_ref_tool(
             )
 
         temp_path: Path | None = None
+        normalized_attachment_path: Path | None = None
         local_path: str | None = None
 
         try:
@@ -115,24 +163,55 @@ def create_observe_image_ref_tool(
                     temp_path = Path(fp.name)
                     local_path = fp.name
 
-            vision_sid = f"observer-image-{uuid.uuid4().hex[:8]}"
-            session = await sdk_client.create_session(
-                vision_sid,
-                model=DEFAULT_MODEL,
-                system_message=DEFAULT_SYSTEM_MESSAGE,
+            attachment_path, normalized_attachment_path = _normalize_attachment_path(
+                local_path=local_path,
+                filename=handle.filename or filename,
+                mime_type=handle.mime_type,
             )
-            try:
-                result = await session.send_and_wait_with_attachments(
-                    (
-                        "請直接查看這張圖片，回覆 2 到 5 句精簡中文描述。"
-                        "只保留與背景整理有關的具體可觀察事實；"
-                        "若無法判定，就明說不確定。"
-                    ),
-                    attachments=[{"type": "file", "path": local_path}],
-                    timeout=120.0,
+
+            result = ""
+            last_error: Exception | None = None
+            for model in (DEFAULT_MODEL, FALLBACK_MODEL):
+                vision_sid = f"observer-image-{uuid.uuid4().hex[:8]}"
+                logger.info(
+                    "observe_image_ref attempt ref=%s route_id=%s model=%s timeout=%ss",
+                    image_ref,
+                    session_context.route_id,
+                    model,
+                    DEFAULT_TIMEOUT,
                 )
-            finally:
-                await session.destroy()
+                session = await sdk_client.create_session(
+                    vision_sid,
+                    model=model,
+                    system_message=DEFAULT_SYSTEM_MESSAGE,
+                )
+                try:
+                    result = await session.send_and_wait_with_attachments(
+                        (
+                            "請直接查看這張圖片，回覆 2 到 5 句精簡中文描述。"
+                            "只保留與背景整理有關的具體可觀察事實；"
+                            "若無法判定，就明說不確定。"
+                        ),
+                        attachments=[{"type": "file", "path": attachment_path}],
+                        timeout=DEFAULT_TIMEOUT,
+                    )
+                    if result.strip():
+                        break
+                except Exception as exc:
+                    last_error = exc
+                    logger.warning(
+                        "observe_image_ref attempt failed ref=%s route_id=%s model=%s type=%s",
+                        image_ref,
+                        session_context.route_id,
+                        model,
+                        type(exc).__name__,
+                    )
+                    result = ""
+                finally:
+                    await session.destroy()
+
+            if not result.strip() and last_error is not None:
+                raise last_error
 
             text = result.strip()
             if not text:
@@ -151,6 +230,8 @@ def create_observe_image_ref_tool(
                 resultType="failure",
             )
         finally:
+            if normalized_attachment_path is not None and normalized_attachment_path.exists():
+                normalized_attachment_path.unlink(missing_ok=True)
             if temp_path is not None and temp_path.exists():
                 temp_path.unlink(missing_ok=True)
 

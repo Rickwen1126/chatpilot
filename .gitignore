@@ -42,6 +42,7 @@ htmlcov/
 
 # Runtime data
 data/
+log/
 
 # Project-specific docs (not public)
 specs/

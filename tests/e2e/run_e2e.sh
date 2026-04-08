@@ -232,7 +232,7 @@ wait_for_route_field() {
 # L2: assert tool was called in log
 assert_tool_called() {
     local label="$1" tool="$2"
-    if grep -a "\[tool_call\] $tool" "$E2E_LOG" > /dev/null 2>&1; then
+    if LC_ALL=C grep -aE "\\[tool_call\\] (tool=)?${tool}([[:space:]]|$)" "$E2E_LOG" > /dev/null 2>&1; then
         pass "$label [L2: $tool called]"
     else
         fail "$label [L2: $tool NOT called]"
@@ -726,7 +726,7 @@ mock_webhook "{
   ]
 }" > /dev/null
 
-if wait_for_log "\\[tool_call\\] observe_image_ref" 90 2; then
+if wait_for_log "\\[tool_call\\] tool=observe_image_ref " 90 2; then
     pass "observer image tool called [L2]"
 else
     fail "observer image tool called [L2: timeout]" "pattern: [tool_call] observe_image_ref"
@@ -813,7 +813,7 @@ else
     fail "addressed route observation persisted [L4: timeout]" "pattern: [observer] $ASSISTANT_ROUTE_ID saved to DB"
 fi
 assert_log "addressed+capture fanout" "\\[hub\\] $ASSISTANT_ROUTE_ID fanout reply_intent=True observation_intent=True"
-assert_log "assistant reply lane session" "\\[Chatbot\\] my-assistant sending lane=reply session=line-demo-${ASSISTANT_GROUP}__my-assistant"
+assert_log "assistant reply lane session" "\\[Chatbot\\] event=send route_id=$ASSISTANT_ROUTE_ID chatbot=my-assistant sdk_session_id=line-demo-${ASSISTANT_GROUP}__my-assistant"
 assert_log "assistant observation worker session" "\\[observer\\] $ASSISTANT_ROUTE_ID worker_session=observer-.* lane=observation"
 assert_db_exists "addressed route observation in DB" \
     "SELECT count(*) FROM memory_observations WHERE route_id='$ASSISTANT_ROUTE_ID'"
@@ -931,7 +931,7 @@ echo "  ⏳ waiting for reminder to fire..."
 sleep 20
 
 # L4: verify general-agent was enqueued
-assert_log "reminder enqueued" "Reminder.*enqueued as general-agent"
+assert_log "reminder enqueued" "\\[cron\\] event=reminder_enqueued route_id=cli:$REM4_USER .*pipeline=general-agent"
 
 # L4: verify reminder marked completed in DB
 REM_STATUS=$(sqlite3 "$E2E_DB" \
@@ -947,9 +947,11 @@ header "STT Transcriber"
 
 STT_RESULT=$(uv run python3 -c "
 import asyncio
+import os
 
 async def test():
     from chatpilot.stt.transcriber import SttTranscriber
+    os.environ.pop('OPENAI_API_KEY', None)
 
     # Test 1: disabled without key
     t = SttTranscriber(api_key='')

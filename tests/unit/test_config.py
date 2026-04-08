@@ -31,6 +31,9 @@ def test_load_example_config():
     assert observer_binding.observation.capture is not None
     assert observer_binding.observation.capture.group == "ops"
     assert config.timezone == "Asia/Taipei"
+    assert config.logging.enabled is True
+    assert config.logging.dir == "log"
+    assert config.logging.max_bytes == 20971520
     assert config.scheduler.concurrent_runners == 2
     assert config.match_weights.group_id == 10
     assert "ops" in config.route_groups

@@ -38,7 +38,7 @@ class CronScheduler:
         self._running = True
         self._task = asyncio.create_task(self._tick_loop())
         logger.info(
-            "CronScheduler started (tick=%ds)", self._tick_interval
+            "[cron] event=start tick_interval=%ds", self._tick_interval
         )
 
     async def stop(self) -> None:
@@ -49,7 +49,7 @@ class CronScheduler:
                 await self._task
             except asyncio.CancelledError:
                 pass
-        logger.info("CronScheduler stopped")
+        logger.info("[cron] event=stop")
 
     async def _tick_loop(self) -> None:
         while self._running:
@@ -58,7 +58,7 @@ class CronScheduler:
             except asyncio.CancelledError:
                 break
             except Exception:
-                logger.exception("CronScheduler tick error")
+                logger.exception("[cron] event=tick_error")
             await asyncio.sleep(self._tick_interval)
 
     async def _tick(self) -> None:
@@ -70,7 +70,7 @@ class CronScheduler:
         )
         if due_reminders:
             logger.info(
-                "[cron] tick found %d due reminders", len(due_reminders)
+                "[cron] event=due_reminders count=%d", len(due_reminders)
             )
         for r in due_reminders:
             await self._handle_reminder(r)
@@ -81,7 +81,7 @@ class CronScheduler:
         )
         if due_schedules:
             logger.info(
-                "[cron] tick found %d due schedules", len(due_schedules)
+                "[cron] event=due_schedules count=%d", len(due_schedules)
             )
         for s in due_schedules:
             await self._handle_schedule(s)
@@ -123,8 +123,10 @@ class CronScheduler:
                 {"status": MemoryStatus.completed.value},
             )
             logger.info(
-                "Reminder %s enqueued as general-agent task for %s",
-                rid[:8], route_id[:16],
+                "[cron] event=reminder_enqueued route_id=%s reminder_id=%s "
+                "pipeline=general-agent",
+                route_id,
+                rid[:8],
             )
         except Exception as e:
             await self._memory_store.update(
@@ -135,7 +137,10 @@ class CronScheduler:
                 },
             )
             logger.error(
-                "Reminder %s failed: %s", rid[:8], e
+                "[cron] event=reminder_failed route_id=%s reminder_id=%s error=%s",
+                route_id,
+                rid[:8],
+                e,
             )
 
     async def _handle_schedule(self, schedule: dict) -> None:
@@ -191,8 +196,12 @@ class CronScheduler:
                 },
             )
             logger.info(
-                "Schedule %s triggered, next=%s",
-                sid[:8], next_run.isoformat(),
+                "[cron] event=schedule_triggered route_id=%s schedule_id=%s "
+                "tool_name=%s next_run_at=%s",
+                route_id,
+                sid[:8],
+                tool_name,
+                next_run.isoformat(),
             )
         except Exception as e:
             await self._memory_store.update(
@@ -202,7 +211,14 @@ class CronScheduler:
                     "last_error": str(e),
                 },
             )
-            logger.error("Schedule %s failed: %s", sid[:8], e)
+            logger.error(
+                "[cron] event=schedule_failed route_id=%s schedule_id=%s "
+                "tool_name=%s error=%s",
+                route_id,
+                sid[:8],
+                tool_name,
+                e,
+            )
 
     async def _warn_failed(self) -> None:
         """Log warnings for failed items."""
@@ -219,7 +235,9 @@ class CronScheduler:
             ]
             for item in failed:
                 logger.warning(
-                    "Failed %s %s: %s",
-                    type_name, item["id"][:8],
+                    "[cron] event=failed_item type=%s route_id=%s id=%s error=%s",
+                    type_name,
+                    item.get("route_id", ""),
+                    item["id"][:8],
                     item.get("last_error", "unknown"),
                 )

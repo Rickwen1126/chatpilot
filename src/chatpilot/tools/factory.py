@@ -122,17 +122,41 @@ def _to_sdk_tool(
         enriched_invocation = dict(invocation)
         args = enriched_invocation.get("arguments") or {}
         session_id = enriched_invocation.get("session_id", "")
+        context = None
         if session_context_registry is not None and "session_context" not in enriched_invocation:
             context = session_context_registry.resolve(session_id)
             if context is not None:
                 enriched_invocation["session_context"] = context.model_dump()
-        logger.info("[tool_call] %s args=%s session=%s", defn.name, args, session_id)
+        elif session_context_registry is not None:
+            context = session_context_registry.resolve(session_id)
+        target_route_id = args.get("route_id", "") if isinstance(args, dict) else ""
+        if not isinstance(target_route_id, str):
+            target_route_id = ""
+        route_id = context.route_id if context is not None else ""
+        chatbot_name = context.chatbot_name if context is not None else ""
+        logger.info(
+            "[tool_call] tool=%s route_id=%s target_route_id=%s "
+            "sdk_session_id=%s chatbot=%s args=%s",
+            defn.name,
+            route_id,
+            target_route_id,
+            session_id,
+            chatbot_name,
+            args,
+        )
         result = await original(enriched_invocation)
         status = result.get("resultType", "?") if isinstance(result, dict) else "?"
         text = result.get("textResultForLlm", "") if isinstance(result, dict) else ""
         logger.info(
-            "[tool_result] %s status=%s result=%s",
-            defn.name, status, text[:200] if text else "",
+            "[tool_result] tool=%s route_id=%s target_route_id=%s "
+            "sdk_session_id=%s chatbot=%s status=%s result=%s",
+            defn.name,
+            route_id,
+            target_route_id,
+            session_id,
+            chatbot_name,
+            status,
+            text[:200] if text else "",
         )
         return result
 

@@ -18,10 +18,12 @@ class ChatbotSession:
         sdk_session: SdkSession,
         config: ChatbotConfig,
         *,
+        route_id: str,
         effective_model: str,
     ) -> None:
         self._session = sdk_session
         self._config = config
+        self._route_id = route_id
         self._effective_model = effective_model
         self.broken = False
         self.needs_rebuild = False
@@ -53,7 +55,9 @@ class ChatbotSession:
             prompt = f"{context_prefix}\n{text}"
 
         logger.info(
-            "[Chatbot] %s sending lane=reply session=%s model=%s chars=%d context=%s",
+            "[Chatbot] event=send route_id=%s chatbot=%s "
+            "sdk_session_id=%s lane=reply model=%s chars=%d context=%s",
+            self._route_id,
             self.chatbot_name,
             self._session.session_id,
             self.model,
@@ -65,7 +69,8 @@ class ChatbotSession:
                 prompt, timeout=self._config.timeout
             )
             logger.info(
-                "[Chatbot] %s got response session=%s chars=%d",
+                "[Chatbot] event=response route_id=%s chatbot=%s sdk_session_id=%s chars=%d",
+                self._route_id,
                 self.chatbot_name,
                 self._session.session_id,
                 len(result),
@@ -73,7 +78,9 @@ class ChatbotSession:
             return Response(text=result)
         except TimeoutError:
             logger.warning(
-                "[Chatbot] timeout chatbot=%s session=%s model=%s timeout=%ss",
+                "[Chatbot] event=timeout route_id=%s chatbot=%s "
+                "sdk_session_id=%s model=%s timeout=%ss",
+                self._route_id,
                 self.chatbot_name,
                 self._session.session_id,
                 self.model,
@@ -83,7 +90,8 @@ class ChatbotSession:
             return Response(text="處理超時，請稍後再試")
         except Exception as e:
             logger.exception(
-                "[Chatbot] error chatbot=%s session=%s model=%s type=%s",
+                "[Chatbot] event=error route_id=%s chatbot=%s sdk_session_id=%s model=%s type=%s",
+                self._route_id,
                 self.chatbot_name,
                 self._session.session_id,
                 self.model,
@@ -96,7 +104,8 @@ class ChatbotSession:
         """Destroy SDK session and mark as broken for eviction."""
         self.broken = True
         logger.warning(
-            "[Chatbot] mark broken chatbot=%s session=%s",
+            "[Chatbot] event=mark_broken route_id=%s chatbot=%s sdk_session_id=%s",
+            self._route_id,
             self.chatbot_name,
             self._session.session_id,
         )
@@ -104,7 +113,8 @@ class ChatbotSession:
 
     async def destroy(self) -> None:
         logger.info(
-            "[Chatbot] destroy chatbot=%s session=%s",
+            "[Chatbot] event=destroy route_id=%s chatbot=%s sdk_session_id=%s",
+            self._route_id,
             self.chatbot_name,
             self._session.session_id,
         )
