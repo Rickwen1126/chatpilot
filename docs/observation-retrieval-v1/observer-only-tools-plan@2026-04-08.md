@@ -1,5 +1,9 @@
 # Observer-Only Media Tools Plan
 
+- Created: 2026-04-08
+- Last Updated: 2026-04-08
+- Status: planned
+
 ## Goal
 
 以**最小增量**補齊 observer worker 的主動圖片理解能力，讓 capture-only route 不需要改變現場工作流程，就能把 photo-only 訊息整理進背景知識。

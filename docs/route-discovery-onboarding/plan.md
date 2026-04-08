@@ -1,5 +1,9 @@
 # Route Discovery Onboarding Plan
 
+- Created: 2026-04-07
+- Last Updated: 2026-04-08
+- Status: completed
+
 ## Status
 
 Implemented on 2026-04-07.

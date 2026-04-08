@@ -1,5 +1,9 @@
 # Observation Retrieval V1 Spec
 
+- Created: 2026-04-07
+- Last Updated: 2026-04-08
+- Status: completed
+
 ## Summary
 
 這輪要把 observer 的查詢能力，從目前的：

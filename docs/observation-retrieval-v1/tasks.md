@@ -1,5 +1,9 @@
 # Tasks: Observation Retrieval V1
 
+- Created: 2026-04-07
+- Last Updated: 2026-04-08
+- Status: completed
+
 **Input**: Design documents from `/docs/observation-retrieval-v1/`
 **Prerequisites**: `spec.md`, `plan.md`
 

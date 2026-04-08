@@ -1,5 +1,9 @@
 # Observation Retrieval V1
 
+- Created: 2026-04-07
+- Last Updated: 2026-04-08
+- Status: active
+
 這個資料夾收斂 observer 後續的 **DB-first 自然語言查詢** 設計。
 
 範圍包含：
@@ -20,4 +24,4 @@ canonical 文件：
 
 - [spec.md](/Users/rickwen/code/chatpilot/docs/observation-retrieval-v1/spec.md)
 - [plan.md](/Users/rickwen/code/chatpilot/docs/observation-retrieval-v1/plan.md)
-- [observer-only-tools-plan.md](/Users/rickwen/code/chatpilot/docs/observation-retrieval-v1/observer-only-tools-plan.md)
+- [observer-only-tools-plan@2026-04-08.md](/Users/rickwen/code/chatpilot/docs/observation-retrieval-v1/observer-only-tools-plan@2026-04-08.md)

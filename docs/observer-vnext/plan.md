@@ -1,5 +1,9 @@
 # Observer VNext Plan
 
+- Created: 2026-04-06
+- Last Updated: 2026-04-08
+- Status: completed
+
 ## Scope
 
 本輪只做 observer core replacement：

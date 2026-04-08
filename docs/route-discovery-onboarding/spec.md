@@ -1,5 +1,9 @@
 # Route Discovery Onboarding Spec
 
+- Created: 2026-04-07
+- Last Updated: 2026-04-08
+- Status: completed
+
 ## Summary
 
 這個功能要把 route discovery 從現在的 **message-driven discovery**，提升成 **pre-message onboarding**：

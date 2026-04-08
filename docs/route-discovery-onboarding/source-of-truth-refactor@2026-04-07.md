@@ -1,5 +1,9 @@
 # Route Discovery Onboarding Source-of-Truth Refactor
 
+- Created: 2026-04-07
+- Last Updated: 2026-04-08
+- Status: completed
+
 ## Summary
 
 這份小 spec+plan 用來修正目前 discovery onboarding 的核心抽象錯誤。

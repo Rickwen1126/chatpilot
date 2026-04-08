@@ -1,5 +1,9 @@
 # Tasks: Observer VNext
 
+- Created: 2026-04-06
+- Last Updated: 2026-04-08
+- Status: completed
+
 **Input**: Design documents from [docs/observer-vnext](/Users/rickwen/code/chatpilot/docs/observer-vnext)
 **Prerequisites**: [spec.md](/Users/rickwen/code/chatpilot/docs/observer-vnext/spec.md), [plan.md](/Users/rickwen/code/chatpilot/docs/observer-vnext/plan.md)
 

@@ -1,5 +1,9 @@
 # Tasks: Route Discovery Onboarding
 
+- Created: 2026-04-07
+- Last Updated: 2026-04-08
+- Status: completed
+
 **Input**: Design documents from `/docs/route-discovery-onboarding/`
 **Prerequisites**: `spec.md`, `plan.md`
 

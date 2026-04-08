@@ -1,5 +1,9 @@
 # Observer VNext Spec
 
+- Created: 2026-04-06
+- Last Updated: 2026-04-08
+- Status: completed
+
 ## Summary
 
 observer vNext 要把目前「可用但抽象不穩」的 observer mode，重構成：
