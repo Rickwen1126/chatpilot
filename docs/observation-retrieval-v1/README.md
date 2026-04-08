@@ -20,3 +20,4 @@ canonical 文件：
 
 - [spec.md](/Users/rickwen/code/chatpilot/docs/observation-retrieval-v1/spec.md)
 - [plan.md](/Users/rickwen/code/chatpilot/docs/observation-retrieval-v1/plan.md)
+- [observer-only-tools-plan.md](/Users/rickwen/code/chatpilot/docs/observation-retrieval-v1/observer-only-tools-plan.md)
